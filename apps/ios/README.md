@@ -9,8 +9,9 @@ their code.
 - **Linear's frame.** The mail list is the page, with All and Unread pills under its title and
   Compose and More at the top right. Under it, a glass bar (`Home/PlacesBar.swift`): the mailbox's
   picture (tap to switch mailbox, the one switcher), Inbox, Drafts, Search, and ⌃⌄ for every other
-  place (the mailbox's folders and labels, Search, Settings; the title opens it too). The agent has
-  its own round button beside the bar and opens as a sheet; so does Search. Settings is ChatGPT's grouped sheet.
+  place (the mailbox's folders and labels, Calendar where the provider has one, Search, Settings;
+  the title opens it too). The agent has its own round button beside the bar and opens as a sheet;
+  so does Search, and so does the calendar. Settings is ChatGPT's grouped sheet.
   Gmail's folders include All Mail and Important; Outlook's and IMAP's an Archive of their own,
   and their Starred is Flagged (a flag, not a star).
 - **The desktop's rows.** The sender's picture, who and when, the subject, a line of the latest
@@ -81,6 +82,15 @@ add limited server grants (or an encrypted IMAP password), while mail content st
   `/v1/chats`, every device's and agent's): one this iPhone's agent can run continues here,
   the others are read, and each finished turn is written back after the chat's other turns,
   keeping what other devices wrote (it stays the relay's JSON).
+- `Calendar/`: the calendar, read-only, for a mailbox whose provider has one
+  (`MailCapabilities.calendar`: Gmail today). `GoogleCalendarAPI.swift` reads the account's
+  calendars and a window of events from Google Calendar and maps them as core does
+  (`packages/core/src/providers/gmail/calendar.ts`, contracts' `findMeetingLink`);
+  `CalendarStore.swift` keeps a window at a time; `CalendarView.swift` is the screen (the days
+  ahead, a week at a glance, a month's grid where a day lists itself) and `EventView.swift` one
+  event. The sign-in asks for `calendar.readonly`, so a mailbox that signed in before that offers
+  signing in again instead of a calendar (core's `NoCalendarAccess`). `DemoCalendar.swift` is the
+  demo's own events.
 - `Mail/`: the model and `MailStore`, which screens render from. `DemoMail.swift` loads the demo.
 - Alias mailboxes (`NotificationShared/AliasMailbox.swift`, `MailStore.aliases`): an IMAP
   mailbox's address with a mailbox of its own, made on the Mac and the web (the account's

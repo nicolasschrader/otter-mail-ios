@@ -314,15 +314,20 @@ of every Gmail and Outlook mailbox side by side (its own, shared and followed: b
 holidays), grouped by mailbox as Notion Calendar does. The default calendar wears its mailbox's
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
+The iPhone reads one mailbox's calendar at a time (⌃⌄ › Calendar, for a mailbox whose provider has
+one): the days ahead, the week at a glance, or the month's grid where a day lists itself, each with
+‹ › and Today, and an event's own screen (where it is, its meeting's Join, who's coming and their
+answers). It changes nothing, and leaves out the calendars Google has unchecked.
+
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- | ------ |
-| Day, week and month views; mini month and calendars in sidebar                                                                                                                    | ✓   | ✓   | —      |
+| Day, week and month views; mini month and calendars in sidebar                                                                                                                    | ✓   | ✓   | ✓      |
 | Show or hide each calendar with its eye (Google's unchecked ones start hidden); click one for its coming events in a drawer; right-click: color, make default, show only this one | ✓   | ✓   | —      |
-| Followed and read-only calendars: looked at, not changed (no drag, read-only card)                                                                                                | ✓   | ✓   | —      |
+| Followed and read-only calendars: looked at, not changed (no drag, read-only card)                                                                                                | ✓   | ✓   | ✓      |
 | New events on any calendar that takes them (picked in the card; the default first: click a calendar's square to make it the default)                                              | ✓   | ✓   | —      |
 | Event panel: title, time, place, notes edit in place; guests                                                                                                                      | ✓   | ✓   | —      |
 | Yes / No / Maybe on invitations, with a note; repeating ones ask: this event or all events                                                                                        | ✓   | ✓   | —      |
-| Online meetings: Google Meet, Teams, Zoom, Webex shown with Join and copy link (also links found in an invitation's text)                                                         | ✓   | ✓   | —      |
+| Online meetings: Google Meet, Teams, Zoom, Webex shown with Join and copy link (also links found in an invitation's text)                                                         | ✓   | ✓   | ✓      |
 | Add a meeting to an event or new event: Gmail Google Meet, Outlook Teams (work and school); Meet comes off                                                                        | ✓   | ✓   | —      |
 | Draw or double-click a slot to create; drag to move; drag edge to resize                                                                                                          | ✓   | ✓   | —      |
 | New events repeat: every day, every weekday, weekly, monthly, yearly (from their start, no end)                                                                                   | ✓   | ✓   | —      |
@@ -562,14 +567,16 @@ clients receive a link to that page instead of deleting a shared identity withou
 What each scope in `GMAIL_SCOPES` (`packages/contracts/src/google.ts`) is for:
 
 - `https://mail.google.com/`: every Gmail mail feature (reading, search, sending, drafts,
-  labels, delete forever, push). The iPhone app asks for this one only (plus `openid email
-profile`).
+  labels, delete forever, push). The iPhone app asks for this one, `gmail.settings.basic` and
+  `calendar.readonly` (plus `openid email profile`), not the others.
 - `gmail.settings.basic`: saving signatures in Gmail (reading them needs only the mail scope).
 - `calendar.events.owned`: answering invitations in Google Calendar, replacing the broader
   `calendar.events` the Mac and web apps ask for today. Without it, RSVPs go by email reply.
 - `calendar.readonly`: every calendar on the account's list (shared, followed: birthdays,
-  holidays) and teammates' busy times (⌘P). Older sign-ins see the primary calendar only; the
-  calendar and Settings › Connections › Access say so, with Allow calendar access (signs in again). Outlook needs nothing new for its own calendars (`Calendars.ReadWrite`);
+  holidays) and teammates' busy times (⌘P); on the iPhone, everything its calendar shows. Older
+  sign-ins see the primary calendar only (on the iPhone, nothing): the calendar and Settings ›
+  Connections › Access say so, with Allow calendar access (signs in again), and the iPhone's
+  calendar offers signing that mailbox in again. Outlook needs nothing new for its own calendars (`Calendars.ReadWrite`);
   calendars shared with an Outlook mailbox are listed but can't be read without
   `Calendars.Read.Shared`, which isn't asked for (a refresh asking for an ungranted scope fails).
 - `contacts.readonly` + `contacts.other.readonly`: contact photos for sender avatars.
@@ -577,6 +584,7 @@ profile`).
 ## Gaps worth closing
 
 - iPhone: calendar invitations (card and RSVP).
+- iPhone: making and changing events (its calendar only reads), and Outlook calendars.
 - iPhone: rich text in the composer.
 - iPhone: forward with the original HTML.
 - iPhone: synced draft autosave and undo send.

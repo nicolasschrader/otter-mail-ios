@@ -21,6 +21,7 @@ struct HomeView: View {
     @State private var settingsOpen = false
     @State private var agentOpen = false
     @State private var searchOpen = false
+    @State private var calendarOpen = false
     @State private var query = ""
     @State private var searchPath: [String] = []
 
@@ -49,6 +50,7 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
+            .sheet(isPresented: $calendarOpen) { CalendarView(scope: place.scope) }
     }
 
     private var mail: some View {
@@ -96,6 +98,7 @@ struct HomeView: View {
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onSearch: { setMenu(open: false); searchOpen = true },
+                            onCalendar: { setMenu(open: false); calendarOpen = true },
                             onSettings: { setMenu(open: false); settingsOpen = true },
                             onMenu: { setMenu(open: !menuOpen) },
                             onAgent: { agentOpen = true }
@@ -177,6 +180,7 @@ struct HomeView: View {
             setMenu(open: false)
             agentOpen = false
             searchOpen = false
+            calendarOpen = false
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
                 path = [thread]
