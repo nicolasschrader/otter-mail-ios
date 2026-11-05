@@ -5,17 +5,24 @@ import Testing
 /**
  * The calendar's pure parts: Google's JSON mapped as core maps it
  * (packages/core/src/providers/gmail/calendar.ts), meeting links as contracts
- * finds them, and the day, week and month buckets the screens list.
+ * finds them, and the dates, preferences and presentation ported from the Mac
+ * and web app's apps/web/src/main/calendar. The vectors named after a TS file
+ * are its own, with the same inputs and the same expected answers.
  */
 struct CalendarTests {
     private let mine = EventCalendar(id: "primary", name: "Robin Otter", color: "#0ea5e9", primary: true)
     private let me = "robin@otter.example"
 
-    private func zone(_ identifier: String, firstWeekday: Int = 2) -> Calendar {
+    private func zone(_ identifier: String, firstWeekday: Int = 2, locale: String = "en_US") -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: identifier)!
         calendar.firstWeekday = firstWeekday
+        calendar.locale = Locale(identifier: locale)
         return calendar
+    }
+
+    private func calendarDates(_ calendar: Calendar, _ preferences: CalendarPreferences = CalendarPreferences()) -> CalendarDates {
+        CalendarDates(calendar: calendar, preferences: preferences)
     }
 
     private func day(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0, in calendar: Calendar) -> Date {
@@ -24,6 +31,10 @@ struct CalendarTests {
 
     private func events(_ json: String, in calendar: Calendar) throws -> [CalendarEvent] {
         try GoogleEvents.events(Data(json.utf8), on: mine, me: me, times: EventTimes(calendar: calendar)).events
+    }
+
+    private func timed(_ id: String, _ start: Date, _ end: Date, response: CalendarEvent.Response? = nil) -> CalendarEvent {
+        CalendarEvent(eventId: id, calendar: mine, title: id, start: start, end: end, response: response)
     }
 
     private let review = """
@@ -104,7 +115,7 @@ struct CalendarTests {
         #expect(event.start == day(2026, 5, 4, in: berlin))
         #expect(event.end == day(2026, 5, 5, in: berlin))
         // Its end is the midnight after it, so it covers one day.
-        #expect(EventDays.lastDay(of: event, calendar: berlin) == day(2026, 5, 4, in: berlin))
+        #expect(EventDays.lastDay(of: event, dates: calendarDates(berlin)) == day(2026, 5, 4, in: berlin))
 
         let newYork = zone("America/New_York")
         let there = try #require(try events(json, in: newYork).first)
@@ -121,6 +132,7 @@ struct CalendarTests {
 
     @Test func spreadsALongerEventOverEveryDayItCovers() throws {
         let calendar = zone("Europe/Berlin")
+        let dates = calendarDates(calendar)
         let json = """
         {"items": [
           {"id": "offsite", "summary": "Offsite", "start": {"date": "2026-05-04"}, "end": {"date": "2026-05-07"}},
@@ -131,18 +143,18 @@ struct CalendarTests {
         ]}
         """
         let found = try events(json, in: calendar)
-        let week = EventWindow(from: day(2026, 5, 4, in: calendar), to: day(2026, 5, 11, in: calendar))
-        let byDay = EventDays.byDay(found, in: week, calendar: calendar)
+        let week = (0..<7).map { dates.addDays(day(2026, 5, 4, in: calendar), $0) }
+        let byDay = EventDays.byDay(found, days: week, dates: dates)
         #expect(byDay[day(2026, 5, 4, in: calendar)]?.map(\.eventId) == ["offsite", "train", "late"])
         #expect(byDay[day(2026, 5, 5, in: calendar)]?.map(\.eventId) == ["offsite", "train"])
         #expect(byDay[day(2026, 5, 6, in: calendar)]?.map(\.eventId) == ["offsite"])
         #expect(byDay[day(2026, 5, 7, in: calendar)] == nil)
         // An event ending at midnight stops the day before, though it still ends on the 5th.
-        #expect(EventDays.lastDay(of: found[2], calendar: calendar) == day(2026, 5, 4, in: calendar))
-        #expect(EventDays.endDay(of: found[2], calendar: calendar) == day(2026, 5, 5, in: calendar))
-        #expect(EventDays.endDay(of: found[1], calendar: calendar) == day(2026, 5, 5, in: calendar))
+        #expect(EventDays.lastDay(of: found[2], dates: dates) == day(2026, 5, 4, in: calendar))
+        #expect(EventDays.endDay(of: found[2], dates: dates) == day(2026, 5, 5, in: calendar))
+        #expect(EventDays.endDay(of: found[1], dates: dates) == day(2026, 5, 5, in: calendar))
         // An all-day event ends on its last day.
-        #expect(EventDays.endDay(of: found[0], calendar: calendar) == day(2026, 5, 6, in: calendar))
+        #expect(EventDays.endDay(of: found[0], dates: dates) == day(2026, 5, 6, in: calendar))
     }
 
     @Test func keepsWhatGoogleLeavesOut() throws {
@@ -211,52 +223,274 @@ struct CalendarTests {
         // The same instant is the 5th in Berlin (+01:00) and still the 4th in New York.
         let newYork = zone("America/New_York")
         let week = { (calendar: Calendar) in
-            EventWindow(from: self.day(2026, 11, 2, in: calendar), to: self.day(2026, 11, 9, in: calendar))
+            (0..<7).map { self.calendarDates(calendar).addDays(self.day(2026, 11, 2, in: calendar), $0) }
         }
-        #expect(EventDays.byDay(found, in: week(berlin), calendar: berlin).keys.sorted() == [day(2026, 11, 5, in: berlin)])
-        #expect(EventDays.byDay(found, in: week(newYork), calendar: newYork).keys.sorted() == [day(2026, 11, 4, in: newYork)])
+        #expect(EventDays.byDay(found, days: week(berlin), dates: calendarDates(berlin)).keys.sorted()
+            == [day(2026, 11, 5, in: berlin)])
+        #expect(EventDays.byDay(found, days: week(newYork), dates: calendarDates(newYork)).keys.sorted()
+            == [day(2026, 11, 4, in: newYork)])
     }
 
-    @Test func startsTheWeekWhereTheRegionDoes() {
+    // MARK: - dates.ts
+
+    /** dates.ts's weekStart(): `calendar:week-start` wins over the region's own first day. */
+    @Test func startsTheWeekWhereTheAccountSays() {
         // 1 November 2026 is a Sunday.
-        let monday = zone("Europe/Berlin", firstWeekday: 2)
-        let sunday = zone("Europe/Berlin", firstWeekday: 1)
-        let wednesday = day(2026, 11, 4, 12, 0, in: monday)
-        #expect(EventDays.startOfWeek(wednesday, calendar: monday) == day(2026, 11, 2, in: monday))
-        #expect(EventDays.startOfWeek(wednesday, calendar: sunday) == day(2026, 11, 1, in: sunday))
+        let region = zone("Europe/Berlin", firstWeekday: 2)
+        let wednesday = day(2026, 11, 4, 12, 0, in: region)
+        #expect(calendarDates(region).weekStart == 1)
+        #expect(calendarDates(region).startOfWeek(wednesday) == day(2026, 11, 2, in: region))
 
-        let week = EventDays.window(.week, anchor: wednesday, calendar: monday)
-        #expect(week.from == day(2026, 11, 2, in: monday))
-        #expect(EventDays.days(in: week, calendar: monday).count == 7)
+        let sunday = calendarDates(region, CalendarPreferences(ui: ["calendar:week-start": "sunday"]))
+        #expect(sunday.weekStart == 0)
+        #expect(sunday.startOfWeek(wednesday) == day(2026, 11, 1, in: region))
 
-        // The month's grid is six weeks from the week its first day falls in.
-        let month = EventDays.window(.month, anchor: wednesday, calendar: monday)
-        #expect(month.from == day(2026, 10, 26, in: monday))
-        #expect(EventDays.days(in: month, calendar: monday).count == 42)
-        #expect(EventDays.window(.month, anchor: wednesday, calendar: sunday).from == day(2026, 11, 1, in: sunday))
+        let saturday = calendarDates(region, CalendarPreferences(ui: ["calendar:week-start": "saturday"]))
+        #expect(saturday.weekStart == 6)
+        #expect(saturday.startOfWeek(wednesday) == day(2026, 10, 31, in: region))
 
-        let agenda = EventDays.window(.agenda, anchor: wednesday, calendar: monday)
-        #expect(agenda.from == day(2026, 11, 4, in: monday))
-        #expect(EventDays.days(in: agenda, calendar: monday).count == 120)
+        // `auto` is the region's, so a Sunday-first phone starts the week on Sunday.
+        #expect(calendarDates(zone("Europe/Berlin", firstWeekday: 1)).startOfWeek(wednesday) == day(2026, 11, 1, in: region))
     }
 
+    /** dates.test.ts "steps over weekends both ways". */
+    @Test func stepsOverWeekendsBothWays() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let monday = day(2026, 11, 2, in: dates.calendar)
+        #expect(dates.dayKey(dates.stepDays(day(2026, 11, 6, in: dates.calendar), 1, weekends: false)) == "2026-11-09")
+        #expect(dates.dayKey(dates.stepDays(monday, -1, weekends: false)) == "2026-10-30")
+        #expect(dates.dayKey(dates.stepDays(day(2026, 11, 7, in: dates.calendar), 0, weekends: false)) == "2026-11-09")
+        #expect(dates.dayKey(dates.stepDays(monday, 3)) == "2026-11-05")
+    }
+
+    /** dates.test.ts "shows a week's five weekdays, from any day it leads with". */
+    @Test func showsAWeeksFiveWeekdaysFromAnyDayItLeadsWith() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let days = dates.visibleDays(.week, day(2026, 11, 4, in: dates.calendar), free: true, weekends: false)
+        #expect(days.map(dates.dayKey) == ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09", "2026-11-10"])
+    }
+
+    /** dates.test.ts "leaves weekends out of the month". */
+    @Test func leavesWeekendsOutOfTheMonth() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let days = dates.visibleDays(.month, day(2026, 11, 2, in: dates.calendar), weekends: false)
+        #expect(days.count % 5 == 0)
+        #expect(!days.contains(where: dates.isWeekend))
+    }
+
+    /** dates.ts's visibleDays() and step(), and the window each mode fetches. */
+    @Test func showsTheDaysEachModeShows() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let wednesday = day(2026, 11, 4, 12, 0, in: dates.calendar)
+
+        #expect(dates.visibleDays(.day, wednesday) == [day(2026, 11, 4, in: dates.calendar)])
+        let week = dates.visibleDays(.week, wednesday)
+        #expect(week.count == 7)
+        #expect(week.first == day(2026, 11, 2, in: dates.calendar))
+
+        // The grid starts in the week the month's first day falls in, and runs whole weeks.
+        let month = dates.visibleDays(.month, wednesday)
+        #expect(month.first == day(2026, 10, 26, in: dates.calendar))
+        #expect(month.count == 42)
+        // February 2026 starts on a Sunday and needs five rows, not six.
+        #expect(dates.visibleDays(.month, day(2026, 2, 10, in: dates.calendar)).count == 35)
+
+        #expect(dates.step(.day, wednesday, by: 1) == day(2026, 11, 5, 12, 0, in: dates.calendar))
+        #expect(dates.step(.week, wednesday, by: -1) == day(2026, 10, 28, 12, 0, in: dates.calendar))
+        #expect(dates.step(.month, wednesday, by: 1) == day(2026, 12, 1, in: dates.calendar))
+        // The agenda is the days ahead from today and doesn't step.
+        #expect(dates.step(.agenda, wednesday, by: 1) == wednesday)
+
+        let window = dates.window(.agenda, anchor: wednesday)
+        #expect(window.from == day(2026, 11, 4, in: dates.calendar))
+        #expect(dates.days(in: window).count == CalendarDates.agendaDays)
+        // Hiding weekends doesn't change what is fetched, so it doesn't ask Google again.
+        let weekdays = self.calendarDates(dates.calendar, CalendarPreferences(ui: ["calendar:show-weekends": "false"]))
+        #expect(weekdays.window(.week, anchor: wednesday) == dates.window(.week, anchor: wednesday))
+        #expect(weekdays.showsWeekends(.week) == false)
+        #expect(weekdays.showsWeekends(.day))
+    }
+
+    /** dates.ts's timeLabel() and hour12(), and event-style.ts's rangeLabel(). */
+    @Test func labelsTimesAsTheTimeFormatAsks() {
+        let berlin = zone("Europe/Berlin")
+        let twelve = calendarDates(berlin, CalendarPreferences(ui: ["calendar:time-format": "12"]))
+        let twentyFour = calendarDates(berlin, CalendarPreferences(ui: ["calendar:time-format": "24"]))
+
+        // A whole hour drops its minutes on a twelve-hour clock, as timeLabel trims ":00".
+        #expect(twelve.timeLabel(day(2026, 5, 4, 9, 0, in: berlin)) == "9 AM")
+        #expect(twelve.timeLabel(day(2026, 5, 4, 9, 30, in: berlin)) == "9:30 AM")
+        #expect(twelve.timeLabel(day(2026, 5, 4, 0, 0, in: berlin)) == "12 AM")
+        #expect(twelve.timeLabel(day(2026, 5, 4, 13, 5, in: berlin)) == "1:05 PM")
+        #expect(twentyFour.timeLabel(day(2026, 5, 4, 9, 0, in: berlin)) == "09:00")
+        #expect(twentyFour.timeLabel(day(2026, 5, 4, 13, 5, in: berlin)) == "13:05")
+
+        // `auto` is the region's clock.
+        #expect(calendarDates(zone("Europe/Berlin", locale: "en_US")).hour12)
+        #expect(!calendarDates(zone("Europe/Berlin", locale: "de_DE")).hour12)
+
+        // The start drops the suffix the end repeats.
+        #expect(twelve.rangeLabel(day(2026, 5, 4, 9, 0, in: berlin), day(2026, 5, 4, 10, 30, in: berlin)) == "9–10:30 AM")
+        #expect(twelve.rangeLabel(day(2026, 5, 4, 11, 0, in: berlin), day(2026, 5, 4, 13, 0, in: berlin)) == "11 AM–1 PM")
+        #expect(twentyFour.rangeLabel(day(2026, 5, 4, 9, 0, in: berlin), day(2026, 5, 4, 10, 30, in: berlin)) == "09:00–10:30")
+    }
+
+    /** dates.ts's durationLabel(). */
+    @Test func labelsHowLongAnEventRuns() {
+        #expect(CalendarDates.durationLabel(0) == "0min")
+        #expect(CalendarDates.durationLabel(15 * 60) == "15min")
+        #expect(CalendarDates.durationLabel(60 * 60) == "1h")
+        #expect(CalendarDates.durationLabel(90 * 60) == "1h 30min")
+        #expect(CalendarDates.durationLabel(25 * 60 * 60) == "25h")
+        // Seconds round to the nearest minute.
+        #expect(CalendarDates.durationLabel(89 * 60 + 40) == "1h 30min")
+    }
+
+    // MARK: - preferences.ts
+
+    /** preferences.ts's read(): a switch is off only when it says "false", and anything unknown falls back. */
+    @Test func readsTheAccountsCalendarPreferences() {
+        let empty = CalendarPreferences(ui: [:])
+        #expect(empty == CalendarPreferences())
+        #expect(empty.weekStart == .auto)
+        #expect(empty.timeFormat == .auto)
+        #expect(empty.showWeekends)
+        #expect(empty.showDeclined)
+        #expect(empty.colors.isEmpty)
+
+        let nonsense = CalendarPreferences(ui: [
+            "calendar:week-start": "tuesday",
+            "calendar:time-format": "48",
+            "calendar:show-weekends": "nope",
+            "calendar:colors": "not json",
+        ])
+        #expect(nonsense.weekStart == .auto)
+        #expect(nonsense.timeFormat == .auto)
+        #expect(nonsense.showWeekends)
+        #expect(nonsense.colors.isEmpty)
+
+        let chosen = CalendarPreferences(ui: [
+            "calendar:week-start": "monday",
+            "calendar:time-format": "24",
+            "calendar:show-weekends": "false",
+            "calendar:show-declined": "false",
+            "calendar:colors": ##"{"robin@otter.example|work": "#f97316", "bad": 7}"##,
+        ])
+        #expect(chosen.weekStart == .monday)
+        #expect(chosen.timeFormat == .twentyFour)
+        #expect(!chosen.showWeekends)
+        #expect(!chosen.showDeclined)
+        #expect(chosen.colors == ["robin@otter.example|work": "#f97316"])
+    }
+
+    /** calendar-view.tsx's listedCalendars(): a chosen color wins, else the mailbox's for its primary calendar. */
+    @Test func picksAnEventsColorLikeTheSidebar() {
+        let mailbox = Mailbox(
+            email: "robin@otter.example", name: "Robin", displayName: "Personal",
+            color: "#336699", signature: "", labels: []
+        )
+        let work = EventCalendar(id: "work", name: "Otterware", color: "#f97316")
+        let colorless = EventCalendar(id: "birthdays", name: "Birthdays")
+        let none = CalendarPreferences()
+
+        #expect(EventStyle.key(mailbox: mailbox.email, calendar: work.id) == "robin@otter.example|work")
+        #expect(EventStyle.hex(for: mine, mailbox: mailbox, preferences: none) == "#336699")
+        #expect(EventStyle.hex(for: work, mailbox: mailbox, preferences: none) == "#f97316")
+        #expect(EventStyle.hex(for: colorless, mailbox: mailbox, preferences: none) == "#336699")
+
+        let chosen = CalendarPreferences(ui: [
+            "calendar:colors": ##"{"robin@otter.example|work": "#9fe1e7", "robin@otter.example|primary": "#111111"}"##
+        ])
+        #expect(EventStyle.hex(for: work, mailbox: mailbox, preferences: chosen) == "#9fe1e7")
+        #expect(EventStyle.hex(for: mine, mailbox: mailbox, preferences: chosen) == "#111111")
+    }
+
+    /** event-style.ts's isPending(): no answer or a maybe is still open. */
+    @Test func knowsWhichInvitationsAreStillOpen() {
+        #expect(EventStyle.isPending(.needsAction))
+        #expect(EventStyle.isPending(.tentative))
+        #expect(!EventStyle.isPending(.accepted))
+        #expect(!EventStyle.isPending(.declined))
+        #expect(!EventStyle.isPending(nil))
+    }
+
+    // MARK: - agenda.tsx and month-grid.tsx
+
+    /** month-grid.tsx's sort: all day first, then by start, the longer first. */
     @Test func groupsADaysEventsAllDayFirst() throws {
         let calendar = zone("Europe/Berlin")
+        let dates = calendarDates(calendar)
         let json = """
         {"items": [
           {"id": "later", "summary": "Later", "start": {"dateTime": "2026-05-04T16:00:00+02:00"}, "end": {"dateTime": "2026-05-04T17:00:00+02:00"}},
-          {"id": "earlier", "summary": "Earlier", "start": {"dateTime": "2026-05-04T09:00:00+02:00"}, "end": {"dateTime": "2026-05-04T10:00:00+02:00"}},
+          {"id": "short", "summary": "Short", "start": {"dateTime": "2026-05-04T09:00:00+02:00"}, "end": {"dateTime": "2026-05-04T09:30:00+02:00"}},
+          {"id": "long", "summary": "Long", "start": {"dateTime": "2026-05-04T09:00:00+02:00"}, "end": {"dateTime": "2026-05-04T11:00:00+02:00"}},
           {"id": "whole", "summary": "Whole day", "start": {"date": "2026-05-04"}, "end": {"date": "2026-05-05"}}
         ]}
         """
         let found = try events(json, in: calendar)
-        let window = EventWindow(from: day(2026, 5, 4, in: calendar), to: day(2026, 5, 5, in: calendar))
-        let days = EventDays.group(found, in: window, calendar: calendar)
+        let days = EventDays.grouped(found, days: [day(2026, 5, 4, in: calendar)], dates: dates)
         #expect(days.count == 1)
         #expect(days[0].id == day(2026, 5, 4, in: calendar))
-        #expect(days[0].events.map(\.eventId) == ["whole", "earlier", "later"])
-        #expect(EventDays.events(found, on: day(2026, 5, 4, 15, 0, in: calendar), calendar: calendar).count == 3)
-        #expect(EventDays.events(found, on: day(2026, 5, 5, in: calendar), calendar: calendar).isEmpty)
+        // Two events start at 9: the longer one is listed first.
+        #expect(days[0].events.map(\.eventId) == ["whole", "long", "short", "later"])
+        #expect(EventDays.events(found, on: day(2026, 5, 4, 15, 0, in: calendar), dates: dates).count == 4)
+        #expect(EventDays.events(found, on: day(2026, 5, 5, in: calendar), dates: dates).isEmpty)
+    }
+
+    /**
+     * agenda.tsx's AgendaDrawer: what hasn't ended yet, earliest first, each
+     * event once under the day it starts — or under `from` when it started
+     * before that.
+     */
+    @Test func listsTheAgendaOncePerEvent() {
+        let calendar = zone("Europe/Berlin")
+        let dates = calendarDates(calendar)
+        let now = day(2026, 11, 4, 10, 0, in: calendar)
+        let today = day(2026, 11, 4, in: calendar)
+        let over = timed("over", day(2026, 11, 4, 8, 0, in: calendar), day(2026, 11, 4, 9, 0, in: calendar))
+        let running = timed("running", day(2026, 11, 4, 9, 30, in: calendar), day(2026, 11, 4, 11, 0, in: calendar))
+        let later = timed("later", day(2026, 11, 4, 16, 0, in: calendar), day(2026, 11, 4, 17, 0, in: calendar))
+        let tomorrow = timed("tomorrow", day(2026, 11, 5, 9, 0, in: calendar), day(2026, 11, 5, 10, 0, in: calendar))
+        let offsite = CalendarEvent(
+            eventId: "offsite", calendar: mine, title: "Offsite",
+            start: day(2026, 11, 2, in: calendar), end: day(2026, 11, 6, in: calendar), allDay: true
+        )
+
+        let rows = EventDays.agenda([later, over, tomorrow, offsite, running], from: today, now: now, dates: dates)
+        #expect(rows.map(\.id) == [today, day(2026, 11, 5, in: calendar)])
+        // The offsite started on the 2nd, so it leads today rather than repeating on every day it covers.
+        #expect(rows[0].events.map(\.eventId) == ["offsite", "running", "later"])
+        #expect(rows[1].events.map(\.eventId) == ["tomorrow"])
+    }
+
+    /** calendar-view.tsx's filter: `calendar:show-declined` off leaves declined events out. */
+    @Test func leavesDeclinedEventsOutWhenAsked() {
+        let calendar = zone("Europe/Berlin")
+        let dates = calendarDates(calendar)
+        let going = timed("going", day(2026, 11, 4, 9, 0, in: calendar), day(2026, 11, 4, 10, 0, in: calendar), response: .accepted)
+        let not = timed("not", day(2026, 11, 4, 11, 0, in: calendar), day(2026, 11, 4, 12, 0, in: calendar), response: .declined)
+        let all = [going, not]
+
+        let hidden = CalendarPreferences(ui: ["calendar:show-declined": "false"])
+        #expect(hidden.showDeclined == false)
+        let kept = all.filter { hidden.showDeclined || $0.response != .declined }
+        #expect(kept.map(\.eventId) == ["going"])
+        #expect(EventDays.events(all, on: day(2026, 11, 4, in: calendar), dates: dates).count == 2)
+        #expect(EventDays.events(kept, on: day(2026, 11, 4, in: calendar), dates: dates).count == 1)
+    }
+
+    /** agenda.tsx's dayTitle(). */
+    @Test func headsEachDayAsTheAgendaDoes() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let now = day(2026, 11, 4, 10, 0, in: dates.calendar)
+        #expect(dates.heading(day(2026, 11, 4, in: dates.calendar), now: now) == "Today")
+        #expect(dates.heading(day(2026, 11, 5, in: dates.calendar), now: now) == "Tomorrow")
+        #expect(dates.heading(day(2026, 11, 6, in: dates.calendar), now: now) == "Fri, Nov 6")
+        // Another year says which.
+        #expect(dates.heading(day(2027, 1, 4, in: dates.calendar), now: now) == "Mon, Jan 4, 2027")
+        // Yesterday is just its date: the agenda looks forward.
+        #expect(dates.heading(day(2026, 11, 3, in: dates.calendar), now: now) == "Tue, Nov 3")
     }
 
     @Test func readsTheAccountsCalendars() throws {
@@ -293,17 +527,18 @@ struct CalendarTests {
 
     @Test func theDemoFillsEveryView() {
         let calendar = zone("Europe/Berlin")
+        let dates = calendarDates(calendar)
         let now = day(2026, 11, 4, 10, 0, in: calendar)
         for mode in CalendarMode.allCases {
-            let window = EventDays.window(mode, anchor: now, calendar: calendar)
-            let events = DemoCalendar.events(in: window, now: now, calendar: calendar)
+            let window = dates.window(mode, anchor: now)
+            let events = DemoCalendar.events(in: window, now: now, dates: dates)
             #expect(!events.isEmpty, "\(mode.title) has nothing to show")
             #expect(events.allSatisfy { $0.end > window.from && $0.start < window.to })
         }
-        let month = EventDays.window(.month, anchor: now, calendar: calendar)
-        let offsite = DemoCalendar.events(in: month, now: now, calendar: calendar).filter { $0.eventId == "offsite" }
+        let month = dates.window(.month, anchor: now)
+        let offsite = DemoCalendar.events(in: month, now: now, dates: dates).filter { $0.eventId == "offsite" }
         #expect(offsite.count == 1)
         #expect(offsite.first?.allDay == true)
-        #expect(EventDays.byDay(offsite, in: month, calendar: calendar).count == 3)
+        #expect(EventDays.byDay(offsite, days: dates.days(in: month), dates: dates).count == 3)
     }
 }

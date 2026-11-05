@@ -81,6 +81,8 @@ final class Preferences {
     }
     /** Themes made on the Mac or the web (`CustomThemes`): worn and picked here, never written (so not in `uiSection`). */
     private(set) var customThemes: [Theme]
+    /** Settings › Calendar, made on the Mac or the web: followed here, never written (so not in `uiSection`). */
+    private(set) var calendar: CalendarPreferences
     var notifications: Notifications { didSet { setting("notificationsMode", notifications.rawValue) } }
     /** BCP-47 codes, first = where translations go; empty = the system's languages. */
     var readLanguages: [String] { didSet { setting("readLanguages", readLanguages) } }
@@ -94,6 +96,12 @@ final class Preferences {
     private func setting(_ key: String, _ value: Any) {
         defaults.set(value, forKey: "settings.\(key)")
         if !applying { onChange("settings") }
+    }
+
+    private static func calendarSection(_ defaults: UserDefaults) -> CalendarPreferences {
+        CalendarPreferences(ui: Dictionary(uniqueKeysWithValues: CalendarPreferences.keys.compactMap { key in
+            defaults.string(forKey: key).map { (key, $0) }
+        }))
     }
 
     private static func json(_ value: some Encodable) -> String {
@@ -144,6 +152,13 @@ final class Preferences {
            let decoded = try? JSONDecoder().decode([String].self, from: value), decoded != aliasMailApart {
             aliasMailApart = decoded
         }
+        for key in CalendarPreferences.keys {
+            if let value = ui[key] as? String, value != defaults.string(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
+        let chosen = Self.calendarSection(defaults)
+        if chosen != calendar { calendar = chosen }
         if let value = (settings["notificationsMode"] as? String).flatMap(Notifications.init), value != notifications {
             notifications = value
         }
@@ -165,6 +180,7 @@ final class Preferences {
         aliasMailApart = defaults.string(forKey: "mail:alias-mail-apart")?.data(using: .utf8)
             .flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
         customThemes = CustomThemes.themes(defaults.string(forKey: "otter:themes:v1"))
+        calendar = Self.calendarSection(defaults)
         notifications = defaults.string(forKey: "settings.notificationsMode").flatMap(Notifications.init) ?? .inbox
         readLanguages = defaults.stringArray(forKey: "settings.readLanguages") ?? []
         autoTranslate = defaults.bool(forKey: "settings.autoTranslate")

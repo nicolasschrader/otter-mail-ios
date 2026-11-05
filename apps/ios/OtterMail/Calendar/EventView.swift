@@ -8,7 +8,8 @@ import SwiftUI
 struct EventView: View {
     @Environment(\.palette) private var palette
     let event: CalendarEvent
-    var calendar: Calendar = .current
+    var dates: CalendarDates = CalendarDates()
+    var color: Color
 
     var body: some View {
         ScrollView {
@@ -41,7 +42,7 @@ struct EventView: View {
                 .font(.inter(.subheadline))
                 .foregroundStyle(palette.muted)
             HStack(spacing: 8) {
-                chip(event.calendar.name, color: event.calendar.color.map(Color.init(hex:)) ?? palette.action)
+                chip(event.calendar.name, color: color)
                 if event.status != .confirmed {
                     chip(event.status == .cancelled ? "Cancelled" : "Tentative", color: palette.warning)
                 }
@@ -151,17 +152,17 @@ struct EventView: View {
     }
 
     private var when: String {
-        let first = calendar.startOfDay(for: event.start)
-        let last = EventDays.endDay(of: event, calendar: calendar)
-        let day = { (date: Date) in date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year()) }
+        let first = dates.startOfDay(event.start)
+        let last = EventDays.endDay(of: event, dates: dates)
+        let day = { (date: Date) in self.dates.dayTitle(date) }
         if event.allDay {
-            return last > first ? "\(day(first)) – \(day(last))" : "All day · \(day(first))"
+            return last > first ? "\(day(first)) – \(day(last))" : "All-day · \(day(first))"
         }
-        let time = { (date: Date) in date.formatted(date: .omitted, time: .shortened) }
         if last > first {
-            return "\(day(first)), \(time(event.start)) – \(day(last)), \(time(event.end))"
+            return "\(day(first)), \(dates.timeLabel(event.start)) – \(day(last)), \(dates.timeLabel(event.end))"
         }
-        return "\(day(first)) · \(time(event.start)) – \(time(event.end))"
+        let length = CalendarDates.durationLabel(event.end.timeIntervalSince(event.start))
+        return "\(day(first)) · \(dates.rangeLabel(event.start, event.end)) · \(length)"
     }
 
     /** Google's descriptions are often HTML; the reader's plain text does for a calendar. */

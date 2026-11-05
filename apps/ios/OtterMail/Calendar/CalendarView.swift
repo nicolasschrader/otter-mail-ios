@@ -1,14 +1,16 @@
 import SwiftUI
 
 /**
- * The mailbox's calendar, opened from the places bar (⌃⌄ › Calendar): the days
- * ahead, a week at a glance, or a month's grid where tapping a day lists it.
- * Read-only, as the sign-in asks only to read the calendar; answering an
- * invitation stays in the mail.
+ * The mailbox's calendar, opened from the places bar (⌃⌄ › Calendar), in the
+ * Mac and web apps' modes (CALENDAR_MODES: Day, Week, Month) and the agenda of
+ * the days ahead. It follows the account's Settings › Calendar
+ * (`CalendarPreferences`). Read-only, as the sign-in asks only to read the
+ * calendar; answering an invitation stays in the mail.
  */
 struct CalendarView: View {
     @Environment(MailStore.self) private var store
     @Environment(Session.self) private var session
+    @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
 
@@ -18,11 +20,15 @@ struct CalendarView: View {
     @State private var mode: CalendarMode = .agenda
     @State private var anchor = Date.now
     @State private var picked: Date?
+    @State private var now = Date.now
     @State private var path: [CalendarEvent] = []
 
-    private var calendar: Calendar { .current }
+    private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
     private var mailbox: Mailbox? { store.mailbox(for: scope) }
-    private var window: EventWindow { EventDays.window(mode, anchor: anchor, calendar: calendar) }
+    private var window: EventWindow { dates.window(mode, anchor: anchor) }
+    private var weekends: Bool { dates.showsWeekends(mode) }
+    private var days: [Date] { dates.visibleDays(mode, anchor, weekends: weekends) }
+    private var columns: Int { weekends ? 7 : 5 }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -40,7 +46,9 @@ struct CalendarView: View {
                         }
                     }
                 }
-                .navigationDestination(for: CalendarEvent.self) { EventView(event: $0) }
+                .navigationDestination(for: CalendarEvent.self) { event in
+                    EventView(event: event, dates: dates, color: color(event.calendar))
+                }
         }
     }
 
@@ -50,8 +58,8 @@ struct CalendarView: View {
                 .task(id: window) { await load() }
                 .refreshable { await load(force: true) }
                 // A sign-in finishing (the button a mailbox without calendar access shows) is reason to look again.
-                .onChange(of: session.busy) { before, now in
-                    if before != nil, now == nil { Task { await load(force: true) } }
+                .onChange(of: session.busy) { before, current in
+                    if before != nil, current == nil { Task { await load(force: true) } }
                 }
         } else {
             // The places bar offers Calendar only where there is one; this is for a mailbox that goes away.
@@ -67,12 +75,13 @@ struct CalendarView: View {
     private func list(_ mailbox: Mailbox) -> some View {
         List {
             modes
+            if mode == .day { periodRow }
             if mode == .week { weekStrip }
             if mode == .month { monthGrid }
             switch events.state {
             case .noAccess: noAccess(mailbox)
             case .failed(let message): failed(message)
-            default: days
+            default: listed
             }
         }
         .listStyle(.plain)
@@ -82,9 +91,9 @@ struct CalendarView: View {
         .contentMargins(.bottom, 24, for: .scrollContent)
     }
 
-    @ViewBuilder private var days: some View {
-        let shown = shownDays.filter { !$0.events.isEmpty }
-        ForEach(shown) { day in
+    @ViewBuilder private var listed: some View {
+        let withEvents = shownDays.filter { !$0.events.isEmpty }
+        ForEach(withEvents) { day in
             Section {
                 ForEach(day.events) { event in row(event, on: day.id) }
             } header: {
@@ -92,7 +101,7 @@ struct CalendarView: View {
             }
             .textCase(nil)
         }
-        if shown.isEmpty {
+        if withEvents.isEmpty {
             if events.state == .loading {
                 ProgressView()
                     .frame(maxWidth: .infinity)
@@ -107,7 +116,7 @@ struct CalendarView: View {
 
     private var empty: some View {
         ContentUnavailableView(
-            mode == .agenda ? "Nothing coming up" : mode == .week ? "Nothing this week" : "Nothing on \(pickedTitle)",
+            emptyTitle,
             systemImage: "calendar",
             description: Text(mode == .agenda ? "The months ahead are clear." : "")
         )
@@ -115,6 +124,15 @@ struct CalendarView: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .padding(.top, 40)
+    }
+
+    private var emptyTitle: String {
+        switch mode {
+        case .agenda: "Nothing coming up"
+        case .week: "Nothing this week"
+        case .day: "Nothing on \(dates.heading(days.first ?? anchor, now: now))"
+        case .month: "Nothing on \(dates.heading(pickedDay, now: now))"
+        }
     }
 
     private func noAccess(_ mailbox: Mailbox) -> some View {
@@ -159,7 +177,7 @@ struct CalendarView: View {
                     Text(option.title)
                         .font(.inter(.subheadline).weight(.medium))
                         .foregroundStyle(mode == option ? palette.text : palette.muted)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
                         .frame(height: 36)
                         .background(mode == option ? palette.text.opacity(0.08) : .clear, in: .capsule)
                         .contentShape(.capsule)
@@ -174,13 +192,27 @@ struct CalendarView: View {
         .listRowBackground(palette.canvas)
     }
 
+    private var periodRow: some View {
+        period(title)
+            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(palette.canvas)
+    }
+
     private var weekStrip: some View {
         let grouped = byDay
         return VStack(spacing: 8) {
-            period(weekTitle, by: .weekOfYear)
+            period(title)
             HStack(spacing: 2) {
-                ForEach(EventDays.days(in: window, calendar: calendar), id: \.self) { day in
-                    DayCell(day: day, events: grouped[day] ?? [], weekday: true, today: calendar.isDateInToday(day))
+                ForEach(days, id: \.self) { day in
+                    let on = grouped[day] ?? []
+                    DayCell(
+                        day: day,
+                        dots: dots(on),
+                        count: on.count,
+                        weekday: dates.weekdayShort(day),
+                        today: dates.sameDay(day, now)
+                    )
                 }
             }
         }
@@ -192,23 +224,25 @@ struct CalendarView: View {
     private var monthGrid: some View {
         let grouped = byDay
         return VStack(spacing: 8) {
-            period(monthTitle, by: .month)
+            period(title)
             HStack(spacing: 2) {
-                ForEach(Array(weekdayNames.enumerated()), id: \.offset) { _, name in
-                    Text(name)
+                ForEach(days.prefix(columns), id: \.self) { day in
+                    Text(dates.weekdayShort(day))
                         .font(.inter(.caption2))
                         .foregroundStyle(palette.muted)
                         .frame(maxWidth: .infinity)
                 }
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
-                ForEach(EventDays.days(in: window, calendar: calendar), id: \.self) { day in
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: columns), spacing: 2) {
+                ForEach(days, id: \.self) { day in
+                    let on = grouped[day] ?? []
                     DayCell(
                         day: day,
-                        events: grouped[day] ?? [],
-                        inMonth: calendar.isDate(day, equalTo: anchor, toGranularity: .month),
-                        selected: calendar.isDate(day, inSameDayAs: pickedDay),
-                        today: calendar.isDateInToday(day),
+                        dots: dots(on),
+                        count: on.count,
+                        inMonth: dates.calendar.isDate(day, equalTo: anchor, toGranularity: .month),
+                        selected: dates.sameDay(day, pickedDay),
+                        today: dates.sameDay(day, now),
                         action: { picked = day }
                     )
                 }
@@ -219,22 +253,21 @@ struct CalendarView: View {
         .listRowBackground(palette.canvas)
     }
 
-    private func period(_ title: String, by component: Calendar.Component) -> some View {
+    private func period(_ title: String) -> some View {
         HStack(spacing: 0) {
             Text(title)
                 .font(.inter(.headline))
                 .foregroundStyle(palette.text)
             Spacer(minLength: 8)
-            stepper(-1, by: component, symbol: "chevron.left", title: "Previous")
-            stepper(1, by: component, symbol: "chevron.right", title: "Next")
+            stepper(-1, symbol: "chevron.left", title: "Previous")
+            stepper(1, symbol: "chevron.right", title: "Next")
         }
         .padding(.horizontal, 8)
     }
 
-    private func stepper(_ step: Int, by component: Calendar.Component, symbol: String, title: String) -> some View {
+    private func stepper(_ by: Int, symbol: String, title: String) -> some View {
         Button {
-            guard let moved = calendar.date(byAdding: component, value: step, to: anchor) else { return }
-            anchor = moved
+            anchor = dates.step(mode, anchor, by: by)
             picked = nil
         } label: {
             Image(systemName: symbol)
@@ -249,7 +282,7 @@ struct CalendarView: View {
 
     private func header(_ day: EventDay) -> some View {
         HStack(spacing: 6) {
-            Text(day.title).fontWeight(.medium).foregroundStyle(palette.text)
+            Text(dates.heading(day.id, now: now)).fontWeight(.medium).foregroundStyle(palette.text)
             Spacer()
             Text("\(day.events.count)").monospacedDigit()
         }
@@ -261,7 +294,7 @@ struct CalendarView: View {
 
     private func row(_ event: CalendarEvent, on day: Date) -> some View {
         NavigationLink(value: event) {
-            EventRow(event: event, day: day, calendar: calendar)
+            EventRow(event: event, day: day, dates: dates, color: color(event.calendar))
         }
         .navigationLinkIndicatorVisibility(.hidden)
         .padding(.leading, 20)
@@ -272,54 +305,64 @@ struct CalendarView: View {
         .listRowInsets(EdgeInsets())
     }
 
+    /** What the account's `calendar:show-declined` allows, as calendar-view.tsx filters it. */
+    private var shown: [CalendarEvent] {
+        preferences.calendar.showDeclined ? events.events : events.events.filter { $0.response != .declined }
+    }
+
     private var byDay: [Date: [CalendarEvent]] {
-        EventDays.byDay(events.events, in: window, calendar: calendar)
+        EventDays.byDay(shown, days: days, dates: dates)
     }
 
     private var shownDays: [EventDay] {
         switch mode {
-        case .agenda, .week:
-            EventDays.group(events.events, in: window, calendar: calendar)
+        case .agenda:
+            EventDays.agenda(shown, from: dates.startOfDay(now), now: now, dates: dates)
+        case .day:
+            [EventDay(id: days.first ?? anchor, events: EventDays.events(shown, on: days.first ?? anchor, dates: dates))]
+        case .week:
+            EventDays.grouped(shown, days: days, dates: dates)
         case .month:
-            [EventDay(id: pickedDay, events: EventDays.events(events.events, on: pickedDay, calendar: calendar))]
+            [EventDay(id: pickedDay, events: EventDays.events(shown, on: pickedDay, dates: dates))]
         }
     }
 
     /** The day the month's grid is listing: the one tapped, else today, else the month's first. */
     private var pickedDay: Date {
         if let picked, picked >= window.from, picked < window.to { return picked }
-        let today = calendar.startOfDay(for: .now)
-        let month = EventDays.startOfMonth(anchor, calendar: calendar)
-        return calendar.isDate(today, equalTo: month, toGranularity: .month) ? today : month
+        let today = dates.startOfDay(now)
+        let month = dates.startOfMonth(anchor)
+        let chosen = dates.calendar.isDate(today, equalTo: month, toGranularity: .month) ? today : month
+        // With weekends hidden the grid has no weekend cell to list, so the next weekday leads.
+        return dates.stepDays(chosen, 0, weekends: weekends)
     }
 
-    private var pickedTitle: String {
-        EventDay(id: pickedDay, events: []).title
+    /** As CalendarTitle writes it: the day itself, else the month the week sits in. */
+    private var title: String {
+        let first = days.first ?? anchor
+        switch mode {
+        case .day: return "\(dates.dayTitle(first)) · \(dates.weekdayLong(first))"
+        case .week: return dates.monthTitle(dates.addDays(first, 3))
+        default: return dates.monthTitle(anchor)
+        }
     }
 
-    private var weekTitle: String {
-        let last = calendar.date(byAdding: .day, value: 6, to: window.from) ?? window.from
-        let first = calendar.isDate(window.from, equalTo: last, toGranularity: .month)
-            ? window.from.formatted(.dateTime.day())
-            : window.from.formatted(.dateTime.day().month(.abbreviated))
-        return "\(first) – \(last.formatted(.dateTime.day().month(.abbreviated)))"
+    private func dots(_ onDay: [CalendarEvent]) -> [Color] {
+        onDay.prefix(3).map { color($0.calendar) }
     }
 
-    private var monthTitle: String {
-        let month = EventDays.startOfMonth(anchor, calendar: calendar)
-        return calendar.isDate(month, equalTo: .now, toGranularity: .year)
-            ? month.formatted(.dateTime.month(.wide))
-            : month.formatted(.dateTime.month(.wide).year())
-    }
-
-    /** The region's week: Monday first here, Sunday first there. */
-    private var weekdayNames: [String] {
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        return (0..<7).map { symbols[($0 + calendar.firstWeekday - 1) % symbols.count] }
+    private func color(_ calendar: EventCalendar) -> Color {
+        EventStyle.legible(
+            EventStyle.hex(for: calendar, mailbox: mailbox, preferences: preferences.calendar),
+            over: palette.textRGB
+        )
     }
 
     private func load(force: Bool = false) async {
         guard let mailbox else { return }
-        await events.load(window, mailbox: mailbox, demo: store.isDemo, google: session.google, force: force)
+        now = .now
+        await events.load(
+            window, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates, force: force
+        )
     }
 }

@@ -21,7 +21,14 @@ final class CalendarStore {
     @ObservationIgnored private var cache: [EventWindow: [CalendarEvent]] = [:]
     @ObservationIgnored private var generation = 0
 
-    func load(_ window: EventWindow, mailbox: Mailbox, demo: Bool, google: GoogleAuth, force: Bool = false) async {
+    func load(
+        _ window: EventWindow,
+        mailbox: Mailbox,
+        demo: Bool,
+        google: GoogleAuth,
+        dates: CalendarDates = CalendarDates(),
+        force: Bool = false
+    ) async {
         if force {
             cache.removeAll()
             calendars = []
@@ -36,7 +43,7 @@ final class CalendarStore {
         }
         state = .loading
         if demo {
-            return keep(DemoCalendar.events(in: window), for: window)
+            return keep(DemoCalendar.events(in: window, dates: dates), for: window)
         }
         let api = GoogleCalendarAPI(email: mailbox.email) { [google] refresh in
             try await google.accessToken(mailbox.email, force: refresh)

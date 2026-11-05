@@ -74,85 +74,85 @@ nonisolated struct EventCalendar: Identifiable, Hashable {
 nonisolated struct EventDay: Identifiable, Hashable {
     let id: Date
     let events: [CalendarEvent]
-
-    var title: String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(id) { return "Today" }
-        if calendar.isDateInTomorrow(id) { return "Tomorrow" }
-        if calendar.isDateInYesterday(id) { return "Yesterday" }
-        if calendar.isDate(id, equalTo: .now, toGranularity: .year) {
-            return id.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
-        }
-        return id.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
-    }
-}
-
-/** What the calendar screen is looking at, and so what it asks Google for. */
-nonisolated enum CalendarMode: String, CaseIterable, Identifiable {
-    case agenda, week, month
-
-    var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-}
-
-nonisolated struct EventWindow: Hashable {
-    var from: Date
-    var to: Date
 }
 
 /**
- * Days, weeks and months of events. The week starts where the phone's region
- * starts it (`Calendar.firstWeekday`), and every bucket is a local day, so an
- * event is on the days it covers where the user is.
+ * The events a day, a week, a month and the agenda list, as the Mac and web
+ * apps list them (apps/web/src/main/calendar's month-grid.tsx, time-grid.tsx
+ * and agenda.tsx). Every day is a local day, so an event is on the days it
+ * covers where the user is.
  */
 nonisolated enum EventDays {
-    static func startOfWeek(_ date: Date, calendar: Calendar = .current) -> Date {
-        calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
-    }
-
-    static func startOfMonth(_ date: Date, calendar: Calendar = .current) -> Date {
-        calendar.dateInterval(of: .month, for: date)?.start ?? calendar.startOfDay(for: date)
-    }
-
-    static func window(_ mode: CalendarMode, anchor: Date, calendar: Calendar = .current) -> EventWindow {
-        let from: Date
-        let days: Int
-        switch mode {
-        case .agenda:
-            from = calendar.startOfDay(for: anchor)
-            days = 120
-        case .week:
-            from = startOfWeek(anchor, calendar: calendar)
-            days = 7
-        case .month:
-            // Six weeks from the week the month starts in: the grid, whatever the month.
-            from = startOfWeek(startOfMonth(anchor, calendar: calendar), calendar: calendar)
-            days = 42
+    /** All day first, then by time, the longer first: month-grid.tsx's order. */
+    static func sorted(_ events: [CalendarEvent]) -> [CalendarEvent] {
+        events.sorted { a, b in
+            if a.allDay != b.allDay { return a.allDay }
+            if a.start != b.start { return a.start < b.start }
+            if a.end != b.end { return a.end > b.end }
+            return a.id < b.id
         }
-        return EventWindow(from: from, to: calendar.date(byAdding: .day, value: days, to: from) ?? from)
     }
 
-    static func days(in window: EventWindow, calendar: Calendar = .current) -> [Date] {
-        var days: [Date] = []
-        var day = calendar.startOfDay(for: window.from)
-        while day < window.to, days.count < 400 {
-            days.append(day)
-            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
-            day = next
+    /** On a day when it overlaps it, as the grids test it: `endMs > start && startMs < end`. */
+    static func spans(_ event: CalendarEvent, _ day: Date, dates: CalendarDates) -> Bool {
+        let start = dates.startOfDay(day)
+        return event.end > start && event.start < dates.addDays(start, 1)
+    }
+
+    static func events(_ events: [CalendarEvent], on day: Date, dates: CalendarDates) -> [CalendarEvent] {
+        sorted(events.filter { spans($0, day, dates: dates) })
+    }
+
+    /** Each of those days that has events, with them. */
+    static func byDay(_ events: [CalendarEvent], days: [Date], dates: CalendarDates) -> [Date: [CalendarEvent]] {
+        let sorted = Self.sorted(events)
+        var byDay: [Date: [CalendarEvent]] = [:]
+        for day in days {
+            let on = sorted.filter { spans($0, day, dates: dates) }
+            if !on.isEmpty { byDay[dates.startOfDay(day)] = on }
+        }
+        return byDay
+    }
+
+    static func grouped(_ events: [CalendarEvent], days: [Date], dates: CalendarDates) -> [EventDay] {
+        byDay(events, days: days, dates: dates)
+            .map { EventDay(id: $0.key, events: $0.value) }
+            .sorted { $0.id < $1.id }
+    }
+
+    /**
+     * The agenda's rows, as agenda.tsx builds them: what hasn't ended yet,
+     * earliest first, each event once under the day it starts — or under
+     * `from` when it started before that.
+     */
+    static func agenda(_ events: [CalendarEvent], from: Date, now: Date, dates: CalendarDates) -> [EventDay] {
+        let coming = events.filter { $0.end > now }.sorted { a, b in
+            if a.start != b.start { return a.start < b.start }
+            if a.end != b.end { return a.end > b.end }
+            return a.id < b.id
+        }
+        var days: [EventDay] = []
+        for event in coming {
+            let day = dates.startOfDay(max(event.start, from))
+            if let last = days.last, dates.sameDay(last.id, day) {
+                days[days.count - 1] = EventDay(id: last.id, events: last.events + [event])
+            } else {
+                days.append(EventDay(id: day, events: [event]))
+            }
         }
         return days
     }
 
     /**
      * The last day an event covers. An event ending at midnight (an all-day
-     * event's end is the midnight after it) stops the day before.
+     * event's end is the midnight after it) stops the day before, which is
+     * what `spans` says too.
      */
-    static func lastDay(of event: CalendarEvent, calendar: Calendar = .current) -> Date {
-        let start = calendar.startOfDay(for: event.start)
-        let end = calendar.startOfDay(for: event.end)
+    static func lastDay(of event: CalendarEvent, dates: CalendarDates) -> Date {
+        let start = dates.startOfDay(event.start)
+        let end = dates.startOfDay(event.end)
         guard end > start else { return start }
-        guard event.end == end, let before = calendar.date(byAdding: .day, value: -1, to: end) else { return end }
-        return max(start, before)
+        return event.end == end ? max(start, dates.addDays(end, -1)) : end
     }
 
     /**
@@ -160,45 +160,8 @@ nonisolated enum EventDays {
      * the end's own day when it's at a time, so a meeting ending at midnight
      * says the day it really ends.
      */
-    static func endDay(of event: CalendarEvent, calendar: Calendar = .current) -> Date {
-        event.allDay ? lastDay(of: event, calendar: calendar) : calendar.startOfDay(for: event.end)
-    }
-
-    /** Every day in the window that has events, each event on each day it covers. */
-    static func byDay(_ events: [CalendarEvent], in window: EventWindow, calendar: Calendar = .current) -> [Date: [CalendarEvent]] {
-        let first = calendar.startOfDay(for: window.from)
-        var byDay: [Date: [CalendarEvent]] = [:]
-        for event in events {
-            let last = lastDay(of: event, calendar: calendar)
-            var day = max(calendar.startOfDay(for: event.start), first)
-            while day <= last, day < window.to {
-                byDay[day, default: []].append(event)
-                guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
-                day = next
-            }
-        }
-        return byDay.mapValues(Self.sorted)
-    }
-
-    static func group(_ events: [CalendarEvent], in window: EventWindow, calendar: Calendar = .current) -> [EventDay] {
-        byDay(events, in: window, calendar: calendar)
-            .map { EventDay(id: $0.key, events: $0.value) }
-            .sorted { $0.id < $1.id }
-    }
-
-    static func events(_ events: [CalendarEvent], on day: Date, calendar: Calendar = .current) -> [CalendarEvent] {
-        let start = calendar.startOfDay(for: day)
-        let window = EventWindow(from: start, to: calendar.date(byAdding: .day, value: 1, to: start) ?? start)
-        return byDay(events, in: window, calendar: calendar)[start] ?? []
-    }
-
-    /** All day first, then by time, as every calendar lists a day. */
-    static func sorted(_ events: [CalendarEvent]) -> [CalendarEvent] {
-        events.sorted { a, b in
-            if a.allDay != b.allDay { return a.allDay }
-            if a.start != b.start { return a.start < b.start }
-            return a.title.localizedStandardCompare(b.title) == .orderedAscending
-        }
+    static func endDay(of event: CalendarEvent, dates: CalendarDates) -> Date {
+        event.allDay ? lastDay(of: event, dates: dates) : dates.startOfDay(event.end)
     }
 }
 

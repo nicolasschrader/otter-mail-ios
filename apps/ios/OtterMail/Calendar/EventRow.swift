@@ -1,25 +1,29 @@
 import SwiftUI
 
 /**
- * One event in a day's list, laid out like the mail rows (ThreadRow): when it
- * is in the gutter, its calendar's color beside that, then the title and a line
- * of where it is. A cancelled event keeps its place, struck through.
+ * One event in a day's list, laid out like the mail rows (ThreadRow) and
+ * labelled as the Mac and web apps' agenda labels it (agenda.tsx): when it
+ * starts and how long it runs in the gutter, its calendar's color beside that,
+ * then the title and a line of where it is. An invitation still open is
+ * outlined rather than filled; a declined or cancelled event keeps its place,
+ * struck through.
  */
 struct EventRow: View {
     @Environment(\.palette) private var palette
     let event: CalendarEvent
     /** The day it's listed under, so a longer event can say how far along it is. */
     var day: Date? = nil
-    var calendar: Calendar = .current
+    var dates: CalendarDates = CalendarDates()
+    var color: Color
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .trailing, spacing: 1) {
                 if event.allDay {
-                    Text("All day")
+                    Text("All-day")
                 } else {
-                    Text(event.start.formatted(date: .omitted, time: .shortened))
-                    Text(event.end.formatted(date: .omitted, time: .shortened))
+                    Text(dates.timeLabel(event.start))
+                    Text(CalendarDates.durationLabel(event.end.timeIntervalSince(event.start)))
                         .foregroundStyle(palette.muted.opacity(0.7))
                 }
             }
@@ -27,16 +31,15 @@ struct EventRow: View {
             .foregroundStyle(palette.muted)
             .frame(width: 62, alignment: .trailing)
 
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(color)
+            gutter
                 .frame(width: 3)
                 .padding(.vertical, 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
                     .font(.inter(.subheadline).weight(.medium))
-                    .foregroundStyle(palette.text)
-                    .strikethrough(event.status == .cancelled)
+                    .foregroundStyle(struck ? palette.muted : palette.text)
+                    .strikethrough(struck)
                     .lineLimit(2)
                 if let line {
                     Text(line)
@@ -58,9 +61,16 @@ struct EventRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var color: Color {
-        event.calendar.color.map(Color.init(hex:)) ?? palette.action
+    @ViewBuilder private var gutter: some View {
+        let shape = RoundedRectangle(cornerRadius: 1.5)
+        if EventStyle.isPending(event.response) {
+            shape.strokeBorder(color, lineWidth: 1.5)
+        } else {
+            shape.fill(color)
+        }
     }
+
+    private var struck: Bool { event.status == .cancelled || event.response == .declined }
 
     private var line: String? {
         var parts: [String] = []
@@ -79,12 +89,12 @@ struct EventRow: View {
 
     /** "Day 2 of 3" while a longer event runs. */
     private var runs: String? {
-        let first = calendar.startOfDay(for: event.start)
-        let last = EventDays.lastDay(of: event, calendar: calendar)
-        guard last > first, let span = calendar.dateComponents([.day], from: first, to: last).day else { return nil }
-        guard let day, let reached = calendar.dateComponents([.day], from: first, to: calendar.startOfDay(for: day)).day else {
-            return "\(span + 1) days"
-        }
+        let first = dates.startOfDay(event.start)
+        let last = EventDays.lastDay(of: event, dates: dates)
+        guard last > first, let span = dates.calendar.dateComponents([.day], from: first, to: last).day else { return nil }
+        guard let day,
+              let reached = dates.calendar.dateComponents([.day], from: first, to: dates.startOfDay(day)).day
+        else { return "\(span + 1) days" }
         return "Day \(reached + 1) of \(span + 1)"
     }
 }
@@ -93,8 +103,11 @@ struct EventRow: View {
 struct DayCell: View {
     @Environment(\.palette) private var palette
     let day: Date
-    let events: [CalendarEvent]
-    var weekday = false
+    /** A dot in its calendar's color for each of the day's first events. */
+    let dots: [Color]
+    let count: Int
+    /** The week strip's heading over the number (month-grid.tsx's weekdayShort). */
+    var weekday: String? = nil
     /** In the month being shown; the days around it fade. */
     var inMonth = true
     var selected = false
@@ -103,8 +116,8 @@ struct DayCell: View {
 
     var body: some View {
         let cell = VStack(spacing: 3) {
-            if weekday {
-                Text(day.formatted(.dateTime.weekday(.narrow)))
+            if let weekday {
+                Text(weekday)
                     .font(.inter(.caption2))
                     .foregroundStyle(palette.muted)
             }
@@ -114,7 +127,7 @@ struct DayCell: View {
                 .monospacedDigit()
                 .frame(width: 30, height: 30)
                 .background(today ? palette.action.opacity(0.18) : .clear, in: .circle)
-            dots
+            marks
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
@@ -130,12 +143,10 @@ struct DayCell: View {
         }
     }
 
-    private var dots: some View {
+    private var marks: some View {
         HStack(spacing: 2) {
-            ForEach(Array(events.prefix(3).enumerated()), id: \.offset) { _, event in
-                Circle()
-                    .fill(event.calendar.color.map(Color.init(hex:)) ?? palette.action)
-                    .frame(width: 4, height: 4)
+            ForEach(Array(dots.enumerated()), id: \.offset) { _, dot in
+                Circle().fill(dot).frame(width: 4, height: 4)
             }
         }
         .frame(height: 4)
@@ -144,6 +155,6 @@ struct DayCell: View {
 
     private var label: String {
         let date = day.formatted(.dateTime.weekday(.wide).month(.wide).day())
-        return events.isEmpty ? date : "\(date), \(events.count) \(events.count == 1 ? "event" : "events")"
+        return count == 0 ? date : "\(date), \(count) \(count == 1 ? "event" : "events")"
     }
 }

@@ -315,9 +315,11 @@ holidays), grouped by mailbox as Notion Calendar does. The default calendar wear
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
 The iPhone reads one mailbox's calendar at a time (⌃⌄ › Calendar, for a mailbox whose provider has
-one): the days ahead, the week at a glance, or the month's grid where a day lists itself, each with
-‹ › and Today, and an event's own screen (where it is, its meeting's Join, who's coming and their
-answers). It changes nothing, and leaves out the calendars Google has unchecked.
+one), in the same modes: a day, the week at a glance, the month's grid where a day lists itself,
+and the days ahead as an agenda, each with ‹ › and Today, and an event's own screen (where it is,
+its meeting's Join, who's coming and their answers). It changes nothing, and leaves out the
+calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
+its own.
 
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- | ------ |
@@ -335,7 +337,7 @@ answers). It changes nothing, and leaves out the calendars Google has unchecked.
 | Scroll sideways day by day; ‹ › and Today glide; any day can lead the week                                                                                                        | ✓   | ✓   | —      |
 | Teammates' calendars over yours (⌘P to add, Esc to clear): Outlook with titles they share, Gmail busy times                                                                       | ✓   | ✓   | —      |
 | Keys: T today, D / W / M view, J / K or ← → to step                                                                                                                               | ✓   | ✓   | —      |
-| Settings → Calendar (follows your Otter account): start of week, weekends, declined events, 12 / 24-hour, a meeting on new events by mailbox                                      | ✓   | ✓   | —      |
+| Settings → Calendar (follows your Otter account): start of week, weekends, declined events, 12 / 24-hour, a meeting on new events by mailbox                                      | ✓   | ✓   | Read   |
 
 ## Contacts & avatars
 

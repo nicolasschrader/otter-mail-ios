@@ -83,14 +83,34 @@ add limited server grants (or an encrypted IMAP password), while mail content st
   the others are read, and each finished turn is written back after the chat's other turns,
   keeping what other devices wrote (it stays the relay's JSON).
 - `Calendar/`: the calendar, read-only, for a mailbox whose provider has one
-  (`MailCapabilities.calendar`: Gmail today). `GoogleCalendarAPI.swift` reads the account's
-  calendars and a window of events from Google Calendar and maps them as core does
-  (`packages/core/src/providers/gmail/calendar.ts`, contracts' `findMeetingLink`);
-  `CalendarStore.swift` keeps a window at a time; `CalendarView.swift` is the screen (the days
-  ahead, a week at a glance, a month's grid where a day lists itself) and `EventView.swift` one
-  event. The sign-in asks for `calendar.readonly`, so a mailbox that signed in before that offers
-  signing in again instead of a calendar (core's `NoCalendarAccess`). `DemoCalendar.swift` is the
-  demo's own events.
+  (`MailCapabilities.calendar`: Gmail today). It is the Mac and web apps' calendar
+  (`apps/web/src/main/calendar`) ported to Swift, not one of its own — the pure parts are ported
+  file for file, the screens are the phone's:
+  - `CalendarDates.swift` ← `dates.ts`: the modes (`CALENDAR_MODES`' Day, Week and Month, with the
+    phone's Agenda after them), `weekStart`, `startOfWeek`, `startOfMonth`, `stepDays`,
+    `visibleDays`, `step`, `dayKey`, `timeLabel` and `durationLabel`, plus `rangeLabel` from
+    `event-style.ts` and `heading` from `agenda.tsx`'s `dayTitle`. `dates.test.ts`'s cases are
+    ported as vectors in `OtterMailTests/CalendarTests.swift`.
+  - `CalendarPreferences.swift` ← `preferences.ts`: `calendar:week-start`,
+    `calendar:show-weekends`, `calendar:show-declined`, `calendar:time-format` and
+    `calendar:colors`, read from the account's `ui` section through `Settings/Preferences.swift`
+    like the other `otter:*` keys. The phone follows them; it doesn't set them (no Calendar page
+    in Settings).
+  - `EventStyle.swift` ← `calendar-view.tsx`'s `listedCalendars` and `legible`, and
+    `event-style.ts`: an event's color (a `calendar:colors` override first, under `api.ts`'s
+    `calendarKey`; then the mailbox's color for its primary calendar and for one Google gives no
+    color; then Google's), and `isPending`.
+  - `Events.swift` ← `month-grid.tsx`, `time-grid.tsx` and `agenda.tsx`: a day's events are the
+    ones overlapping it, all day first then by start, the longer first; the agenda lists what
+    hasn't ended yet, once per event, under the day it starts.
+  - The phone's own: `GoogleCalendarAPI.swift` reads the account's calendars and a window of
+    events from Google Calendar and maps them as core does
+    (`packages/core/src/providers/gmail/calendar.ts`, contracts' `findMeetingLink`);
+    `CalendarStore.swift` keeps a window at a time; `CalendarView.swift` is the screen (the mode
+    pills, the week's strip, the month's grid where a day lists itself), `EventRow.swift` a row
+    and `EventView.swift` one event. The sign-in asks for `calendar.readonly`, so a mailbox that
+    signed in before that offers signing in again instead of a calendar (core's
+    `NoCalendarAccess`). `DemoCalendar.swift` is the demo's own events.
 - `Mail/`: the model and `MailStore`, which screens render from. `DemoMail.swift` loads the demo.
 - Alias mailboxes (`NotificationShared/AliasMailbox.swift`, `MailStore.aliases`): an IMAP
   mailbox's address with a mailbox of its own, made on the Mac and the web (the account's

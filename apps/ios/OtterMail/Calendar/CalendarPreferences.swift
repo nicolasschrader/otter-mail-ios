@@ -1,0 +1,45 @@
+import Foundation
+
+/**
+ * The calendar's choices, read as apps/web/src/main/calendar/preferences.ts
+ * reads them, under the keys synced-preferences.ts syncs: the Mac and web apps
+ * make them in Settings › Calendar and the Otter account carries them here.
+ * The phone reads them; it doesn't write them.
+ */
+nonisolated struct CalendarPreferences: Equatable {
+    enum WeekStart: String { case auto, sunday, monday, saturday }
+    enum TimeFormat: String {
+        case auto
+        case twelve = "12"
+        case twentyFour = "24"
+    }
+
+    var weekStart: WeekStart = .auto
+    var showWeekends = true
+    var showDeclined = true
+    var timeFormat: TimeFormat = .auto
+    /** A calendar's chosen color by `calendarKey` (api.ts: `<mailbox>|<calendar>`). */
+    var colors: [String: String] = [:]
+
+    static let keys = [
+        "calendar:week-start",
+        "calendar:show-weekends",
+        "calendar:show-declined",
+        "calendar:time-format",
+        "calendar:colors",
+    ]
+
+    init() {}
+
+    /** As `read()` does there: anything unknown falls back, and a switch is off only when it says "false". */
+    init(ui: [String: String]) {
+        weekStart = ui["calendar:week-start"].flatMap(WeekStart.init) ?? .auto
+        timeFormat = ui["calendar:time-format"].flatMap(TimeFormat.init) ?? .auto
+        showWeekends = ui["calendar:show-weekends"] != "false"
+        showDeclined = ui["calendar:show-declined"] != "false"
+        if let data = ui["calendar:colors"]?.data(using: .utf8),
+           let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            colors = record.compactMapValues { $0 as? String }
+        }
+    }
+}

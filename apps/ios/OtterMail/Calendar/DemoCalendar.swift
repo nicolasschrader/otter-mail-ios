@@ -16,13 +16,14 @@ nonisolated enum DemoCalendar {
     private static let sam = Person(name: "Sam Park", email: "sam@acme.example")
     private static let asa = Person(name: "Åsa Lindqvist", email: "asa@bokcirkel.example")
 
-    static func events(in window: EventWindow, now: Date = .now, calendar: Calendar = .current) -> [CalendarEvent] {
-        let found = weekly(in: window, calendar: calendar) + anchored(to: calendar.startOfDay(for: now), calendar: calendar)
+    static func events(in window: EventWindow, now: Date = .now, dates: CalendarDates = CalendarDates()) -> [CalendarEvent] {
+        let found = weekly(in: window, dates: dates) + anchored(to: dates.startOfDay(now), dates: dates)
         return EventDays.sorted(found.filter { $0.end > window.from && $0.start < window.to })
     }
 
-    private static func weekly(in window: EventWindow, calendar: Calendar) -> [CalendarEvent] {
-        EventDays.days(in: window, calendar: calendar).flatMap { day -> [CalendarEvent] in
+    private static func weekly(in window: EventWindow, dates: CalendarDates) -> [CalendarEvent] {
+        let calendar = dates.calendar
+        return dates.days(in: window).flatMap { day -> [CalendarEvent] in
             let weekday = calendar.component(.weekday, from: day)
             guard (2...6).contains(weekday) else { return [] }
             var events = [standup(on: day, calendar: calendar)]
@@ -32,9 +33,10 @@ nonisolated enum DemoCalendar {
         }
     }
 
-    private static func anchored(to today: Date, calendar: Calendar) -> [CalendarEvent] {
+    private static func anchored(to today: Date, dates: CalendarDates) -> [CalendarEvent] {
+        let calendar = dates.calendar
         let day = { (ahead: Int) in calendar.date(byAdding: .day, value: ahead, to: today) ?? today }
-        let offsiteStart = EventDays.startOfWeek(day(9), calendar: calendar)
+        let offsiteStart = dates.startOfWeek(day(9))
         return [
             CalendarEvent(
                 eventId: "lunch",
