@@ -30,7 +30,7 @@ nonisolated struct GoogleCalendarAPI {
             found += page.calendars
             pageToken = page.next
         } while pageToken != nil
-        return found.sorted { ($0.primary ? 0 : 1, $0.name.lowercased()) < ($1.primary ? 0 : 1, $1.name.lowercased()) }
+        return GoogleEvents.sorted(found)
     }
 
     /** A window's events, every page of them: a long agenda of a busy calendar is more than one. */
@@ -39,7 +39,6 @@ nonisolated struct GoogleCalendarAPI {
         let times = EventTimes()
         var found: [CalendarEvent] = []
         var pageToken: String?
-        var pages = 0
         repeat {
             var query = [
                 URLQueryItem(name: "timeMin", value: window.from.formatted(.iso8601)),
@@ -55,8 +54,7 @@ nonisolated struct GoogleCalendarAPI {
             )
             found += page.events
             pageToken = page.next
-            pages += 1
-        } while pageToken != nil && pages < 10
+        } while pageToken != nil
         return found
     }
 
@@ -104,11 +102,16 @@ nonisolated struct GoogleCalendarAPI {
  */
 nonisolated struct EventTimes {
     let calendar: Calendar
+    /** Google writes its dates in the Gregorian calendar, whichever one the phone shows (Apple's QA1480). */
+    private let gregorian: Calendar
     private let time = ISO8601DateFormatter()
     private let fractional = ISO8601DateFormatter()
 
     init(calendar: Calendar = .current) {
         self.calendar = calendar
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        self.gregorian = gregorian
         time.formatOptions = [.withInternetDateTime]
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
@@ -120,7 +123,7 @@ nonisolated struct EventTimes {
     func day(_ text: String) -> Date? {
         let parts = text.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
-        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+        return gregorian.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 }
 
@@ -140,6 +143,11 @@ nonisolated enum GoogleEvents {
                 )
             }
         return (calendars, page.nextPageToken)
+    }
+
+    /** How the account's calendars are listed: the primary one first, then by name. */
+    static func sorted(_ calendars: [EventCalendar]) -> [EventCalendar] {
+        calendars.sorted { ($0.primary ? 0 : 1, $0.name.lowercased()) < ($1.primary ? 0 : 1, $1.name.lowercased()) }
     }
 
     static func events(_ data: Data, on calendar: EventCalendar, me: String, times: EventTimes) throws -> (events: [CalendarEvent], next: String?) {

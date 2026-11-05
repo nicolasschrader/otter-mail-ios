@@ -110,6 +110,13 @@ struct CalendarTests {
         let there = try #require(try events(json, in: newYork).first)
         #expect(there.start == day(2026, 5, 4, in: newYork))
         #expect(there.start != event.start)
+
+        // Google's date is Gregorian whichever calendar the phone shows.
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = berlin.timeZone
+        let elsewhere = try #require(try events(json, in: buddhist).first)
+        #expect(elsewhere.start == day(2026, 5, 4, in: berlin))
+        #expect(elsewhere.end == day(2026, 5, 5, in: berlin))
     }
 
     @Test func spreadsALongerEventOverEveryDayItCovers() throws {
@@ -130,8 +137,12 @@ struct CalendarTests {
         #expect(byDay[day(2026, 5, 5, in: calendar)]?.map(\.eventId) == ["offsite", "train"])
         #expect(byDay[day(2026, 5, 6, in: calendar)]?.map(\.eventId) == ["offsite"])
         #expect(byDay[day(2026, 5, 7, in: calendar)] == nil)
-        // An event ending at midnight stops the day before.
+        // An event ending at midnight stops the day before, though it still ends on the 5th.
         #expect(EventDays.lastDay(of: found[2], calendar: calendar) == day(2026, 5, 4, in: calendar))
+        #expect(EventDays.endDay(of: found[2], calendar: calendar) == day(2026, 5, 5, in: calendar))
+        #expect(EventDays.endDay(of: found[1], calendar: calendar) == day(2026, 5, 5, in: calendar))
+        // An all-day event ends on its last day.
+        #expect(EventDays.endDay(of: found[0], calendar: calendar) == day(2026, 5, 6, in: calendar))
     }
 
     @Test func keepsWhatGoogleLeavesOut() throws {
@@ -259,12 +270,15 @@ struct CalendarTests {
         """
         let page = try GoogleEvents.calendars(Data(json.utf8))
         #expect(page.next == nil)
-        #expect(page.calendars.map(\.id) == ["robin@otter.example", "birthdays", "work@otter.example"])
+        // Google's own order, without the ones hidden there.
+        #expect(page.calendars.map(\.id) == ["robin@otter.example", "work@otter.example", "birthdays"])
         #expect(page.calendars[0].primary)
         #expect(page.calendars[0].color == "#9fe1e7")
         // Its name in Google Calendar wins, and one turned off there isn't fetched.
-        #expect(page.calendars[2].name == "Otterware")
-        #expect(page.calendars.map(\.shown) == [true, true, false])
+        #expect(page.calendars[1].name == "Otterware")
+        #expect(page.calendars.map(\.shown) == [true, false, true])
+        // The screen gets them primary first, then by name.
+        #expect(GoogleEvents.sorted(page.calendars).map(\.id) == ["robin@otter.example", "birthdays", "work@otter.example"])
     }
 
     @Test func carriesGooglesNextPage() throws {

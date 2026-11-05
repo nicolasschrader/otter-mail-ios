@@ -26,13 +26,14 @@ final class CalendarStore {
             cache.removeAll()
             calendars = []
         }
+        // Every load, a cached one included, leaves the one before it to be dropped when it lands.
+        generation += 1
+        let mine = generation
         if let kept = cache[window] {
             events = kept
             state = .ready
             return
         }
-        generation += 1
-        let mine = generation
         state = .loading
         if demo {
             return keep(DemoCalendar.events(in: window), for: window)

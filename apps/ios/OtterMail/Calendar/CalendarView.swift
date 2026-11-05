@@ -153,6 +153,8 @@ struct CalendarView: View {
                 Button {
                     mode = option
                     picked = nil
+                    // The agenda is the days ahead and has no way to move: it starts today.
+                    if option == .agenda { anchor = .now }
                 } label: {
                     Text(option.title)
                         .font(.inter(.subheadline).weight(.medium))

@@ -155,6 +155,15 @@ nonisolated enum EventDays {
         return max(start, before)
     }
 
+    /**
+     * The day an event's end is shown under: its last day when it's all day,
+     * the end's own day when it's at a time, so a meeting ending at midnight
+     * says the day it really ends.
+     */
+    static func endDay(of event: CalendarEvent, calendar: Calendar = .current) -> Date {
+        event.allDay ? lastDay(of: event, calendar: calendar) : calendar.startOfDay(for: event.end)
+    }
+
     /** Every day in the window that has events, each event on each day it covers. */
     static func byDay(_ events: [CalendarEvent], in window: EventWindow, calendar: Calendar = .current) -> [Date: [CalendarEvent]] {
         let first = calendar.startOfDay(for: window.from)

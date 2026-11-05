@@ -152,7 +152,7 @@ struct EventView: View {
 
     private var when: String {
         let first = calendar.startOfDay(for: event.start)
-        let last = EventDays.lastDay(of: event, calendar: calendar)
+        let last = EventDays.endDay(of: event, calendar: calendar)
         let day = { (date: Date) in date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year()) }
         if event.allDay {
             return last > first ? "\(day(first)) – \(day(last))" : "All day · \(day(first))"
