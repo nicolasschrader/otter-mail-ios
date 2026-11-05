@@ -317,8 +317,10 @@ color, the others their color in Google or Outlook. IMAP mailboxes have none.
 The iPhone reads one mailbox's calendar at a time (⌃⌄ › Calendar, for a mailbox whose provider has
 one), in the same modes: a day, the week at a glance, the month's grid where a day lists itself,
 and the days ahead as an agenda, each with ‹ › and Today, and an event's own screen (where it is,
-its meeting's Join, who's coming and their answers). It changes nothing, and leaves out the
-calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
+the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
+when that clock differs). An event over several days says where it starts and ends on each of them,
+and which of its days this is. It changes nothing, and leaves out the calendars Google has
+unchecked. It follows Settings → Calendar from the account without a page of
 its own.
 
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |

@@ -15,6 +15,7 @@ nonisolated enum DemoCalendar {
     private static let jonas = Person(name: "Jonas Müller", email: "jonas.mueller@example.de")
     private static let sam = Person(name: "Sam Park", email: "sam@acme.example")
     private static let asa = Person(name: "Åsa Lindqvist", email: "asa@bokcirkel.example")
+    private static let studio = Person(name: "Studio", email: "studio@otter.example")
 
     static func events(in window: EventWindow, now: Date = .now, dates: CalendarDates = CalendarDates()) -> [CalendarEvent] {
         let found = weekly(in: window, dates: dates) + anchored(to: dates.startOfDay(now), dates: dates)
@@ -110,6 +111,7 @@ nonisolated enum DemoCalendar {
                 title: "Night train to Lisbon",
                 start: at(day(12), 22, minutes: 40, calendar: calendar),
                 end: at(day(13), 7, minutes: 15, calendar: calendar),
+                timeZone: "Europe/Lisbon",
                 location: "Berlin Hbf, platform 9"
             ),
         ]
@@ -141,7 +143,11 @@ nonisolated enum DemoCalendar {
             location: "Studio",
             details: "This week: the calendar on the phone.",
             organizer: maya,
-            attendees: [.init(person: maya, response: .accepted), .init(person: me, response: .accepted)],
+            attendees: [
+                .init(person: maya, response: .accepted),
+                .init(person: me, response: .accepted),
+                .init(person: studio, response: .accepted, room: true),
+            ],
             response: .accepted,
             meetingLink: "https://meet.google.com/otr-demo-design",
             recurring: true

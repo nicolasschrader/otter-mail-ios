@@ -5,9 +5,12 @@ import Testing
 /**
  * The calendar's pure parts: Google's JSON mapped as core maps it
  * (packages/core/src/providers/gmail/calendar.ts), meeting links as contracts
- * finds them, and the dates, preferences and presentation ported from the Mac
- * and web app's apps/web/src/main/calendar. The vectors named after a TS file
- * are its own, with the same inputs and the same expected answers.
+ * finds them, the dates, preferences and presentation ported from the Mac and
+ * web app's apps/web/src/main/calendar, and the rows and event presentation
+ * ported from Otterware's own mobile calendar (otter-calendar's
+ * apps/mobile/src/features/calendar and packages/client-runtime/src/calendar).
+ * The vectors named after a TS file are its own, with the same inputs and the
+ * same expected answers.
  */
 struct CalendarTests {
     private let mine = EventCalendar(id: "primary", name: "Robin Otter", color: "#0ea5e9", primary: true)
@@ -35,6 +38,27 @@ struct CalendarTests {
 
     private func timed(_ id: String, _ start: Date, _ end: Date, response: CalendarEvent.Response? = nil) -> CalendarEvent {
         CalendarEvent(eventId: id, calendar: mine, title: id, start: start, end: end, response: response)
+    }
+
+    private func allDay(_ id: String, _ from: Date, _ toExclusive: Date) -> CalendarEvent {
+        CalendarEvent(eventId: id, calendar: mine, title: id, start: from, end: toExclusive, allDay: true)
+    }
+
+    /**
+     * The days and their events as agendaRows.test.ts writes them down ("# 1",
+     * "  offsite allDay 1/3"), so its vectors can be compared line for line.
+     */
+    private func described(_ events: [CalendarEvent], from: Date, days: Int, dates: CalendarDates) -> [String] {
+        (0..<days).flatMap { index -> [String] in
+            let day = dates.addDays(from, index)
+            let on = EventDays.events(events, on: day, dates: dates)
+            guard !on.isEmpty else { return [] }
+            return ["# \(index)"] + on.map { event in
+                let timing = EventDays.timing(of: event, on: day, dates: dates)
+                let span = timing.spanDays.map { " \(timing.dayOfSpan ?? 0)/\($0)" } ?? ""
+                return "\(event.eventId) \(timing.kind)\(span)"
+            }
+        }
     }
 
     private let review = """
@@ -71,6 +95,7 @@ struct CalendarTests {
         #expect(event.start == day(2026, 5, 4, 9, 0, in: calendar))
         #expect(event.end == day(2026, 5, 4, 10, 30, in: calendar))
         #expect(!event.allDay)
+        #expect(event.timeZone == "Europe/Berlin")
         #expect(event.location == "Studio")
         #expect(event.status == .confirmed)
         #expect(event.organizer == Person(name: "Maya Chen", email: "maya@example.com"))
@@ -405,13 +430,26 @@ struct CalendarTests {
         #expect(EventStyle.hex(for: mine, mailbox: mailbox, preferences: chosen) == "#111111")
     }
 
-    /** event-style.ts's isPending(): no answer or a maybe is still open. */
-    @Test func knowsWhichInvitationsAreStillOpen() {
-        #expect(EventStyle.isPending(.needsAction))
-        #expect(EventStyle.isPending(.tentative))
-        #expect(!EventStyle.isPending(.accepted))
-        #expect(!EventStyle.isPending(.declined))
-        #expect(!EventStyle.isPending(nil))
+    /**
+     * eventPresentation.test.ts "follows the user's answer": a declined answer
+     * wins over a tentative standing, and Google's own tentative standing
+     * stands in for the instance's `tentative`.
+     */
+    @Test func drawsAnEventFromTheUsersAnswer() {
+        let calendar = zone("Europe/Berlin")
+        let at = day(2026, 11, 4, 9, 0, in: calendar)
+        let event = { (response: CalendarEvent.Response?, status: CalendarEvent.Status) in
+            CalendarEvent(
+                eventId: "e", calendar: self.mine, title: "e", start: at, end: at,
+                status: status, response: response
+            )
+        }
+        #expect(EventStyle.tone(of: event(nil, .confirmed)) == .solid)
+        #expect(EventStyle.tone(of: event(.accepted, .confirmed)) == .solid)
+        #expect(EventStyle.tone(of: event(.needsAction, .confirmed)) == .unanswered)
+        #expect(EventStyle.tone(of: event(.tentative, .confirmed)) == .tentative)
+        #expect(EventStyle.tone(of: event(nil, .tentative)) == .tentative)
+        #expect(EventStyle.tone(of: event(.declined, .tentative)) == .declined)
     }
 
     // MARK: - agenda.tsx and month-grid.tsx
@@ -480,7 +518,7 @@ struct CalendarTests {
         #expect(EventDays.events(kept, on: day(2026, 11, 4, in: calendar), dates: dates).count == 1)
     }
 
-    /** agenda.tsx's dayTitle(). */
+    /** agenda.tsx's dayTitle(), with "Yesterday" from format.ts's formatRelativeDay(). */
     @Test func headsEachDayAsTheAgendaDoes() {
         let dates = calendarDates(zone("Europe/Berlin"))
         let now = day(2026, 11, 4, 10, 0, in: dates.calendar)
@@ -489,8 +527,9 @@ struct CalendarTests {
         #expect(dates.heading(day(2026, 11, 6, in: dates.calendar), now: now) == "Fri, Nov 6")
         // Another year says which.
         #expect(dates.heading(day(2027, 1, 4, in: dates.calendar), now: now) == "Mon, Jan 4, 2027")
-        // Yesterday is just its date: the agenda looks forward.
-        #expect(dates.heading(day(2026, 11, 3, in: dates.calendar), now: now) == "Tue, Nov 3")
+        // A week or a month can show the day before today, which says so.
+        #expect(dates.heading(day(2026, 11, 3, in: dates.calendar), now: now) == "Yesterday")
+        #expect(dates.heading(day(2026, 11, 2, in: dates.calendar), now: now) == "Mon, Nov 2")
     }
 
     @Test func readsTheAccountsCalendars() throws {
@@ -523,6 +562,159 @@ struct CalendarTests {
         let page = try GoogleEvents.events(Data(json.utf8), on: mine, me: me, times: EventTimes(calendar: zone("Europe/Berlin")))
         #expect(page.next == "page-2")
         #expect(page.events.count == 1)
+    }
+
+    // MARK: - agendaRows.ts (the mobile calendar)
+
+    /**
+     * agendaRows.test.ts "groups events under their days, all-day first": its
+     * events on its days. Otter Mail's agenda lists what's coming once per
+     * event (agenda.tsx), so an empty today gets no heading of its own.
+     */
+    @Test func groupsEventsUnderTheirDaysAllDayFirst() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let on = { (month: Int, day: Int, hour: Int, minute: Int) in
+            self.day(2026, month, day, hour, minute, in: dates.calendar)
+        }
+        let events = [
+            timed("standup", on(10, 1, 9, 0), on(10, 1, 9, 15)),
+            allDay("offsite", on(10, 1, 0, 0), on(10, 2, 0, 0)),
+            timed("lunch", on(10, 1, 12, 0), on(10, 1, 13, 0)),
+            timed("review", on(10, 3, 15, 0), on(10, 3, 16, 0)),
+        ]
+        #expect(described(events, from: on(9, 30, 0, 0), days: 5, dates: dates) == [
+            "# 1",
+            "offsite allDay",
+            "standup range",
+            "lunch range",
+            "# 3",
+            "review range",
+        ])
+    }
+
+    /** agendaRows.test.ts "repeats multi-day events on each day with where they start and end". */
+    @Test func repeatsLongerEventsSayingWhereTheyStartAndEnd() {
+        let dates = calendarDates(zone("Europe/Berlin"))
+        let on = { (month: Int, day: Int, hour: Int, minute: Int) in
+            self.day(2026, month, day, hour, minute, in: dates.calendar)
+        }
+        let events = [
+            allDay("trip", on(9, 30, 0, 0), on(10, 3, 0, 0)),
+            // Under 24 hours, but across midnight: it only says where it starts and ends.
+            timed("night", on(10, 1, 22, 0), on(10, 2, 6, 0)),
+            // Over 24 hours: a span, which counts its days.
+            timed("conference", on(10, 1, 9, 0), on(10, 3, 17, 0)),
+        ]
+        #expect(described(events, from: on(9, 30, 0, 0), days: 4, dates: dates) == [
+            "# 0",
+            "trip allDay 1/3",
+            "# 1",
+            "trip allDay 2/3",
+            "conference from 1/3",
+            "night from",
+            "# 2",
+            "trip allDay 3/3",
+            "conference allDay 2/3",
+            "night until",
+            "# 3",
+            "conference until 3/3",
+        ])
+    }
+
+    /**
+     * time.test.ts "knows how long local days are" and days.test.ts "keeps
+     * fall-back events in New York visible": a local day is 23 or 25 hours
+     * around a change, and an event inside the hour that happens twice keeps
+     * its real length and its day.
+     */
+    @Test func keepsDaysAndEventsRightAcrossDaylightSaving() throws {
+        let berlin = calendarDates(zone("Europe/Berlin"))
+        let hours = { (from: Date) in berlin.addDays(from, 1).timeIntervalSince(from) / 3600 }
+        #expect(hours(day(2026, 3, 29, in: berlin.calendar)) == 23)
+        #expect(hours(day(2026, 10, 25, in: berlin.calendar)) == 25)
+        #expect(hours(day(2026, 7, 1, in: berlin.calendar)) == 24)
+
+        // 01:30 EDT (05:30Z) to 01:10 EST (06:10Z): 40 minutes while the wall clock runs back.
+        let newYork = calendarDates(zone("America/New_York"))
+        let json = """
+        {"items": [{"id": "overlap", "summary": "Overlap",
+          "start": {"dateTime": "2026-11-01T05:30:00Z"}, "end": {"dateTime": "2026-11-01T06:10:00Z"}}]}
+        """
+        let overlap = try events(json, in: newYork.calendar)
+        let november1 = day(2026, 11, 1, in: newYork.calendar)
+        #expect(EventDays.byDay(overlap, days: [november1], dates: newYork).keys.sorted() == [november1])
+        #expect(EventDays.timing(of: overlap[0], on: november1, dates: newYork).kind == .range)
+        #expect(CalendarDates.durationLabel(overlap[0].end.timeIntervalSince(overlap[0].start)) == "40min")
+
+        // The same day's midnight to midnight is 25 hours, so it's a span of that one day.
+        let whole = timed("whole", november1, newYork.addDays(november1, 1))
+        #expect(whole.end.timeIntervalSince(whole.start) == 25 * 3600)
+        #expect(EventDays.timing(of: whole, on: november1, dates: newYork) == EventTiming(kind: .allDay))
+    }
+
+    // MARK: - eventPresentation.ts (the mobile calendar)
+
+    /** eventPresentation.test.ts's guests: the organizer first, then by answer, and no rooms. */
+    @Test func listsGuestsLikeTheMobileCalendar() throws {
+        let json = """
+        {"items": [{"id": "sync", "summary": "Sync",
+          "start": {"dateTime": "2026-05-04T09:00:00Z"}, "end": {"dateTime": "2026-05-04T10:00:00Z"},
+          "organizer": {"email": "org@example.com"},
+          "attendees": [
+            {"email": "zoe@example.com", "responseStatus": "declined"},
+            {"email": "room@example.com", "responseStatus": "accepted", "resource": true},
+            {"email": "bo@example.com", "displayName": "Bo", "responseStatus": "needsAction"},
+            {"email": "al@example.com", "displayName": "Al", "responseStatus": "accepted"},
+            {"email": "org@example.com", "responseStatus": "accepted"},
+            {"email": "cy@example.com", "responseStatus": "tentative"}
+          ]}]}
+        """
+        let event = try #require(try events(json, in: zone("Europe/Berlin")).first)
+        #expect(event.guests.map(\.person.email) == [
+            "org@example.com",
+            "al@example.com",
+            "cy@example.com",
+            "bo@example.com",
+            "zoe@example.com",
+        ])
+        #expect(event.rooms.map(\.person.email) == ["room@example.com"])
+        #expect(CalendarEvent.responseSummary(event.guests) == "2 yes, 1 maybe, 1 no, 1 awaiting")
+    }
+
+    /** eventPresentation.test.ts's plainDescription: Google's HTML as readable text. */
+    @Test func readsGooglesDescriptionAsText() {
+        #expect(EventDescription.plain("  Agenda:\n1. Numbers < targets  ") == "Agenda:\n1. Numbers < targets")
+        let html = """
+        Join us<br>Notes: <a href="https://docs.example.com/x">the doc</a><br><br><br>\
+        <ul><li>One</li><li>Two &amp; three</li></ul>&nbsp;&#8212;
+        """
+        #expect(EventDescription.plain(html) == "Join us\nNotes: the doc (https://docs.example.com/x)\n\n• One\n• Two & three\n —")
+        // A bare link is shown once.
+        #expect(EventDescription.plain(##"<a href="https://x.dev">https://x.dev</a>"##) == "https://x.dev")
+        // Named entities the reader knew, and hidden elements whose text isn't the event's.
+        #expect(EventDescription.plain("<p>Bob&rsquo;s notes &mdash; review</p>") == "Bob’s notes — review")
+        #expect(EventDescription.plain("<style>p{color:red}</style><p>Agenda</p>") == "Agenda")
+    }
+
+    /**
+     * CalendarEventRouteScreen's eventWhen: an event made in another zone also
+     * says its time there, when that zone's clock differs from the phone's.
+     */
+    @Test func readsAnEventInItsOwnZoneWhenItDiffers() throws {
+        let berlin = zone("Europe/Berlin")
+        let dates = calendarDates(berlin, CalendarPreferences(ui: ["calendar:time-format": "24"]))
+        let json = """
+        {"items": [{"id": "call", "summary": "New York call",
+          "start": {"dateTime": "2026-05-04T09:00:00+02:00", "timeZone": "America/New_York"},
+          "end": {"dateTime": "2026-05-04T10:00:00+02:00", "timeZone": "America/New_York"}}]}
+        """
+        let event = try #require(try events(json, in: berlin).first)
+        #expect(event.timeZone == "America/New_York")
+        #expect(dates.elsewhere(event.start, event.end, zone: event.timeZone) == "03:00–04:00 EDT (America/New York)")
+        // The phone's own zone, and one that only reads differently, say nothing.
+        #expect(dates.elsewhere(event.start, event.end, zone: "Europe/Berlin") == nil)
+        #expect(dates.elsewhere(event.start, event.end, zone: "Europe/Paris") == nil)
+        #expect(dates.elsewhere(event.start, event.end, zone: nil) == nil)
     }
 
     @Test func theDemoFillsEveryView() {

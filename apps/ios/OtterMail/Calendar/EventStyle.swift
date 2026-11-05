@@ -32,8 +32,22 @@ enum EventStyle {
         return luminance < 0.12 ? color.mixed(toward: text, keep: 0.45).color : color.color
     }
 
-    /** An invitation still open: drawn outlined rather than filled. */
-    nonisolated static func isPending(_ response: CalendarEvent.Response?) -> Bool {
-        response == .needsAction || response == .tentative
+    /**
+     * How an event is drawn, from the user's own answer, as the Otter mobile
+     * calendar decides it (eventPresentation.ts's eventTone). An invitation
+     * still open is outlined rather than filled; Otter Mail dashes both open
+     * tones (event-style.ts's isPending), so only `solid` is filled.
+     */
+    nonisolated enum Tone: Hashable {
+        case solid, unanswered, tentative, declined
+    }
+
+    nonisolated static func tone(of event: CalendarEvent) -> Tone {
+        switch event.response {
+        case .declined: .declined
+        case .needsAction: .unanswered
+        case .tentative: .tentative
+        default: event.status == .tentative ? .tentative : .solid
+        }
     }
 }

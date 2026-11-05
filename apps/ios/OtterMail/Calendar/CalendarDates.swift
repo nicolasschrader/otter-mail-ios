@@ -186,12 +186,35 @@ nonisolated struct CalendarDates {
 
     func weekdayLong(_ date: Date) -> String { localized("EEEE").string(from: date) }
 
-    /** "Today", "Tomorrow", else the short date: the agenda's headings (agenda.tsx's dayTitle). */
+    /**
+     * "Today", "Tomorrow", "Yesterday", else the short date: the headings of
+     * the agenda (agenda.tsx's dayTitle) and of a week's or month's day, which
+     * can be behind today, as format.ts's formatRelativeDay names it.
+     */
     func heading(_ day: Date, now: Date = .now) -> String {
         if sameDay(day, now) { return "Today" }
         if sameDay(day, addDays(startOfDay(now), 1)) { return "Tomorrow" }
+        if sameDay(day, addDays(startOfDay(now), -1)) { return "Yesterday" }
         let thisYear = calendar.component(.year, from: day) == calendar.component(.year, from: now)
         return localized(thisYear ? "EEEMMMd" : "EEEMMMdy").string(from: day)
+    }
+
+    /** The zone's short name at an instant, as format.ts's formatZoneName gives it: "GMT+2" or "PDT". */
+    func zoneName(_ date: Date) -> String { fixed("zzz").string(from: date) }
+
+    /**
+     * An event's time read in the zone it was made in, when that zone's clock
+     * differs from the phone's: the event screen's third line in the mobile
+     * calendar (CalendarEventRouteScreen's eventWhen).
+     */
+    func elsewhere(_ start: Date, _ end: Date, zone identifier: String?) -> String? {
+        guard let identifier, let zone = TimeZone(identifier: identifier),
+              zone.secondsFromGMT(for: start) != calendar.timeZone.secondsFromGMT(for: start)
+        else { return nil }
+        var there = self
+        there.calendar.timeZone = zone
+        let name = identifier.replacingOccurrences(of: "_", with: " ")
+        return "\(there.rangeLabel(start, end)) \(there.zoneName(start)) (\(name))"
     }
 
     private var locale: Locale { calendar.locale ?? .current }

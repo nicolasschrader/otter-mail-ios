@@ -31,11 +31,23 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
             case .tentative: "questionmark.circle.fill"
             }
         }
+
+        /** eventPresentation.ts's RESPONSE_ORDER: yes, maybe, not answered, no. */
+        var order: Int {
+            switch self {
+            case .accepted: 0
+            case .tentative: 1
+            case .needsAction: 2
+            case .declined: 3
+            }
+        }
     }
 
     struct Attendee: Identifiable, Hashable {
         var person: Person
         var response: Response = .needsAction
+        /** A room rather than a guest (Google's `resource`). */
+        var room = false
 
         var id: String { person.email.lowercased() }
     }
@@ -46,6 +58,8 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
     var start: Date
     var end: Date
     var allDay = false
+    /** The zone the event was made in (Google's `start.timeZone`), when it says. */
+    var timeZone: String? = nil
     var location: String? = nil
     /** Google's description, often HTML. */
     var details: String? = nil
@@ -59,6 +73,45 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
     var recurring = false
 
     var id: String { "\(calendar.id)/\(eventId)" }
+
+    /**
+     * Who's coming, as the Otter mobile calendar sorts them
+     * (eventPresentation.ts's sortedGuests): the organizer first, then yes,
+     * maybe, not answered, no; by name within. Rooms aren't guests.
+     */
+    var guests: [Attendee] {
+        let organizes = { (who: Attendee) in self.organizer?.isAddress(who.person.email) == true }
+        return attendees.filter { !$0.room }.sorted { a, b in
+            if organizes(a) != organizes(b) { return organizes(a) }
+            if a.response != b.response { return a.response.order < b.response.order }
+            return a.person.label.localizedCaseInsensitiveCompare(b.person.label) == .orderedAscending
+        }
+    }
+
+    var rooms: [Attendee] { attendees.filter(\.room) }
+
+    /** "3 yes, 1 maybe, 2 awaiting": eventPresentation.ts's responseSummary. */
+    static func responseSummary(_ guests: [Attendee]) -> String {
+        let count = { (response: Response) in guests.count(where: { $0.response == response }) }
+        return [(count(.accepted), "yes"), (count(.tentative), "maybe"), (count(.declined), "no"), (count(.needsAction), "awaiting")]
+            .filter { $0.0 > 0 }
+            .map { "\($0.0) \($0.1)" }
+            .joined(separator: ", ")
+    }
+}
+
+/**
+ * How a row states an event's time on the day it's listed under, as the Otter
+ * mobile calendar's agendaRows.ts does: its own range, the whole day, or where
+ * a longer event starts (`from`) or ends (`until`) on this day.
+ */
+nonisolated struct EventTiming: Hashable {
+    enum Kind: Hashable { case range, allDay, from, until }
+
+    var kind: Kind
+    /** For an event over several days: which day this is (1-based) and of how many. */
+    var dayOfSpan: Int? = nil
+    var spanDays: Int? = nil
 }
 
 /** One of the account's calendars (core's CalendarInfo). */
@@ -162,6 +215,111 @@ nonisolated enum EventDays {
      */
     static func endDay(of event: CalendarEvent, dates: CalendarDates) -> Date {
         event.allDay ? lastDay(of: event, dates: dates) : dates.startOfDay(event.end)
+    }
+
+    /**
+     * How a row under `day` states an event's time, as agendaRows.ts's spanRow
+     * and segmentRow decide it: an all-day event, or a timed one of a day or
+     * more, is a span and says which of its days this is — the whole day when
+     * it covers only one, as a 25-hour day's midnight-to-midnight event does;
+     * a shorter event across midnight is clipped to the day and says only
+     * where it starts (`from`) or ends (`until`).
+     */
+    static func timing(of event: CalendarEvent, on day: Date? = nil, dates: CalendarDates) -> EventTiming {
+        let first = dates.startOfDay(event.start)
+        let last = lastDay(of: event, dates: dates)
+        let shown = day.map(dates.startOfDay) ?? first
+        let days = (dates.calendar.dateComponents([.day], from: first, to: last).day ?? 0) + 1
+        let span = event.allDay || event.end.timeIntervalSince(event.start) >= 24 * 3600
+        let kind: EventTiming.Kind
+        if event.allDay {
+            kind = .allDay
+        } else if days < 2 {
+            kind = span ? .allDay : .range
+        } else if dates.sameDay(shown, first) {
+            kind = .from
+        } else if dates.sameDay(shown, last) {
+            kind = .until
+        } else {
+            kind = .allDay
+        }
+        guard span, days > 1 else { return EventTiming(kind: kind) }
+        let reached = (dates.calendar.dateComponents([.day], from: first, to: shown).day ?? 0) + 1
+        return EventTiming(kind: kind, dayOfSpan: min(max(reached, 1), days), spanDays: days)
+    }
+}
+
+/**
+ * Google's event descriptions are often HTML, read as plain text the way the
+ * Otter mobile calendar reads them (eventPresentation.ts's plainDescription):
+ * line breaks kept, a link as its text and then its address when they differ,
+ * list items as bullets, other tags dropped. The mail reader's HTMLText drops
+ * the address a calendar description is usually there for.
+ */
+nonisolated enum EventDescription {
+    private static let entities = [
+        "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
+        "rsquo": "’", "mdash": "—",
+    ]
+
+    static func plain(_ description: String) -> String {
+        guard description.range(of: "<[a-z!/][^>]*>|&[a-z#0-9]+;", options: [.regularExpression, .caseInsensitive]) != nil else {
+            return description.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        var text = links(in: description)
+        for (pattern, replacement) in [
+            // Not in plainDescription: a pasted description can carry these, whose text isn't the event's.
+            ("(?is)<(style|script|head)[^>]*>.*?</\\1>", ""),
+            ("(?i)<br\\s*/?>", "\n"),
+            ("(?i)</(p|div|li|h[1-6])>", "\n"),
+            ("(?i)<li\\b[^>]*>", "• "),
+            ("<[^>]+>", ""),
+        ] {
+            text = text.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
+        }
+        return decoded(text)
+            .replacingOccurrences(of: "[ \t]+\n", with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func links(in html: String) -> String {
+        rewrite(html, #"(?is)<a\b[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#) { groups in
+            let href = groups[1] ?? ""
+            let label = (groups[2] ?? "")
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return label.isEmpty || label == href ? href : "\(label) (\(href))"
+        }
+    }
+
+    private static func decoded(_ text: String) -> String {
+        rewrite(text, "(?i)&(#x?[0-9a-f]+|[a-z]+);") { groups in
+            let whole = groups[0] ?? ""
+            guard let entity = groups[1] else { return whole }
+            guard entity.hasPrefix("#") else { return entities[entity.lowercased()] ?? whole }
+            let hex = entity.lowercased().hasPrefix("#x")
+            guard let code = UInt32(entity.dropFirst(hex ? 2 : 1), radix: hex ? 16 : 10),
+                  let scalar = UnicodeScalar(code) else { return whole }
+            return String(scalar)
+        }
+    }
+
+    private static func rewrite(_ text: String, _ pattern: String, _ replacement: ([String?]) -> String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        var result = ""
+        var last = text.startIndex
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range, in: text), range.lowerBound >= last else { continue }
+            let groups = (0..<match.numberOfRanges).map { index in
+                Range(match.range(at: index), in: text).map { String(text[$0]) }
+            }
+            result.append(contentsOf: text[last..<range.lowerBound])
+            result += replacement(groups)
+            last = range.upperBound
+        }
+        result.append(contentsOf: text[last...])
+        return result
     }
 }
 

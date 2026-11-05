@@ -170,12 +170,15 @@ nonisolated enum GoogleEvents {
             start: start,
             end: date(api.end, times: times) ?? times.calendar.date(byAdding: allDay ? .day : .hour, value: 1, to: start) ?? start,
             allDay: allDay,
+            timeZone: api.start?.timeZone,
             location: api.location,
             details: api.description,
             status: status(api.status),
             organizer: person(api.organizer),
             attendees: people.compactMap { who in
-                person(who).map { CalendarEvent.Attendee(person: $0, response: response(who.responseStatus)) }
+                person(who).map {
+                    CalendarEvent.Attendee(person: $0, response: response(who.responseStatus), room: who.resource == true)
+                }
             },
             response: mine.map { response($0.responseStatus) },
             meetingLink: video ?? api.hangoutLink ?? Meetings.findLink(in: [api.location, api.description]),
@@ -232,6 +235,7 @@ nonisolated enum GoogleEvents {
         struct Time: Decodable {
             var date: String?
             var dateTime: String?
+            var timeZone: String?
         }
 
         struct Who: Decodable {
@@ -239,9 +243,10 @@ nonisolated enum GoogleEvents {
             var displayName: String?
             var isSelf: Bool?
             var responseStatus: String?
+            var resource: Bool?
 
             private enum CodingKeys: String, CodingKey {
-                case email, displayName, responseStatus
+                case email, displayName, responseStatus, resource
                 case isSelf = "self"
             }
         }

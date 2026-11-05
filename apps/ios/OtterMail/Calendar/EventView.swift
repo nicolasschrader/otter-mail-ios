@@ -22,7 +22,7 @@ struct EventView: View {
                         .foregroundStyle(palette.text.opacity(0.85))
                         .textSelection(.enabled)
                 }
-                if !event.attendees.isEmpty { guests }
+                if !event.guests.isEmpty { guests }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
@@ -41,6 +41,12 @@ struct EventView: View {
             Text(when)
                 .font(.inter(.subheadline))
                 .foregroundStyle(palette.muted)
+            // An all-day event is a date, not a time, so it has no zone to read it in.
+            if !event.allDay, let elsewhere = dates.elsewhere(event.start, event.end, zone: event.timeZone) {
+                Text(elsewhere)
+                    .font(.inter(.footnote))
+                    .foregroundStyle(palette.muted)
+            }
             HStack(spacing: 8) {
                 chip(event.calendar.name, color: color)
                 if event.status != .confirmed {
@@ -64,6 +70,14 @@ struct EventView: View {
             if let location = text(event.location) {
                 fact("mappin.and.ellipse", title: location)
             }
+            // The rooms booked are attendees too, but they aren't guests (eventPresentation.ts's sortedGuests).
+            if !event.rooms.isEmpty {
+                fact(
+                    "mappin.and.ellipse",
+                    title: event.rooms.map(\.person.label).joined(separator: ", "),
+                    detail: event.rooms.count == 1 ? "Room" : "Rooms"
+                )
+            }
             if let organizer = event.organizer {
                 fact("person.crop.circle", title: organizer.label, detail: "Organizer")
             }
@@ -79,12 +93,18 @@ struct EventView: View {
         }
     }
 
+    /** The organizer first, then by answer, as eventPresentation.ts sorts them, under their counts. */
     private var guests: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(event.attendees.count == 1 ? "1 guest" : "\(event.attendees.count) guests")
-                .font(.inter(.footnote))
-                .foregroundStyle(palette.muted)
-            ForEach(event.attendees) { attendee in
+        let coming = event.guests
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(coming.count == 1 ? "1 guest" : "\(coming.count) guests")
+                Text(CalendarEvent.responseSummary(coming))
+                    .foregroundStyle(palette.muted.opacity(0.8))
+            }
+            .font(.inter(.footnote))
+            .foregroundStyle(palette.muted)
+            ForEach(coming) { attendee in
                 HStack(spacing: 12) {
                     SenderAvatar(person: attendee.person, size: 32)
                     VStack(alignment: .leading, spacing: 1) {
@@ -165,10 +185,10 @@ struct EventView: View {
         return "\(day(first)) · \(dates.rangeLabel(event.start, event.end)) · \(length)"
     }
 
-    /** Google's descriptions are often HTML; the reader's plain text does for a calendar. */
+    /** Google's descriptions are often HTML, read as eventPresentation.ts reads them. */
     private var details: String? {
         guard let raw = text(event.details) else { return nil }
-        return raw.contains("<") && raw.contains(">") ? HTMLText.plain(raw) : raw
+        return text(EventDescription.plain(raw))
     }
 
     private func text(_ value: String?) -> String? {
