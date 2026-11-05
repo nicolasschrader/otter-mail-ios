@@ -1,11 +1,12 @@
 import Foundation
+import UserNotifications
 
 /**
  * Which tasks get a local notification, what its request is called, and which
  * task a tapped one belongs to. Pure, so the decisions are tested
  * (OtterMailTests/TaskTests.swift): iOS keeps at most 64 pending requests per
  * app and mail's own alerts need room too, so only the nearest reminders are
- * scheduled and the rest follow as those arrive.
+ * scheduled (`scheduled`) and the rest wait (`waiting`) until those arrive.
  */
 nonisolated enum TaskReminders {
     static let limit = 32
@@ -24,11 +25,19 @@ nonisolated enum TaskReminders {
 
     /** The reminders worth keeping: still to come, nearest first, as many as the limit allows. */
     static func scheduled(_ tasks: [MailTask], now: Date = .now, limit: Int = limit) -> [MailTask] {
-        let coming = tasks.filter { ($0.reminderAt ?? now) > now }
-        return Array(coming.sorted { a, b in
+        Array(coming(tasks, now: now).prefix(max(limit, 0)))
+    }
+
+    /** The ones past the limit: iOS has no room for them until a nearer reminder has arrived. */
+    static func waiting(_ tasks: [MailTask], now: Date = .now, limit: Int = limit) -> [MailTask] {
+        Array(coming(tasks, now: now).dropFirst(max(limit, 0)))
+    }
+
+    private static func coming(_ tasks: [MailTask], now: Date) -> [MailTask] {
+        tasks.filter { ($0.reminderAt ?? now) > now }.sorted { a, b in
             let (first, second) = (a.reminderAt ?? .distantFuture, b.reminderAt ?? .distantFuture)
             return first == second ? a.id.uuidString < b.id.uuidString : first < second
-        }.prefix(max(limit, 0)))
+        }
     }
 
     /** What a reminder carries, so a tap finds its task again (`UNNotificationContent.userInfo`). */
@@ -49,4 +58,55 @@ nonisolated enum TaskReminders {
 nonisolated struct TaskDestination: Equatable, Sendable {
     var scope: String
     var id: UUID
+}
+
+/** What the tasks ask of iOS's notifications, so the tests can stand in for it. */
+nonisolated protocol TaskReminding: Sendable {
+    func status() async -> UNAuthorizationStatus
+    func ask() async
+    func pending() async -> [String]
+    func delivered() async -> [String]
+    func remove(pending: [String], delivered: [String]) async
+    func add(_ task: MailTask, scope: String) async
+}
+
+/** iOS's own notification center, one request a task. */
+nonisolated struct LiveReminders: TaskReminding {
+    private var center: UNUserNotificationCenter { .current() }
+
+    func status() async -> UNAuthorizationStatus {
+        await center.notificationSettings().authorizationStatus
+    }
+
+    func ask() async {
+        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+    }
+
+    func pending() async -> [String] {
+        await center.pendingNotificationRequests().map(\.identifier)
+    }
+
+    func delivered() async -> [String] {
+        await center.deliveredNotifications().map(\.request.identifier)
+    }
+
+    func remove(pending: [String], delivered: [String]) async {
+        if !pending.isEmpty { center.removePendingNotificationRequests(withIdentifiers: pending) }
+        if !delivered.isEmpty { center.removeDeliveredNotifications(withIdentifiers: delivered) }
+    }
+
+    /** The same identifier replaces its pending request, so an edited task keeps one. */
+    func add(_ task: MailTask, scope: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = task.content
+        content.body = task.reminderBody
+        content.sound = .default
+        content.userInfo = TaskReminders.payload(task, scope: scope)
+        let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: task.reminderAt ?? .now)
+        try? await center.add(UNNotificationRequest(
+            identifier: TaskReminders.identifier(task.id, scope: scope),
+            content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: false)
+        ))
+    }
 }

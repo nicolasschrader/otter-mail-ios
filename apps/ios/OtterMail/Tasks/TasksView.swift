@@ -12,6 +12,7 @@ struct TasksView: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     /** A task whose reminder was tapped: it opens on top of the list. */
     var opening: UUID?
@@ -62,11 +63,30 @@ struct TasksView: View {
             .task {
                 now = .now
                 await tasks.checkReminders()
+                await keepTime()
+            }
+            // Away for a while, the clock has moved on: Overdue and Today are read again.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { now = .now }
             }
             .onChange(of: opening, initial: true) { _, id in
                 guard let id, let task = tasks.task(id) else { return }
                 editing = task
             }
+            .alert("Couldn't save the tasks", isPresented: .constant(tasks.failure != nil)) {
+                Button("OK") { tasks.failure = nil }
+            } message: {
+                Text(tasks.failure ?? "")
+            }
+        }
+    }
+
+    /** A deadline passing, or midnight, while the list is open moves the rows under the right heading. */
+    private func keepTime() async {
+        while !Task.isCancelled {
+            let ahead = 60 - Date.now.timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+            do { try await Task.sleep(for: .seconds(ahead)) } catch { return }
+            now = .now
         }
     }
 

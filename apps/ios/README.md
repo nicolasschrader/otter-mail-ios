@@ -147,28 +147,40 @@ add limited server grants (or an encrypted IMAP password), while mail content st
     the account's `calendar:time-format`.
   - `TaskFiles.swift`: the tasks on disk, one JSON file a scope in Application Support, written
     atomically like `MailCache` and the draft recovery copies. A scope is the signed-in Otter
-    account (the same slug the recovery uses) or `demo`, so the demo's tasks are their own.
+    account (the same slug the recovery uses) or `demo`, so the demo's tasks are their own. A file
+    that can't be read or decoded throws rather than reading as no tasks: the store then keeps it
+    as it is and refuses to write over it until the next sign-in, and a save returns only once it
+    is on disk, so the editor closes on a task that was really kept.
   - `TaskStore.swift`: what the screens render from, and the reminders. A reminder is a local
     `UNUserNotificationCenter` request at the due time, one per task under a stable identifier
     (`otter-task:<scope>:<id>`), so editing a task replaces its request and finishing or deleting
     one removes it. Reminders in the past are never scheduled, and because iOS keeps at most 64
     pending requests an app (mail's alerts need room too), only the nearest `TaskReminders.limit`
-    are, with the next scheduled each time the app comes forward. Notifications are asked for the
-    moment the user turns a reminder on and never before; while they're denied the editor says so
-    and offers iPhone Settings. Signing out takes that account's reminders down and leaves its
-    tasks on disk for the next sign-in, which schedules them again; leaving the demo does the same.
+    are, with the next scheduled each time the app comes forward; the editor says so for a reminder
+    further out than that (`waiting`), rather than promising one that can't arrive yet. The
+    notification work runs one job at a time, and each job's token goes stale as soon as anything
+    else is asked for, so a job queued before a deletion or a sign-out can't put its requests back.
+    Notifications are asked for the moment the user turns a reminder on and never before; while
+    they're denied the editor says so and offers iPhone Settings. Signing out takes that account's
+    reminders down — pending and already delivered — and leaves its tasks on disk for the next
+    sign-in, which schedules them again; leaving the demo does the same.
   - `TaskReminders.swift`: the identifiers, which reminders get requests, and which notification
     belongs to a task — `AppDelegate` checks that first, so task reminders open their task and
     everything else still routes to its conversation, and shows them in the foreground whatever
-    Settings › Notifications says about mail.
+    Settings › Notifications says about mail. `TaskReminding` is everything the store asks of
+    iOS's notification center, so the tests stand in for it.
   - `TasksView.swift`, `TaskEditor.swift`: the screens, in the app's own parts — the mail list's
     rows and swipe (`Home/MailSwipeActions.swift`: right to finish, left to delete), its collapsing
     headers, `ContentUnavailableView`, and Settings' grouped form. The reader's More menu has
     "Add task", prefilled with the subject and linked back; tapping that link on a task opens the
     conversation the way a notification's tap does. `DemoTasks.swift` is the demo's own tasks, two
     of them linked to its conversations.
+    The list keeps up with the clock while it's open (a tick a minute, and again when the app comes
+    forward), so Overdue and Today don't go stale under the user.
   - The pure parts — grouping and sorting, the JSON on disk, which reminders are scheduled and
-    what they're called, and which notifications are a task's — are `OtterMailTests/TaskTests.swift`.
+    which wait, what they're called, and which notifications are a task's — are
+    `OtterMailTests/TaskTests.swift`, along with the store's scheduling against the stand-in center:
+    a deletion and a sign-out while a notification job is suspended, and a file that can't be read.
 - `Mail/`: the model and `MailStore`, which screens render from. `DemoMail.swift` loads the demo.
 - Alias mailboxes (`NotificationShared/AliasMailbox.swift`, `MailStore.aliases`): an IMAP
   mailbox's address with a mailbox of its own, made on the Mac and the web (the account's

@@ -10,14 +10,38 @@ import UserNotifications
  */
 @Observable
 final class TaskStore {
+    enum Failure: LocalizedError {
+        case unreadable
+
+        var errorDescription: String? {
+            switch self {
+            case .unreadable:
+                "This iPhone's task file couldn't be read, so nothing was written over it. Reopen Otter Mail to try again."
+            }
+        }
+    }
+
     private(set) var tasks: [MailTask] = []
     private(set) var scope: String?
     /** Notifications are off for Otter Mail, so a reminder can't arrive (the editor says so). */
     private(set) var remindersDenied = false
+    /** Reminders iOS has no room for yet: they're asked for as the nearer ones arrive. */
+    private(set) var waiting: Set<UUID> = []
+    /** A save that didn't land, for the screen to show. */
+    var failure: String?
 
     @ObservationIgnored private let files: TaskFiles
+    @ObservationIgnored private let reminders: any TaskReminding
+    /** The reminder work in flight, so a newer job queues behind it rather than racing it. */
+    @ObservationIgnored private var queued: Task<Void, Never>?
+    @ObservationIgnored private var generation = 0
+    /** The file couldn't be read: it keeps whatever it holds until the next sign-in. */
+    @ObservationIgnored private var unreadable = false
 
-    init(files: TaskFiles = .live) { self.files = files }
+    init(files: TaskFiles = .live, reminders: any TaskReminding = LiveReminders()) {
+        self.files = files
+        self.reminders = reminders
+    }
 
     /** One scope an account, the same slug the draft recovery uses, and `demo` for the demo. */
     static func scope(user: String?) -> String {
@@ -27,9 +51,21 @@ final class TaskStore {
 
     func open(_ scope: String, seed: [MailTask] = []) {
         self.scope = scope
-        let known = files.exists(scope)
-        tasks = known ? files.load(scope) : seed
-        if !known { files.save(tasks, scope: scope) }
+        unreadable = false
+        failure = nil
+        do {
+            if let known = try files.load(scope) {
+                tasks = known
+            } else {
+                tasks = seed
+                persist()
+            }
+        } catch {
+            tasks = []
+            unreadable = true
+            failure = Failure.unreadable.localizedDescription
+            ErrorReports.capture(error, scope: "tasks")
+        }
         reschedule()
     }
 
@@ -38,28 +74,40 @@ final class TaskStore {
         let closing = scope
         tasks = []
         scope = nil
+        waiting = []
+        failure = nil
+        unreadable = false
         guard let closing else { return }
-        Task { await Self.forget(scope: closing) }
+        // Delivered reminders are their own list, and leaving the demo doesn't clear it otherwise.
+        notify { [reminders] _ in
+            let mine = await reminders.pending() + reminders.delivered()
+            let ours = mine.filter { TaskReminders.scope(of: $0) == closing }
+            await reminders.remove(pending: ours, delivered: ours)
+        }
     }
 
     func task(_ id: UUID) -> MailTask? { tasks.first { $0.id == id } }
 
     func contains(_ id: UUID) -> Bool { task(id) != nil }
 
-    func save(_ task: MailTask) {
+    /** Keeps a task, and only confirms it once the file is written (the editor waits on this). */
+    func save(_ task: MailTask) async throws {
         guard let scope else { return }
         var task = task
         task.content = task.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.content.isEmpty else { return }
-        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
-            tasks[index] = task
+        var keeping = tasks
+        if let index = keeping.firstIndex(where: { $0.id == task.id }) {
+            keeping[index] = task
         } else {
-            tasks.append(task)
+            keeping.append(task)
         }
-        files.save(tasks, scope: scope)
+        // On disk first: a write that throws leaves the list as it was, and the editor says why.
+        try await write(keeping, scope: scope)
+        tasks = keeping
         // Nothing is asked of the user for a reminder that has already passed.
         if let at = task.reminderAt, at > .now {
-            Task { await askForReminders() }
+            await askForReminders()
         } else {
             reschedule()
         }
@@ -68,75 +116,94 @@ final class TaskStore {
     func delete(_ task: MailTask) {
         guard let scope else { return }
         tasks.removeAll { $0.id == task.id }
-        files.save(tasks, scope: scope)
-        let identifier = TaskReminders.identifier(task.id, scope: scope)
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [identifier])
+        persist()
+        let gone = TaskReminders.identifier(task.id, scope: scope)
+        notify { [reminders] _ in await reminders.remove(pending: [gone], delivered: [gone]) }
         reschedule()
     }
 
     func setDone(_ done: Bool, _ task: MailTask) {
-        guard var found = self.task(task.id) else { return }
-        found.done = done
-        found.completed = done ? .now : nil
-        save(found)
+        guard let index = tasks.firstIndex(where: { $0.id == task.id }) else { return }
+        tasks[index].done = done
+        tasks[index].completed = done ? .now : nil
+        persist()
+        reschedule()
     }
 
     /** Asked only when the user sets a reminder, never before. */
     func askForReminders() async {
-        let center = UNUserNotificationCenter.current()
-        let status = await center.notificationSettings().authorizationStatus
-        if status == .notDetermined {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
-        }
+        if await reminders.status() == .notDetermined { await reminders.ask() }
         await checkReminders()
         reschedule()
     }
 
     func checkReminders() async {
-        let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        remindersDenied = status == .denied
+        remindersDenied = await reminders.status() == .denied
     }
 
     /** The nearest reminders, as requests; the ones that no longer apply are taken down. */
     func reschedule() {
         guard let scope else { return }
-        let requests = TaskReminders.scheduled(tasks).map { Self.request($0, scope: scope) }
-        Task { await Self.apply(requests, scope: scope) }
+        let due = TaskReminders.scheduled(tasks)
+        waiting = Set(TaskReminders.waiting(tasks).map(\.id))
+        notify { [weak self] mine in await self?.apply(due, scope: scope, generation: mine) }
     }
 
-    private static func apply(_ requests: [UNNotificationRequest], scope: String) async {
-        let center = UNUserNotificationCenter.current()
-        let status = await center.notificationSettings().authorizationStatus
+    /** Whether this task's reminder is one of the ones waiting, counted with the task as it stands. */
+    func isWaiting(_ task: MailTask) -> Bool {
+        var counted = tasks.filter { $0.id != task.id }
+        counted.append(task)
+        return TaskReminders.waiting(counted).contains { $0.id == task.id }
+    }
+
+    /** The reminder work queued so far, which the tests wait on. */
+    func settled() async {
+        await queued?.value
+    }
+
+    /**
+     * Reminder work, one job at a time: each waits for the one before it, and the
+     * token it carries goes stale the moment anything else is asked for, so a job
+     * from before a deletion or a sign-out can't put its requests back.
+     */
+    private func notify(_ work: @escaping (Int) async -> Void) {
+        generation += 1
+        let mine = generation
+        let previous = queued
+        queued = Task {
+            await previous?.value
+            await work(mine)
+        }
+    }
+
+    private func current(_ generation: Int) -> Bool { generation == self.generation }
+
+    private func apply(_ due: [MailTask], scope: String, generation mine: Int) async {
+        let status = await reminders.status()
         let allowed = [.authorized, .provisional, .ephemeral].contains(status)
-        let keep = allowed ? Set(requests.map(\.identifier)) : []
-        let mine = await center.pendingNotificationRequests()
-            .map(\.identifier)
-            .filter { TaskReminders.scope(of: $0) == scope && !keep.contains($0) }
-        center.removePendingNotificationRequests(withIdentifiers: mine)
+        guard current(mine) else { return }
+        let keep = allowed ? Set(due.map { TaskReminders.identifier($0.id, scope: scope) }) : []
+        let stale = await reminders.pending().filter { TaskReminders.scope(of: $0) == scope && !keep.contains($0) }
+        guard current(mine) else { return }
+        await reminders.remove(pending: stale, delivered: [])
         guard allowed else { return }
-        // The same identifier replaces its pending request, so an edited task keeps one.
-        for request in requests { try? await center.add(request) }
+        for task in due {
+            guard current(mine) else { return }
+            await reminders.add(task, scope: scope)
+        }
     }
 
-    private static func forget(scope: String) async {
-        let center = UNUserNotificationCenter.current()
-        let mine = await center.pendingNotificationRequests().map(\.identifier).filter { TaskReminders.scope(of: $0) == scope }
-        center.removePendingNotificationRequests(withIdentifiers: mine)
-        center.removeDeliveredNotifications(withIdentifiers: mine)
+    /** Writes in the background, for the changes the list makes; a failure shows there. */
+    private func persist() {
+        guard let scope else { return }
+        let keeping = tasks
+        Task {
+            do { try await write(keeping, scope: scope) } catch { failure = error.localizedDescription }
+        }
     }
 
-    private static func request(_ task: MailTask, scope: String) -> UNNotificationRequest {
-        let content = UNMutableNotificationContent()
-        content.title = task.content
-        content.body = task.reminderBody
-        content.sound = .default
-        content.userInfo = TaskReminders.payload(task, scope: scope)
-        let when = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: task.reminderAt ?? .now)
-        return UNNotificationRequest(
-            identifier: TaskReminders.identifier(task.id, scope: scope),
-            content: content,
-            trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: false)
-        )
+    private func write(_ tasks: [MailTask], scope: String) async throws {
+        guard !unreadable else { throw Failure.unreadable }
+        try await files.save(tasks, scope: scope)
     }
 }

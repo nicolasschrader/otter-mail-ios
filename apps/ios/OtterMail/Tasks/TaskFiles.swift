@@ -16,23 +16,34 @@ nonisolated final class TaskFiles: Sendable {
 
     private func file(_ scope: String) -> URL { folder.appending(path: "\(scope).json") }
 
-    func exists(_ scope: String) -> Bool {
-        queue.sync { FileManager.default.fileExists(atPath: file(scope).path) }
-    }
-
-    /** Reads on the writing queue, so it always sees the last save. */
-    func load(_ scope: String) -> [MailTask] {
-        queue.sync {
-            guard let data = try? Data(contentsOf: file(scope)) else { return [] }
-            return (try? JSONDecoder().decode([MailTask].self, from: data)) ?? []
+    /**
+     * The scope's tasks, read on the writing queue so it always sees the last
+     * save: nil when the scope has no file yet, and a throw when there is one
+     * that can't be read or decoded, which the store leaves alone rather than
+     * writing an empty list over.
+     */
+    func load(_ scope: String) throws -> [MailTask]? {
+        try queue.sync {
+            let file = file(scope)
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            return try JSONDecoder().decode([MailTask].self, from: try Data(contentsOf: file))
         }
     }
 
-    func save(_ tasks: [MailTask], scope: String) {
-        queue.async {
-            try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
-            guard let data = try? JSONEncoder().encode(tasks) else { return }
-            try? data.write(to: self.file(scope), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    /** Returns once the file is on disk, so a failure reaches whoever asked for the save. */
+    func save(_ tasks: [MailTask], scope: String) async throws {
+        let (folder, file) = (folder, file(scope))
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async {
+                do {
+                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    let data = try JSONEncoder().encode(tasks)
+                    try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 }

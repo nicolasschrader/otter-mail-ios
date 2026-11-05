@@ -1,14 +1,20 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import Otter_Mail
 
 /**
  * The tasks' pure parts: how the list groups and sorts them (in the calendar's
  * days, `CalendarDates`), the JSON on disk, which reminders are scheduled and
  * what their requests are called, and which notifications route to a task
- * rather than to mail.
+ * rather than to mail. The store's own scheduling is checked against a
+ * stand-in notification center (`Reminders`), which can hold a job mid-flight.
  */
 struct TaskTests {
+    private func folder() -> URL {
+        URL.temporaryDirectory.appending(path: "tasks-\(UUID().uuidString)", directoryHint: .isDirectory)
+    }
+
     private func zone(_ identifier: String = "Europe/Berlin") -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: identifier)!
@@ -128,6 +134,79 @@ struct TaskTests {
         #expect(TaskReminders.scheduled(many, now: now).count == TaskReminders.limit)
     }
 
+    @Test func namesTheRemindersThereIsNoRoomFor() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let reminding = { (name: String, seconds: TimeInterval) in
+            self.task(name, due: now.addingTimeInterval(seconds), hasTime: true, reminder: true)
+        }
+        let many = (1...TaskReminders.limit + 1).map { reminding("task \($0)", TimeInterval($0) * 60) }
+
+        #expect(TaskReminders.waiting(many, now: now).map(\.content) == ["task \(TaskReminders.limit + 1)"])
+        #expect(TaskReminders.waiting(Array(many.prefix(TaskReminders.limit)), now: now).isEmpty)
+        #expect(TaskReminders.waiting(many, now: now, limit: 2).count == TaskReminders.limit - 1)
+        // One that has passed is no longer scheduled, so it isn't waiting either.
+        #expect(TaskReminders.waiting([reminding("past", -60)], now: now, limit: 0).isEmpty)
+    }
+
+    @Test func tellsTheEditorWhichReminderIsStillWaiting() async {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let reminding = { (minutes: Int) in
+            self.task("task \(minutes)", due: .now.addingTimeInterval(TimeInterval(minutes) * 60), hasTime: true, reminder: true)
+        }
+        let many = (1...TaskReminders.limit + 1).map(reminding)
+        let store = TaskStore(files: TaskFiles(folder: folder), reminders: Reminders())
+        store.open("demo", seed: many)
+        await store.settled()
+
+        #expect(store.waiting == [many[TaskReminders.limit].id])
+        #expect(store.isWaiting(many[TaskReminders.limit]))
+        #expect(!store.isWaiting(many[0]))
+        // Brought forward, it takes a scheduled one's place.
+        var sooner = many[TaskReminders.limit]
+        sooner.due = .now.addingTimeInterval(30)
+        #expect(!store.isWaiting(sooner))
+    }
+
+    // MARK: Scheduling
+
+    @Test func doesntPutADeletedTasksReminderBack() async {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let reminders = Reminders(holding: true)
+        let store = TaskStore(files: TaskFiles(folder: folder), reminders: reminders)
+        let reminding = task("Call the clinic", due: .now.addingTimeInterval(3600), hasTime: true, reminder: true)
+        store.open("demo", seed: [reminding])
+
+        // The task is deleted while the first job is still asking iOS what's pending.
+        await reminders.reached()
+        store.delete(reminding)
+        await reminders.release()
+        await store.settled()
+
+        #expect(await reminders.added.isEmpty)
+        #expect(await reminders.pendingIds.isEmpty)
+    }
+
+    @Test func takesTheScopesRemindersDownOnSignOutMidFlight() async {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let reminding = task("Call the clinic", due: .now.addingTimeInterval(3600), hasTime: true, reminder: true)
+        let delivered = TaskReminders.identifier(reminding.id, scope: "demo")
+        let reminders = Reminders(holding: true, delivered: [delivered, "mail:robin@otter.example"])
+        let store = TaskStore(files: TaskFiles(folder: folder), reminders: reminders)
+        store.open("demo", seed: [reminding])
+
+        await reminders.reached()
+        store.close()
+        await reminders.release()
+        await store.settled()
+
+        #expect(await reminders.added.isEmpty)
+        // A reminder already in Notification Center goes too; mail's notifications stay.
+        #expect(await reminders.deliveredIds == ["mail:robin@otter.example"])
+    }
+
     @Test func namesOneRequestPerTaskAndFindsItsScope() {
         let id = UUID()
         let identifier = TaskReminders.identifier(id, scope: "demo")
@@ -159,13 +238,13 @@ struct TaskTests {
 
     // MARK: On disk
 
-    @Test func keepsTasksOnDiskPerScope() throws {
-        let folder = URL.temporaryDirectory.appending(path: "tasks-\(UUID().uuidString)", directoryHint: .isDirectory)
+    @Test func keepsTasksOnDiskPerScope() async throws {
+        let folder = folder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let files = TaskFiles(folder: folder)
 
-        #expect(!files.exists("demo"))
-        #expect(files.load("demo").isEmpty)
+        // No file yet is not the same as a file that reads as no tasks.
+        #expect(try files.load("demo") == nil)
 
         let linked = MailTask(
             content: "Say yes to dinner",
@@ -175,15 +254,49 @@ struct TaskTests {
             reminder: true,
             email: TaskEmail(mailbox: "robin@otter.example", thread: "t1", message: "m1", subject: "Dinner Saturday?")
         )
-        files.save([linked, MailTask(content: "Water the plot")], scope: "demo")
+        try await files.save([linked, MailTask(content: "Water the plot")], scope: "demo")
 
-        #expect(files.exists("demo"))
-        let loaded = files.load("demo")
-        #expect(loaded.count == 2)
-        #expect(loaded.first == linked)
-        #expect(loaded.first?.email?.thread == "t1")
+        let loaded = try files.load("demo")
+        #expect(loaded?.count == 2)
+        #expect(loaded?.first == linked)
+        #expect(loaded?.first?.email?.thread == "t1")
         // One scope an account: the demo's tasks aren't another's.
-        #expect(files.load("cm9iaW4=").isEmpty)
+        #expect(try files.load("cm9iaW4=") == nil)
+    }
+
+    @Test func keepsAFileItCantReadAndSaysSo() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "demo.json")
+        let broken = Data(#"[{"id":"not a uuid"}]"#.utf8)
+        try broken.write(to: file)
+        let files = TaskFiles(folder: folder)
+
+        #expect(throws: (any Error).self) { try files.load("demo") }
+
+        let store = TaskStore(files: files, reminders: Reminders())
+        store.open("demo", seed: [task("seeded")])
+        #expect(store.tasks.isEmpty)
+        #expect(store.failure != nil)
+
+        // Nothing is written over a file that might still hold the user's tasks.
+        await #expect(throws: (any Error).self) { try await store.save(self.task("Buy the tickets")) }
+        #expect(store.tasks.isEmpty)
+        #expect(try Data(contentsOf: file) == broken)
+    }
+
+    @Test func doesntConfirmASaveThatCouldntBeWritten() async throws {
+        let blocked = URL.temporaryDirectory.appending(path: "tasks-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: blocked) }
+        // A file where the folder would go: the write fails, and the editor is told.
+        try Data("not a folder".utf8).write(to: blocked)
+        let files = TaskFiles(folder: blocked.appending(path: "tasks", directoryHint: .isDirectory))
+        let store = TaskStore(files: files, reminders: Reminders())
+        store.open("demo")
+
+        await #expect(throws: (any Error).self) { try await store.save(self.task("Buy the tickets")) }
+        #expect(store.tasks.isEmpty)
     }
 
     @Test func readsAFileMissingTheFieldsItDoesntHaveYet() throws {
@@ -225,5 +338,69 @@ struct TaskTests {
         #expect(task.email?.message == "m1")
         // Without notes, a reminder says which conversation it came from.
         #expect(task.reminderBody == "From: Dinner Saturday? 🍝")
+    }
+}
+
+/**
+ * Stands in for iOS's notification center: it keeps what was asked of it, and
+ * can hold a job where the real one would be answering, so what the store does
+ * meanwhile is what the tests are about.
+ */
+private actor Reminders: TaskReminding {
+    private(set) var added: [String] = []
+    private(set) var pendingIds: [String] = []
+    private(set) var deliveredIds: [String] = []
+    private var holding: Bool
+    private var atGate = false
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var held: CheckedContinuation<Void, Never>?
+
+    init(holding: Bool = false, delivered: [String] = []) {
+        self.holding = holding
+        deliveredIds = delivered
+    }
+
+    func status() async -> UNAuthorizationStatus { .authorized }
+
+    func ask() async {}
+
+    func pending() async -> [String] {
+        await hold()
+        return pendingIds
+    }
+
+    func delivered() async -> [String] { deliveredIds }
+
+    func remove(pending: [String], delivered: [String]) async {
+        pendingIds.removeAll { pending.contains($0) }
+        deliveredIds.removeAll { delivered.contains($0) }
+    }
+
+    func add(_ task: MailTask, scope: String) async {
+        let identifier = TaskReminders.identifier(task.id, scope: scope)
+        added.append(identifier)
+        if !pendingIds.contains(identifier) { pendingIds.append(identifier) }
+    }
+
+    /** Waits for a job to reach the hold. */
+    func reached() async {
+        guard !atGate else { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+
+    /** Lets it go on, and answers every job after it. */
+    func release() {
+        holding = false
+        atGate = false
+        held?.resume()
+        held = nil
+    }
+
+    private func hold() async {
+        guard holding else { return }
+        atGate = true
+        waiting?.resume()
+        waiting = nil
+        await withCheckedContinuation { held = $0 }
     }
 }

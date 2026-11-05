@@ -242,7 +242,7 @@ nonisolated struct CalendarDates {
 
     private func meridiem(_ text: String) -> String? {
         let symbols = fixed("a")
-        for symbol in [symbols.amSymbol, symbols.pmSymbol] where !symbol.isEmpty {
+        for symbol in [symbols.amSymbol, symbols.pmSymbol].compactMap({ $0 }) where !symbol.isEmpty {
             if text.hasSuffix(" " + symbol) { return " " + symbol }
             if text.hasSuffix(symbol) { return symbol }
         }

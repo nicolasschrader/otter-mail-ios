@@ -15,6 +15,8 @@ struct TaskEditor: View {
 
     @State private var task: MailTask
     @State private var fallback: Date
+    @State private var saving = false
+    @State private var error: String?
 
     init(task: MailTask, onEmail: @escaping (TaskEmail) -> Void) {
         _task = State(initialValue: task)
@@ -97,15 +99,29 @@ struct TaskEditor: View {
                     Button("Close", systemImage: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        tasks.save(task)
-                        dismiss()
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(task.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                        .fontWeight(.semibold)
+                        .disabled(saving || task.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .task { await tasks.checkReminders() }
+            .alert("Couldn't save the task", isPresented: .constant(error != nil)) {
+                Button("OK") { error = nil }
+            } message: {
+                Text(error ?? "")
+            }
+        }
+    }
+
+    /** The sheet closes only once the task is on disk; otherwise it stays, with the changes. */
+    private func save() async {
+        saving = true
+        defer { saving = false }
+        do {
+            try await tasks.save(task)
+            dismiss()
+        } catch {
+            self.error = error.localizedDescription
         }
     }
 
@@ -115,6 +131,9 @@ struct TaskEditor: View {
         }
         if task.reminder && passed {
             return "This time has passed, so no reminder is sent. Pick a later one."
+        }
+        if task.reminder && tasks.isWaiting(task) {
+            return "This iPhone keeps the \(TaskReminders.limit) nearest reminders, and more are set before this one. It's asked for once an earlier reminder has arrived and Otter Mail has been opened."
         }
         if task.reminder { return "A reminder arrives on this iPhone at that time. Nothing is sent anywhere." }
         if task.hasTime { return "Turn on Remind me to be told at that time." }
