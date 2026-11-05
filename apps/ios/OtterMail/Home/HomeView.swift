@@ -22,6 +22,8 @@ struct HomeView: View {
     @State private var agentOpen = false
     @State private var searchOpen = false
     @State private var calendarOpen = false
+    @State private var tasksOpen = false
+    @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
 
@@ -35,6 +37,7 @@ struct HomeView: View {
                 if !shown.contains(place.scope) { place = Place(scope: shown.first ?? "") }
             }
             .onChange(of: session.opening, initial: true) { _, _ in openNotification() }
+            .onChange(of: session.openingTask, initial: true) { _, _ in openTaskReminder() }
             .onChange(of: store.sync?.loadingCache) { _, loading in
                 if loading == false { openNotification() }
             }
@@ -51,6 +54,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $searchOpen) { search }
             .sheet(isPresented: $calendarOpen) { CalendarView(scope: place.scope) }
+            .sheet(isPresented: $tasksOpen, onDismiss: { openingTask = nil }) {
+                TasksView(opening: openingTask, onEmail: openTaskEmail)
+            }
     }
 
     private var mail: some View {
@@ -99,6 +105,7 @@ struct HomeView: View {
                             onMailbox: { switchMailbox($0) },
                             onSearch: { setMenu(open: false); searchOpen = true },
                             onCalendar: { setMenu(open: false); calendarOpen = true },
+                            onTasks: { setMenu(open: false); tasksOpen = true },
                             onSettings: { setMenu(open: false); settingsOpen = true },
                             onMenu: { setMenu(open: !menuOpen) },
                             onAgent: { agentOpen = true }
@@ -181,11 +188,42 @@ struct HomeView: View {
             agentOpen = false
             searchOpen = false
             calendarOpen = false
+            tasksOpen = false
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
                 path = [thread]
             } else { path = [] }
         }
+    }
+
+    /** A task reminder opens that task over the list, wherever the app was. */
+    private func openTaskReminder() {
+        guard let destination = session.openingTask else { return }
+        session.openingTask = nil
+        guard destination.scope == session.tasks.scope, session.tasks.contains(destination.id) else { return }
+        setMenu(open: false)
+        agentOpen = false
+        searchOpen = false
+        calendarOpen = false
+        settingsOpen = false
+        openingTask = destination.id
+        tasksOpen = true
+    }
+
+    /** The conversation a task came from, opened as a notification's is. */
+    private func openTaskEmail(_ email: TaskEmail) {
+        tasksOpen = false
+        if let thread = store.thread(email.thread) {
+            let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox
+            place = Place(scope: scope)
+            path = [thread.id]
+            return
+        }
+        // Not cached (or no longer there): the notification path fetches it, or lands on the mailbox.
+        guard !store.isDemo else { return }
+        session.opening = Session.NotificationDestination(
+            userId: session.user?.id, email: email.mailbox, thread: email.thread, message: email.message
+        )
     }
 
     private func setMenu(open: Bool) {

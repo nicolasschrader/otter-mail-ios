@@ -341,6 +341,27 @@ its own.
 | Keys: T today, D / W / M view, J / K or ← → to step                                                                                                                               | ✓   | ✓   | —      |
 | Settings → Calendar (follows your Otter account): start of week, weekends, declined events, 12 / 24-hour, a meeting on new events by mailbox                                      | ✓   | ✓   | Read   |
 
+## Tasks (iPhone)
+
+A small to-do list of its own on the iPhone (⌃⌄ › Tasks), local to the phone: what's open by when
+it's due (overdue, today, upcoming, no date) and what's done under a heading that folds away.
+Swipe a row right to finish it, left to delete it; tap it to change it. "Add task" in a
+conversation's More menu fills in the subject and links back, and tapping that link opens the
+conversation. A due date can have a time, and a time can remind: a local notification on that
+phone at that time, which opens its task. Notifications are asked for the moment a reminder is
+turned on, never before, and the editor says so while they're off. Tasks belong to the signed-in
+Otter account (the demo has its own, with a few to look at) and stay on the phone: they sync
+nowhere — not to the relay, not to Todoist, not to Google. The Mac and web apps' task feature is
+the Todoist integration above, which is a Todoist account's tasks.
+
+| Feature                                                           | Mac | Web | iPhone                 |
+| ----------------------------------------------------------------- | --- | --- | ---------------------- |
+| Local tasks: add, edit, delete, done / not done                   | —   | —   | ✓                      |
+| Sorted by due: overdue, today, upcoming, no date; done folds away | —   | —   | ✓                      |
+| Optional due date, a time, and a reminder at that time            | —   | —   | ✓ (local notification) |
+| Add a task from a conversation, with a link back to it            | —   | —   | ✓                      |
+| Stored on the device, per Otter account (demo apart); no sync     | —   | —   | ✓                      |
+
 ## Contacts & avatars
 
 | Feature       | Mac                                                                               | Web | iPhone        |
@@ -381,7 +402,7 @@ recalled. See [behavior and setup](../apps/ios/README.md#verified-background-not
 | New mail during a long sync           | ✓                                  | ✓                      | —                                    |
 | Changes applied at once, synced after | ✓                                  | ✓                      | ✓ (no outbox)                        |
 
-On iPhone, a glass bar under the list holds the mailbox's picture (tap to switch mailbox), Inbox, Drafts, Search (a sheet that searches the mailbox shown) and ⌃⌄, which opens every other folder and label, Search and Settings. The Agent (with an agent on, or an Otter account's chats to read) has its own round button beside it and opens as a sheet. The bar steps aside for the reader and selection. Conversations zoom from their list rows (respecting Reduce Motion), the reader's navigation bar minimizes while scrolling, and selection morphs the glass buttons into bulk actions.
+On iPhone, a glass bar under the list holds the mailbox's picture (tap to switch mailbox), Inbox, Drafts, Search (a sheet that searches the mailbox shown) and ⌃⌄, which opens every other folder and label, Calendar, Tasks, Search and Settings. The Agent (with an agent on, or an Otter account's chats to read) has its own round button beside it and opens as a sheet. The bar steps aside for the reader and selection. Conversations zoom from their list rows (respecting Reduce Motion), the reader's navigation bar minimizes while scrolling, and selection morphs the glass buttons into bulk actions.
 
 ## Settings & customization
 

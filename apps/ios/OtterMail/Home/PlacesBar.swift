@@ -13,6 +13,7 @@ struct PlacesBar: View {
     let onMailbox: (Mailbox) -> Void
     let onSearch: () -> Void
     let onCalendar: () -> Void
+    let onTasks: () -> Void
     let onSettings: () -> Void
     let onMenu: () -> Void
     let onAgent: () -> Void
@@ -25,7 +26,8 @@ struct PlacesBar: View {
             HStack(alignment: .bottom, spacing: 12) {
                 ZStack(alignment: .bottomLeading) {
                     if menuOpen {
-                        PlacesPanel(place: place, onSelect: onPlace, onSearch: onSearch, onCalendar: onCalendar, onSettings: onSettings)
+                        PlacesPanel(place: place, onSelect: onPlace, onSearch: onSearch, onCalendar: onCalendar,
+                                    onTasks: onTasks, onSettings: onSettings)
                             .frame(maxHeight: 560)
                             .fixedSize(horizontal: false, vertical: true)
                             .glassEffect(.regular, in: .rect(cornerRadius: 32))
@@ -113,12 +115,14 @@ struct PlacesBar: View {
 
 struct PlacesPanel: View {
     @Environment(MailStore.self) private var store
+    @Environment(Session.self) private var session
     @Environment(\.palette) private var palette
 
     let place: Place
     let onSelect: (Place) -> Void
     let onSearch: () -> Void
     let onCalendar: () -> Void
+    let onTasks: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
@@ -151,6 +155,7 @@ struct PlacesPanel: View {
                     if mailbox?.capabilities.calendar == true {
                         row("Calendar", symbol: "calendar", action: onCalendar)
                     }
+                    row("Tasks", symbol: "checklist", count: session.tasks.tasks.count(where: { !$0.done }), action: onTasks)
                     row("Search", symbol: "magnifyingglass", action: onSearch)
                     row("Settings", symbol: "gearshape", action: onSettings)
                     SyncStatusLine(scope: mailbox?.source ?? place.scope)

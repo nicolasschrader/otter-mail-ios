@@ -9,9 +9,9 @@ their code.
 - **Linear's frame.** The mail list is the page, with All and Unread pills under its title and
   Compose and More at the top right. Under it, a glass bar (`Home/PlacesBar.swift`): the mailbox's
   picture (tap to switch mailbox, the one switcher), Inbox, Drafts, Search, and ⌃⌄ for every other
-  place (the mailbox's folders and labels, Calendar where the provider has one, Search, Settings;
-  the title opens it too). The agent has its own round button beside the bar and opens as a sheet;
-  so does Search, and so does the calendar. Settings is ChatGPT's grouped sheet.
+  place (the mailbox's folders and labels, Calendar where the provider has one, Tasks, Search,
+  Settings; the title opens it too). The agent has its own round button beside the bar and opens as a sheet;
+  so does Search, and so do the calendar and Tasks. Settings is ChatGPT's grouped sheet.
   Gmail's folders include All Mail and Important; Outlook's and IMAP's an Archive of their own,
   and their Starred is Flagged (a flag, not a star).
 - **The desktop's rows.** The sender's picture, who and when, the subject, a line of the latest
@@ -133,6 +133,42 @@ add limited server grants (or an encrypted IMAP password), while mail content st
     The sign-in asks for `calendar.readonly`, so a mailbox that
     signed in before that offers signing in again instead of a calendar (core's
     `NoCalendarAccess`). `DemoCalendar.swift` is the demo's own events.
+- `Tasks/`: **new logic, this app's own.** A small to-do list with reminders, local to this iPhone:
+  it is not a port, and no other Otter app has one (Otter Mail's only task feature is the Todoist
+  extension, which needs a Todoist account and Todoist's cloud). **Nothing here syncs** — no relay,
+  no Todoist, no Google. The data model mirrors the Todoist extension's shape
+  (`packages/contracts/src/todoist.ts`: `content`, `description` as `notes`, an optional due date,
+  and the email a task came from, `{ accountId, messageId }`, here the mailbox's address plus the
+  thread and message), so a later sync has somewhere to go; none is implemented.
+  - `Tasks.swift`: `MailTask` and `TaskEmail`, and `TaskList`, which groups the list into Overdue,
+    Today, Upcoming and No date (then Done) and labels a due date. It asks
+    `Calendar/CalendarDates.swift` — the dates ported from the Mac and web apps — for days and
+    times rather than counting its own, so "today" and "18:30" read as the calendar's do and follow
+    the account's `calendar:time-format`.
+  - `TaskFiles.swift`: the tasks on disk, one JSON file a scope in Application Support, written
+    atomically like `MailCache` and the draft recovery copies. A scope is the signed-in Otter
+    account (the same slug the recovery uses) or `demo`, so the demo's tasks are their own.
+  - `TaskStore.swift`: what the screens render from, and the reminders. A reminder is a local
+    `UNUserNotificationCenter` request at the due time, one per task under a stable identifier
+    (`otter-task:<scope>:<id>`), so editing a task replaces its request and finishing or deleting
+    one removes it. Reminders in the past are never scheduled, and because iOS keeps at most 64
+    pending requests an app (mail's alerts need room too), only the nearest `TaskReminders.limit`
+    are, with the next scheduled each time the app comes forward. Notifications are asked for the
+    moment the user turns a reminder on and never before; while they're denied the editor says so
+    and offers iPhone Settings. Signing out takes that account's reminders down and leaves its
+    tasks on disk for the next sign-in, which schedules them again; leaving the demo does the same.
+  - `TaskReminders.swift`: the identifiers, which reminders get requests, and which notification
+    belongs to a task — `AppDelegate` checks that first, so task reminders open their task and
+    everything else still routes to its conversation, and shows them in the foreground whatever
+    Settings › Notifications says about mail.
+  - `TasksView.swift`, `TaskEditor.swift`: the screens, in the app's own parts — the mail list's
+    rows and swipe (`Home/MailSwipeActions.swift`: right to finish, left to delete), its collapsing
+    headers, `ContentUnavailableView`, and Settings' grouped form. The reader's More menu has
+    "Add task", prefilled with the subject and linked back; tapping that link on a task opens the
+    conversation the way a notification's tap does. `DemoTasks.swift` is the demo's own tasks, two
+    of them linked to its conversations.
+  - The pure parts — grouping and sorting, the JSON on disk, which reminders are scheduled and
+    what they're called, and which notifications are a task's — are `OtterMailTests/TaskTests.swift`.
 - `Mail/`: the model and `MailStore`, which screens render from. `DemoMail.swift` loads the demo.
 - Alias mailboxes (`NotificationShared/AliasMailbox.swift`, `MailStore.aliases`): an IMAP
   mailbox's address with a mailbox of its own, made on the Mac and the web (the account's

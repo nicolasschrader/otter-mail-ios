@@ -15,6 +15,7 @@ struct ThreadView: View {
     @State private var siblings: [String] = []
     @State private var expanded: Set<String> = []
     @State private var asking: [MailContext]?
+    @State private var newTask: MailTask?
 
     var body: some View {
         if let thread = store.thread(threadID), let mailbox = store.mailbox(thread.mailbox) {
@@ -79,6 +80,9 @@ struct ThreadView: View {
                     Button("Forward", systemImage: "arrowshape.turn.up.right") {
                         draft = store.forward(thread, in: place.scope)
                     }
+                    Button("Add task", systemImage: "checklist") {
+                        newTask = MailTask(from: thread, mailbox: shown(mailbox).email)
+                    }
                     if let unsubscribe = Unsubscribe(thread.sent.last?.headers ?? [:]) {
                         Button("Unsubscribe", systemImage: "hand.raised") {
                             Task { await unsubscribe.run(from: shown(mailbox), compose: { draft = $0 }) }
@@ -93,6 +97,10 @@ struct ThreadView: View {
             replyBar(thread, mailbox)
         }
         .toolbarVisibility(.hidden, for: .tabBar)
+        .sheet(item: $newTask) { task in
+            // Already in the conversation it links to, so its link stays on the task's own screen.
+            TaskEditor(task: task, onEmail: { _ in newTask = nil })
+        }
         .sheet(isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
             NavigationStack {
                 AgentView(context: asking ?? [], sheet: true)
