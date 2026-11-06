@@ -27,6 +27,7 @@ struct HomeView: View {
     @State private var agentOpen = false
     @State private var searchOpen = false
     @State private var section: HomeSection = .mail
+    @State private var calendar = CalendarStore()
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
@@ -87,7 +88,7 @@ struct HomeView: View {
                 }
             }
         case .calendar:
-            withPlaces(CalendarView(scope: place.scope, onTitle: { setMenu(open: true) }))
+            withPlaces(CalendarView(scope: place.scope, events: calendar, onTitle: { setMenu(open: true) }))
         case .tasks:
             withPlaces(TasksView(
                 opening: openingTask, scope: place.scope, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }

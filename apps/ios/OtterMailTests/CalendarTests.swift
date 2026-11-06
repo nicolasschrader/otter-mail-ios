@@ -733,4 +733,11 @@ struct CalendarTests {
         #expect(offsite.first?.allDay == true)
         #expect(EventDays.byDay(offsite, days: dates.days(in: month), dates: dates).count == 3)
     }
+
+    @Test func aWindowIsFreshForThirtySecondsAsOnTheMac() {
+        let loaded = Date(timeIntervalSince1970: 1_000)
+        #expect(CalendarStore.isFresh(loaded, now: loaded.addingTimeInterval(29)))
+        #expect(!CalendarStore.isFresh(loaded, now: loaded.addingTimeInterval(30)))
+        #expect(!CalendarStore.isFresh(nil, now: loaded))
+    }
 }

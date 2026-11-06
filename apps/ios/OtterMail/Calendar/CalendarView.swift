@@ -15,9 +15,10 @@ struct CalendarView: View {
     @Environment(\.palette) private var palette
 
     let scope: String
+    /** Held by HomeView, so the events outlive switching sections. */
+    let events: CalendarStore
     var onTitle: () -> Void = {}
 
-    @State private var events = CalendarStore()
     @State private var mode: CalendarMode = .agenda
     @State private var anchor = Date.now
     @State private var picked: Date?
@@ -371,5 +372,8 @@ struct CalendarView: View {
         await events.load(
             window, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates, force: force
         )
+        guard mode != .agenda, !Task.isCancelled else { return }
+        let neighbours = [-1, 1].map { dates.window(mode, anchor: dates.step(mode, anchor, by: $0)) }
+        await events.prefetch(neighbours, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates)
     }
 }
