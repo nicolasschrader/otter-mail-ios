@@ -1,11 +1,26 @@
 import Foundation
 
-/** What the calendar screen is looking at, in the web app's order (CALENDAR_MODES); Agenda is the phone's own. */
+/** What the calendar screen is looking at: the web app's modes (CALENDAR_MODES) and the phone's own Agenda. */
 nonisolated enum CalendarMode: String, CaseIterable, Identifiable {
     case day, week, month, agenda
 
+    /** The phone's picker and swipe pages, left to right; Week stays the Mac and web apps' own. */
+    static let phone: [CalendarMode] = [.agenda, .day, .month]
+
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
+
+    /** The page `by` steps along `phone`, none past either end. */
+    func neighbour(_ by: Int) -> CalendarMode? {
+        guard let index = Self.phone.firstIndex(of: self), Self.phone.indices.contains(index + by) else { return nil }
+        return Self.phone[index + by]
+    }
+
+    /** A drag that is mostly sideways and long enough turns the page: left to the next, right to the one before. */
+    static func swipe(_ translation: CGSize) -> Int? {
+        guard abs(translation.width) > 60, abs(translation.width) > abs(translation.height) * 2 else { return nil }
+        return translation.width < 0 ? 1 : -1
+    }
 }
 
 nonisolated struct EventWindow: Hashable {

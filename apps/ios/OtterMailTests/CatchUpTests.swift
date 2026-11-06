@@ -32,4 +32,10 @@ struct CatchUpTests {
         #expect(CatchUp.mark(thread("a"), labels: []) == .star)
         #expect(CatchUp.mark(thread("a", starred: true), labels: []) == nil)
     }
+
+    @MainActor @Test func movesOnOnceAnUnsubscribeGoesThroughOrIsHandedOff() {
+        #expect(CatchUp.advances(after: .done))
+        #expect(CatchUp.advances(after: .openedPage))
+        #expect(!CatchUp.advances(after: .failed("No network")))
+    }
 }

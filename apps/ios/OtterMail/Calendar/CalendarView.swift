@@ -3,8 +3,9 @@ import SwiftUI
 /**
  * The mailbox's calendar, a section of the home screen in the mail's place,
  * chosen from the bottom bar or the places bar (⌃⌄ › Calendar), in the
- * Mac and web apps' modes (CALENDAR_MODES: Day, Week, Month) and the agenda of
- * the days ahead. It follows the account's Settings › Calendar
+ * phone's pages, Agenda, Day and Month (the Mac and web apps' CALENDAR_MODES
+ * less Week, with the agenda of the days ahead), turned by the picker or a
+ * sideways swipe. It follows the account's Settings › Calendar
  * (`CalendarPreferences`). Read-only, as the sign-in asks only to read the
  * calendar; answering an invitation stays in the mail.
  */
@@ -13,6 +14,7 @@ struct CalendarView: View {
     @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let scope: String
     /** Held by HomeView, so the events outlive switching sections. */
@@ -27,6 +29,8 @@ struct CalendarView: View {
     @State private var visibility = CalendarShown()
     /** Listing the calendars to show or hide, in the events' place. */
     @State private var listing = false
+    /** Where the next page comes in from: the side the swipe or the picker moves toward. */
+    @State private var edge: Edge = .trailing
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
     private var mailbox: Mailbox? { store.mailbox(for: scope) }
@@ -85,7 +89,7 @@ struct CalendarView: View {
                 if listing {
                     calendarList(mailbox)
                 } else {
-                    list(mailbox).refreshable { await load(force: true) }
+                    pages(mailbox)
                 }
             }
             .task(id: window) { await load() }
@@ -156,9 +160,43 @@ struct CalendarView: View {
         .contentMargins(.bottom, 24, for: .scrollContent)
     }
 
+    /** Agenda, Day and Month side by side: a sideways swipe anywhere turns to the next, as the picker does. */
+    private func pages(_ mailbox: Mailbox) -> some View {
+        VStack(spacing: 0) {
+            modes
+            ZStack {
+                list(mailbox)
+                    .refreshable { await load(force: true) }
+                    .id(mode)
+                    .transition(reduceMotion ? AnyTransition.opacity : .push(from: edge))
+            }
+            .clipped()
+        }
+        // Alongside the list's own scrolling, which keeps every drag that is mostly up or down.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24).onEnded { drag in
+                if let by = CalendarMode.swipe(drag.translation), let next = mode.neighbour(by) { select(next) }
+            }
+        )
+    }
+
+    private func select(_ option: CalendarMode) {
+        guard option != mode else { return }
+        let order = CalendarMode.phone
+        edge = (order.firstIndex(of: option) ?? 0) > (order.firstIndex(of: mode) ?? 0) ? .trailing : .leading
+        // The page going out takes its transition from the render before the change, so the side lands first.
+        Task { @MainActor in
+            withAnimation(.snappy(duration: 0.3)) {
+                mode = option
+                picked = nil
+                // The agenda is the days ahead and has no way to move: it starts today.
+                if option == .agenda { anchor = .now }
+            }
+        }
+    }
+
     private func list(_ mailbox: Mailbox) -> some View {
         List {
-            modes
             if mode == .day { periodRow }
             if mode == .week { weekStrip }
             if mode == .month { monthGrid }
@@ -251,12 +289,9 @@ struct CalendarView: View {
 
     private var modes: some View {
         HStack(spacing: 4) {
-            ForEach(CalendarMode.allCases) { option in
+            ForEach(CalendarMode.phone) { option in
                 Button {
-                    mode = option
-                    picked = nil
-                    // The agenda is the days ahead and has no way to move: it starts today.
-                    if option == .agenda { anchor = .now }
+                    select(option)
                 } label: {
                     Text(option.title)
                         .font(.inter(.subheadline).weight(.medium))
@@ -271,9 +306,7 @@ struct CalendarView: View {
             }
             Spacer()
         }
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-        .listRowSeparator(.hidden)
-        .listRowBackground(palette.canvas)
+        .padding(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }
 
     private var periodRow: some View {

@@ -25,6 +25,14 @@ nonisolated enum CatchUp {
         }
         return thread.starred ? nil : .star
     }
+
+    /** An unsubscribe that went through, or was handed to the sender's page, is done with the card; a failure keeps it. */
+    static func advances(after outcome: Unsubscribe.Outcome) -> Bool {
+        switch outcome {
+        case .done, .openedPage: true
+        case .failed: false
+        }
+    }
 }
 
 /** Unread mail one conversation at a time: right to mark it read, left to keep it for later. */
@@ -38,7 +46,6 @@ struct CatchUpView: View {
 
     @State private var passed: Set<String> = []
     @State private var unsubscribing: Set<String> = []
-    @State private var unsubscribed: Set<String> = []
     @State private var notice: Notice?
 
     private struct Notice: Equatable {
@@ -59,12 +66,7 @@ struct CatchUpView: View {
                         .modifier(MailSwipeActions(leading: readAction(thread), trailing: markAction(thread, mailbox)))
                         .id(thread.id)
                         .padding(.horizontal, 12)
-                        .overlay(alignment: .bottom) {
-                            if let notice {
-                                NoticeBanner(text: notice.text).padding(.bottom, 12).id(notice.id)
-                            }
-                        }
-                        .animation(.snappy(duration: 0.2), value: notice)
+                        .overlay(alignment: .bottom) { banner }
                     buttons(thread, mailbox)
                 }
                 .padding(.top, 4)
@@ -75,6 +77,8 @@ struct CatchUpView: View {
                     Button("Back to Inbox", action: onBack)
                 }
                 .foregroundStyle(palette.muted)
+                // The last card's unsubscribe still says how it went.
+                .overlay(alignment: .bottom) { banner }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -101,6 +105,15 @@ struct CatchUpView: View {
             try? await Task.sleep(for: .seconds(4))
             notice = nil
         }
+    }
+
+    private var banner: some View {
+        ZStack {
+            if let notice {
+                NoticeBanner(text: notice.text).padding(.bottom, 12).id(notice.id)
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: notice)
     }
 
     /** The inbox as its list has it, so the count and the cards match it. */
@@ -145,9 +158,7 @@ struct CatchUpView: View {
                 // Out of the inbox, so the card goes by itself; Undo brings it back.
                 button("Archive", symbol: "archivebox") { store.archive(thread.id) }
             }
-            if unsubscribed.contains(thread.id) {
-                button("Unsubscribed", symbol: "checkmark") {}.disabled(true)
-            } else if let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
+            if let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
                 let working = unsubscribing.contains(thread.id)
                 button(working ? "Unsubscribing…" : "Unsubscribe", symbol: "hand.raised") {
                     run(unsubscribe, thread, mailbox)
@@ -166,7 +177,7 @@ struct CatchUpView: View {
         Task {
             let outcome = await unsubscribe.run(from: shown, store: store)
             unsubscribing.remove(thread.id)
-            if outcome == .done { unsubscribed.insert(thread.id) }
+            if CatchUp.advances(after: outcome) { passed.insert(thread.id) }
             outcome.haptic()
             notice = Notice(text: outcome.notice(from: sender))
         }
