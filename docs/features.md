@@ -318,8 +318,9 @@ The iPhone reads every Google mailbox's calendars in one, as the Mac and web do 
 Calendar), its calendar button listing them by mailbox to show or hide, and the bar's ⌃⌄ opening the
 mail's places panel for them: All calendars, each mailbox (which scopes the calendar to it) with its
 calendars under it to switch, and holding one for Show only this calendar and its color (synced as on
-the Mac and web), in the same modes: a day, the month's
-grid where a day lists itself, and the days ahead as an agenda, Day and Month with ‹ › and Today,
+the Mac and web), in the same modes: a day's hours (the all-day row, events by their times, side
+by side where they overlap, and a line at now), the month's grid where a day lists its whole week
+day by day, and the days ahead as an agenda, Day and Month with ‹ › and Today,
 and an event's own screen (where it is,
 the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
 when that clock differs). An event over several days says where it starts and ends on each of them,

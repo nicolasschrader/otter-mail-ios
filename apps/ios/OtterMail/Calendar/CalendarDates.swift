@@ -123,6 +123,11 @@ nonisolated struct CalendarDates {
         }
     }
 
+    /** The week a month's day is in, as the month shows its days (weekends as Settings has them). */
+    func week(of day: Date) -> [Date] {
+        visibleDays(.week, day, weekends: showsWeekends(.month))
+    }
+
     func step(_ mode: CalendarMode, _ date: Date, by: Int) -> Date {
         switch mode {
         case .day: addDays(date, by)
@@ -173,6 +178,12 @@ nonisolated struct CalendarDates {
               minutes.upperBound == text.endIndex || text[minutes.upperBound].isWhitespace
         else { return text }
         return text.replacingCharacters(in: minutes, with: "")
+    }
+
+    /** A grid's hour, "09:00" or "9 AM": the web app's hourLabel. */
+    func hourLabel(_ hour: Int) -> String {
+        let date = calendar.date(from: DateComponents(year: 2000, month: 1, day: 1, hour: hour)) ?? .now
+        return fixed(hour12 ? "h a" : "HH:mm").string(from: date)
     }
 
     /** "9–10 AM": the start drops the suffix the end repeats (event-style.ts's rangeLabel). */

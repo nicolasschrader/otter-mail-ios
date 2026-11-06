@@ -45,8 +45,11 @@ struct CalendarPage: View, Equatable {
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
 
     var body: some View {
+        if mode == .day { dayPage } else { list }
+    }
+
+    private var list: some View {
         List {
-            if mode == .day { periodRow }
             if mode == .week { weekStrip }
             if mode == .month { monthGrid }
             switch state {
@@ -54,7 +57,7 @@ struct CalendarPage: View, Equatable {
             case .failed(let message) where found == nil: failed(message)
             default:
                 ForEach(denied) { signInRow($0) }
-                listed
+                if mode == .month { monthWeek } else { listed }
             }
         }
         .listStyle(.plain)
@@ -164,11 +167,69 @@ struct CalendarPage: View, Equatable {
         .padding(.top, 40)
     }
 
-    private var periodRow: some View {
-        period
-            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
-            .listRowSeparator(.hidden)
-            .listRowBackground(palette.canvas)
+    /** The day's hours (`DayGrid`) under its title, or why they can't be shown. */
+    private var dayPage: some View {
+        let day = days(.day).first ?? anchor
+        return VStack(spacing: 0) {
+            period.padding(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
+            switch state {
+            case .noAccess:
+                ScrollView { noAccess }
+            case .failed(let message) where found == nil:
+                ScrollView { failed(message) }
+            default:
+                ForEach(denied) { signInRow($0).padding(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20)) }
+                DayGrid(
+                    day: day,
+                    events: shownEvents,
+                    loaded: found != nil,
+                    now: now,
+                    dates: dates,
+                    color: color,
+                    onRefresh: onRefresh
+                )
+                .overlay {
+                    if found == nil { ProgressView() }
+                }
+            }
+        }
+        .background(palette.canvas)
+    }
+
+    /**
+     * Under the month, the picked day's whole week, a line for each of its
+     * days with that day's events, so the days around it read at a glance.
+     * One list row, so the week is drawn whole or not at all.
+     */
+    @ViewBuilder private var monthWeek: some View {
+        let picked = pickedDay
+        let week = dates.week(of: picked)
+        let grouped = byDay(week)
+        VStack(spacing: 0) {
+            ForEach(week, id: \.self) { day in
+                WeekDayRow(
+                    day: day,
+                    events: grouped[day] ?? [],
+                    picked: dates.sameDay(day, picked),
+                    today: dates.sameDay(day, now),
+                    dates: dates,
+                    color: color,
+                    onPick: { onPick(day) }
+                )
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("month-week")
+        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(palette.canvas)
+        if found == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
     }
 
     private var weekStrip: some View {

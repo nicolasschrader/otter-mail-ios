@@ -216,6 +216,10 @@ struct CalendarView: View {
                     ForEach(CalendarMode.phone) { option in
                         calendarPage(option)
                             .equatable()
+                            // The pages beside the one in front stay mounted: out of VoiceOver's (and UI tests') reach.
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("calendar-page-\(option.rawValue)")
+                            .accessibilityHidden(option != mode)
                             .containerRelativeFrame([.horizontal, .vertical])
                             .id(option)
                     }

@@ -43,19 +43,20 @@ final class CalendarPagingUITests: XCTestCase {
         app.buttons["Day"].tap()
         sleep(1)
 
-        // Pages stay mounted with their own steppers; prefer a hittable Next.
-        let next = hittable(app.buttons.matching(NSPredicate(format: "label == %@", "Next")))
-        let previous = hittable(app.buttons.matching(NSPredicate(format: "label == %@", "Previous")))
-        XCTAssertNotNil(next, "Day Next chevron")
-        next?.tap()
+        // Pages stay mounted with their own steppers; only the one in front's are asked for.
+        let day = page(app, "day")
+        let next = day.buttons["Next"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5), "Day Next chevron")
+        next.tap()
         usleep(400_000)
-        previous?.tap()
+        day.buttons["Previous"].tap()
 
         app.buttons["Month"].tap()
-        sleep(1)
-        hittable(app.buttons.matching(NSPredicate(format: "label == %@", "Next")))?.tap()
+        let month = page(app, "month")
+        XCTAssertTrue(month.buttons["Next"].waitForExistence(timeout: 5), "Month Next chevron")
+        month.buttons["Next"].tap()
         usleep(400_000)
-        hittable(app.buttons.matching(NSPredicate(format: "label == %@", "Previous")))?.tap()
+        month.buttons["Previous"].tap()
 
         app.buttons["Agenda"].tap()
         sleep(1)
@@ -67,13 +68,9 @@ final class CalendarPagingUITests: XCTestCase {
         }
     }
 
-    private func hittable(_ query: XCUIElementQuery) -> XCUIElement? {
-        let count = query.count
-        for index in 0..<count {
-            let element = query.element(boundBy: index)
-            if element.exists && element.isHittable { return element }
-        }
-        return query.element(boundBy: 0).exists ? query.element(boundBy: 0) : nil
+    /** A calendar page; the ones not in front are hidden from accessibility. */
+    private func page(_ app: XCUIApplication, _ mode: String) -> XCUIElement {
+        app.descendants(matching: .any)["calendar-page-\(mode)"]
     }
 
     private func swipeContent(_ app: XCUIApplication, left: Bool) {

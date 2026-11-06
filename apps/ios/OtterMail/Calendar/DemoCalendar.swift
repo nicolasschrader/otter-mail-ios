@@ -84,6 +84,15 @@ nonisolated enum DemoCalendar {
                 location: "Café Linden, Rosenthaler Str. 12",
                 organizer: me
             ),
+            // Over lunch's end, so the Day page shows two side by side.
+            CalendarEvent(
+                eventId: "supplier-call",
+                calendar: work,
+                title: "Call with the printer",
+                start: at(today, 13, calendar: calendar),
+                end: at(today, 13, minutes: 45, calendar: calendar),
+                organizer: me
+            ),
             CalendarEvent(
                 eventId: "budget",
                 calendar: work,

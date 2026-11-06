@@ -123,15 +123,22 @@ add limited server grants (or an encrypted IMAP password), while mail content st
     `sortedGuests` and `responseSummary`; and `EventDescription` ← its `plainDescription`, which
     keeps a link's address where the mail reader's `HTMLText` drops it. Not ported, because a
     read-only list doesn't use them: `days.ts`'s segment and span bucketing with its
-    `DayBucketCache`, `layout.ts`'s time-grid packing, `chunks.ts`'s week chunks,
+    `DayBucketCache`, `layout.ts`'s time-grid packing (the Day page packs as the Mac and web
+    do, below), `chunks.ts`'s week chunks,
     `recurrence.ts` (Google expands the series; the screen only says "Repeats"), and
     `eventPresentation.ts`'s `readableTextColor`, `withAlpha`, `instanceFromDetails` and
     `isRecurringEvent`.
+  - `TimeGrid.swift` ← `time-grid.tsx`: what goes in the Day page's all-day row (all day, or a
+    day or more long), `layoutDay`'s columns where events overlap (each held at least 20
+    minutes), `TimedEvent`'s widths, and where the grid opens (`openingHour`: two hours before now
+    on today; on another day, the phone's own: the hour before its first event). Its vectors are
+    `OtterMailTests/TimeGridTests.swift`.
   - The phone's own: `GoogleCalendarAPI.swift` reads the account's calendars and a window of
     events from Google Calendar and maps them as core does
     (`packages/core/src/providers/gmail/calendar.ts`, contracts' `findMeetingLink`);
     `CalendarStore.swift` keeps a window at a time; `CalendarView.swift` is the screen (the mode
-    pills, the week's strip, the month's grid where a day lists itself), `EventRow.swift` a row
+    pills, the week's strip, the month's grid where a day lists its week), `DayGrid.swift` the
+    Day page's hours, `WeekDayRow.swift` a day of the month's picked week, `EventRow.swift` a row
     (its gutter says the time in the mobile calendar's words: `agendaTimeLabel`) and
     `EventView.swift` one event (when and where, the rooms, who's coming under their counts).
     The sign-in asks for `calendar.readonly`, so a mailbox that
