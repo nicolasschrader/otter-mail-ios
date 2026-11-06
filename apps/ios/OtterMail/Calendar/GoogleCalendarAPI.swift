@@ -26,7 +26,7 @@ nonisolated struct GoogleCalendarAPI {
         repeat {
             var query = [URLQueryItem(name: "maxResults", value: "250")]
             if let pageToken { query.append(.init(name: "pageToken", value: pageToken)) }
-            let page = try GoogleEvents.calendars(try await request("users/me/calendarList", query: query))
+            let page = try GoogleEvents.calendars(try await request("users/me/calendarList", query: query), account: email)
             found += page.calendars
             pageToken = page.next
         } while pageToken != nil
@@ -129,7 +129,7 @@ nonisolated struct EventTimes {
 
 /** Google Calendar's JSON, mapped as core's toEvent and listCalendars map it. */
 nonisolated enum GoogleEvents {
-    static func calendars(_ data: Data) throws -> (calendars: [EventCalendar], next: String?) {
+    static func calendars(_ data: Data, account: String = "") throws -> (calendars: [EventCalendar], next: String?) {
         let page = try JSONDecoder().decode(ApiCalendars.self, from: data)
         let calendars = (page.items ?? [])
             .filter { $0.hidden != true }
@@ -139,7 +139,8 @@ nonisolated enum GoogleEvents {
                     name: [item.summaryOverride, item.summary].compactMap { $0 }.first { !$0.isEmpty } ?? item.id,
                     color: item.backgroundColor,
                     primary: item.primary == true,
-                    shown: item.selected != false
+                    shown: item.selected != false,
+                    account: account
                 )
             }
         return (calendars, page.nextPageToken)

@@ -96,7 +96,7 @@ struct HomeView: View {
                 }
             }
         case .calendar:
-            withPlaces(CalendarView(scope: place.scope, events: calendar, onTitle: { setMenu(open: true) }))
+            withPlaces(CalendarView(events: calendar, onTitle: { setMenu(open: true) }))
         case .tasks:
             withPlaces(TasksView(
                 opening: openingTask, scope: place.scope, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }

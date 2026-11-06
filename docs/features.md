@@ -314,9 +314,10 @@ of every Gmail and Outlook mailbox side by side (its own, shared and followed: b
 holidays), grouped by mailbox as Notion Calendar does. The default calendar wears its mailbox's
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
-The iPhone reads one mailbox's calendar at a time (⌃⌄ › Calendar, for a mailbox whose provider has
-one), in the same modes: a day, the week at a glance, the month's grid where a day lists itself,
-and the days ahead as an agenda, each with ‹ › and Today, and an event's own screen (where it is,
+The iPhone reads every Google mailbox's calendars in one, as the Mac and web do (⌃⌄ › Calendar),
+its calendar button listing them by mailbox to show or hide, in the same modes: a day, the month's
+grid where a day lists itself, and the days ahead as an agenda, Day and Month with ‹ › and Today,
+and an event's own screen (where it is,
 the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
 when that clock differs). An event over several days says where it starts and ends on each of them,
 and which of its days this is. It changes nothing, and leaves out the calendars Google has

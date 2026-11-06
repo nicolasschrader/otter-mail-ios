@@ -11,7 +11,10 @@ struct CalendarPage: View, Equatable {
     @Environment(\.palette) private var palette
 
     let mode: CalendarMode
-    let mailbox: Mailbox
+    /** The mailboxes read from (`CalendarStore.sources`), for their colors and names. */
+    let mailboxes: [Mailbox]
+    /** Those whose sign-in doesn't cover the calendar, while others' events still show. */
+    let denied: [Mailbox]
     /** The page's window's events, nil until fetched. */
     let found: [CalendarEvent]?
     let state: CalendarStore.State
@@ -20,17 +23,23 @@ struct CalendarPage: View, Equatable {
     let now: Date
     let shown: [String: Bool]
     var onStep: (Int) -> Void = { _ in }
+    var onToday: () -> Void = {}
     var onPick: (Date) -> Void = { _ in }
     var onRetry: () -> Void = {}
     var onRefresh: () async -> Void = {}
 
     static func == (a: Self, b: Self) -> Bool {
-        a.mode == b.mode && a.mailbox.email == b.mailbox.email && a.mailbox.displayName == b.mailbox.displayName
-            && a.mailbox.color == b.mailbox.color && a.found == b.found && a.state == b.state && a.now == b.now
+        a.mode == b.mode && looks(a.mailboxes) == looks(b.mailboxes) && looks(a.denied) == looks(b.denied)
+            && a.found == b.found && a.state == b.state && a.now == b.now
             && a.shown == b.shown
             // The agenda runs from today whatever the chevrons did; only the month lists a picked day.
             && (a.mode == .agenda || a.anchor == b.anchor)
             && (a.mode != .month || a.picked == b.picked)
+    }
+
+    /** What a page draws of a mailbox: not its labels or counts, which change under it. */
+    private static func looks(_ mailboxes: [Mailbox]) -> [[String]] {
+        mailboxes.map { [$0.email, $0.displayName, $0.color] }
     }
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
@@ -43,7 +52,9 @@ struct CalendarPage: View, Equatable {
             switch state {
             case .noAccess: noAccess
             case .failed(let message) where found == nil: failed(message)
-            default: listed
+            default:
+                ForEach(denied) { signInRow($0) }
+                listed
             }
         }
         .listStyle(.plain)
@@ -106,15 +117,36 @@ struct CalendarPage: View, Equatable {
         ContentUnavailableView {
             Label("Sign in again to show your calendar", systemImage: "calendar.badge.exclamationmark")
         } description: {
-            Text("\(mailbox.displayName) signed in to Google before Otter Mail asked to read its calendar.")
+            Text("\(denied.map(\.displayName).formatted(.list(type: .and))) signed in to Google before Otter Mail asked to read its calendar.")
         } actions: {
-            SignInAgainButton(mailbox: mailbox, title: "Sign in again")
-                .buttonStyle(.glass)
+            ForEach(denied) { mailbox in
+                SignInAgainButton(mailbox: mailbox, title: denied.count > 1 ? "Sign in \(mailbox.displayName) again" : "Sign in again")
+                    .buttonStyle(.glass)
+            }
         }
         .foregroundStyle(palette.text)
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .padding(.top, 40)
+    }
+
+    /** web's AllowCalendarAccess: one mailbox's calendar missing, the rest shown. */
+    private func signInRow(_ mailbox: Mailbox) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .foregroundStyle(palette.muted)
+            Text("Sign in again to show \(mailbox.displayName)'s calendar")
+                .font(.inter(.footnote))
+                .foregroundStyle(palette.muted)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            SignInAgainButton(mailbox: mailbox, title: "Sign in")
+                .buttonStyle(.plain)
+                .foregroundStyle(palette.text)
+        }
+        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+        .listRowSeparator(.hidden)
+        .listRowBackground(palette.canvas)
     }
 
     private func failed(_ message: String) -> some View {
@@ -204,6 +236,13 @@ struct CalendarPage: View, Equatable {
                 .font(.inter(.headline))
                 .foregroundStyle(palette.text)
             Spacer(minLength: 8)
+            Button("Today", action: onToday)
+                .font(.inter(.subheadline).weight(.medium))
+                .foregroundStyle(palette.text)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8)
+                .frame(height: 36)
+                .contentShape(.rect)
             stepper(-1, symbol: "chevron.left", title: "Previous")
             stepper(1, symbol: "chevron.right", title: "Next")
         }
@@ -251,7 +290,7 @@ struct CalendarPage: View, Equatable {
 
     /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them. */
     private var shownEvents: [CalendarEvent] {
-        let visible = CalendarShown.visible(found ?? [], shown: shown, mailbox: mailbox.email)
+        let visible = CalendarShown.visible(found ?? [], shown: shown)
         return preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined }
     }
 
@@ -300,7 +339,7 @@ struct CalendarPage: View, Equatable {
 
     private func color(_ calendar: EventCalendar) -> Color {
         EventStyle.legible(
-            EventStyle.hex(for: calendar, mailbox: mailbox, preferences: preferences.calendar),
+            EventStyle.hex(for: calendar, mailbox: mailboxes.first { $0.email == calendar.account }, preferences: preferences.calendar),
             over: palette.textRGB
         )
     }

@@ -429,10 +429,11 @@ struct ThreadListView: View {
 struct PlaceTitle: View {
     @Environment(\.palette) private var palette
     let title: String
-    let scope: String
+    var scope = ""
 
     var body: some View {
-        Text("\(Text(title).fontWeight(.semibold).foregroundStyle(palette.text)) \(Text(scope).foregroundStyle(palette.muted))")
+        let name = Text(title).fontWeight(.semibold).foregroundStyle(palette.text)
+        (scope.isEmpty ? name : Text("\(name) \(Text(scope).foregroundStyle(palette.muted))"))
             .font(.inter(.title3))
             .lineLimit(1)
             .minimumScaleFactor(0.7)

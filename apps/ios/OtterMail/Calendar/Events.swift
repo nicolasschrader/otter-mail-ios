@@ -72,7 +72,7 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
     var htmlLink: String? = nil
     var recurring = false
 
-    var id: String { "\(calendar.id)/\(eventId)" }
+    var id: String { "\(calendar.key)/\(eventId)" }
 
     /**
      * Who's coming, as the Otter mobile calendar sorts them
@@ -122,6 +122,17 @@ nonisolated struct EventCalendar: Identifiable, Hashable {
     var primary = false
     /** Turned on in Google Calendar (core's `hiddenByDefault`, the other way round). */
     var shown = true
+    /** The mailbox's address it's read from (core's `accountId`). */
+    var account = ""
+
+    /** api.ts's calendarKey: every account's primary calendar is `primary`, so its identity is the pair. */
+    var key: String { EventStyle.key(mailbox: account, calendar: id) }
+
+    func of(_ account: String) -> EventCalendar {
+        var calendar = self
+        calendar.account = account
+        return calendar
+    }
 }
 
 nonisolated struct EventDay: Identifiable, Hashable {

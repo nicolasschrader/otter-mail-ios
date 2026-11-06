@@ -2,13 +2,16 @@ import Foundation
 import Observation
 
 /**
- * What the calendar screen renders from: events kept per window as the Mac and web apps' React Query does (`useCalendarEvents`):
- * a window shown before is shown again at once, and asked of Google again in
- * the background once it's older than `freshFor`. HomeView holds it, so it
- * outlives switching to Mail and back. Google Calendar for a Gmail mailbox,
- * the pretend one in the demo. A sign-in from before the app asked for
- * calendar access ends in `noAccess`, where the screen offers signing in again
- * (as core's NoCalendarAccess does on the Mac).
+ * What the calendar screen renders from: every calendar of every mailbox that
+ * has one, merged as the Mac and web apps merge them (calendar-view.tsx's
+ * calendarAccounts and useCalendarLists), and their events kept per window as
+ * React Query keeps them (`useCalendarEvents`): a window shown before is shown
+ * again at once, and asked of Google again in the background once it's older
+ * than `freshFor`. HomeView holds it, so it outlives switching to Mail and
+ * back. Google Calendar for a Gmail mailbox, the pretend one in the demo. A
+ * mailbox signed in from before the app asked for calendar access is `denied`,
+ * and the others still load; only when every one is does the screen end in
+ * `noAccess`, where it offers signing in again (core's NoCalendarAccess).
  */
 @Observable
 final class CalendarStore {
@@ -26,22 +29,51 @@ final class CalendarStore {
     }
 
     private(set) var state: State = .ready
-    private(set) var calendars: [EventCalendar] = []
+    /** Each mailbox's calendars, by its address. */
+    private(set) var lists: [String: [EventCalendar]] = [:]
+    /** The mailboxes whose sign-in doesn't cover the calendar, by address. */
+    private(set) var denied: Set<String> = []
     /** Observed, so every page the screen keeps up draws its own window as soon as it lands. */
     private var cache: [EventWindow: [CalendarEvent]] = [:]
+    /** Each window's events by mailbox, so one mailbox failing a refresh keeps what it had. */
+    @ObservationIgnored private var parts: [EventWindow: [String: [CalendarEvent]]] = [:]
     @ObservationIgnored private var loadedAt: [EventWindow: Date] = [:]
-    @ObservationIgnored private var email: String?
+    @ObservationIgnored private var accounts: [String] = []
+    /** Mailboxes whose calendar list is asked for again on their next fetch. */
+    @ObservationIgnored private var stale: Set<String> = []
     @ObservationIgnored private var generation = 0
+
+    /** The mailboxes the calendar is read from: calendar-view.tsx's calendarAccounts. */
+    nonisolated static func sources(_ mailboxes: [Mailbox]) -> [Mailbox] {
+        mailboxes.filter { $0.capabilities.calendar && !$0.signedOut }
+    }
+
+    /** Every mailbox's part of a window as one list, the calendar's order. */
+    nonisolated static func merged(_ parts: [String: [CalendarEvent]], accounts: [String]) -> [CalendarEvent] {
+        EventDays.sorted(accounts.flatMap { parts[$0] ?? [] })
+    }
+
+    /** The calendar list's sections, a mailbox each, in the mailboxes' order: calendar-sidebar.tsx's groups. */
+    nonisolated static func grouped(
+        _ sources: [Mailbox], lists: [String: [EventCalendar]]
+    ) -> [(mailbox: Mailbox, calendars: [EventCalendar])] {
+        sources.map { ($0, lists[$0.email] ?? []) }
+    }
 
     func load(
         _ window: EventWindow,
-        mailbox: Mailbox,
+        sources: [Mailbox],
         demo: Bool,
         google: GoogleAuth,
         dates: CalendarDates = CalendarDates(),
         force: Bool = false
     ) async {
-        if force || mailbox.email != email { forget(mailbox.email) }
+        adopt(sources.map(\.email))
+        if force {
+            loadedAt.removeAll()
+            stale = Set(accounts)
+            if !denied.isEmpty { denied.removeAll() }
+        }
         // Every load, a cached one included, leaves the one before it to be dropped when it lands.
         generation += 1
         let mine = generation
@@ -49,55 +81,107 @@ final class CalendarStore {
         if kept != nil {
             if state != .ready { state = .ready }
             if Self.isFresh(loadedAt[window]) { return }
-        } else {
+        } else if !sources.isEmpty, denied.count < sources.count {
             state = .loading
         }
-        do {
-            let found = try await fetch(window, mailbox: mailbox, demo: demo, google: google, dates: dates)
-            guard email == mailbox.email else { return }
-            keep(found, for: window, shown: mine == generation)
-        } catch {
-            guard mine == generation else { return }
-            // A refresh that fails leaves the events already up, as React Query keeps its data.
-            if kept != nil { return }
+        let asked = sources.filter { !denied.contains($0.email) }
+        let results = await fetch(window, from: asked, demo: demo, google: google, dates: dates)
+        var failures: [Error] = []
+        for (account, result) in results {
+            guard case .failure(let error) = result else { continue }
             switch error {
             case is GoogleCalendarAPI.NoAccess, GoogleAuth.Failure.signedOut:
-                state = .noAccess
+                denied.insert(account)
             case is CancellationError:
-                state = .ready
+                break
             case let stopped as URLError where stopped.code == .cancelled:
-                state = .ready
+                break
             default:
-                ErrorReports.capture(error, scope: "calendar")
-                state = .failed(error.localizedDescription)
+                failures.append(error)
             }
+        }
+        let reached = absorb(results, for: window)
+        guard mine == generation else { return }
+        // A refresh that fails leaves the events already up, as React Query keeps its data.
+        if kept == nil { for error in failures { ErrorReports.capture(error, scope: "calendar") } }
+        if reached || kept != nil {
+            if state != .ready { state = .ready }
+        } else if !sources.isEmpty, denied.count == sources.count {
+            state = .noAccess
+        } else if let first = failures.first {
+            state = .failed(first.localizedDescription)
+        } else {
+            state = .ready
         }
     }
 
     /** The windows either side, fetched ahead as `useCalendarEvents` prefetches them; failures wait for the real load. */
-    func prefetch(_ windows: [EventWindow], mailbox: Mailbox, demo: Bool, google: GoogleAuth, dates: CalendarDates) async {
-        guard mailbox.email == email, !calendars.isEmpty || demo else { return }
+    func prefetch(_ windows: [EventWindow], sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async {
+        guard sources.map(\.email) == accounts, !lists.isEmpty || demo else { return }
+        let asked = sources.filter { !denied.contains($0.email) && lists[$0.email] != nil }
+        guard !asked.isEmpty else { return }
         for window in windows where !Self.isFresh(loadedAt[window]) {
-            guard let found = try? await fetch(window, mailbox: mailbox, demo: demo, google: google, dates: dates),
-                  email == mailbox.email
-            else { continue }
-            keep(found, for: window, shown: false)
+            let results = await fetch(window, from: asked, demo: demo, google: google, dates: dates)
+            guard sources.map(\.email) == accounts else { return }
+            absorb(results, for: window)
         }
     }
 
+    /** Every mailbox at once; each answers for itself, so one refused leaves the others' events. */
     private func fetch(
-        _ window: EventWindow, mailbox: Mailbox, demo: Bool, google: GoogleAuth, dates: CalendarDates
-    ) async throws -> [CalendarEvent] {
-        if demo {
-            if calendars != DemoCalendar.calendars { calendars = DemoCalendar.calendars }
-            return DemoCalendar.events(in: window, dates: dates)
+        _ window: EventWindow, from sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates
+    ) async -> [(String, Result<[CalendarEvent], Error>)] {
+        let demoAccount = demo ? sources.first?.email : nil
+        return await withTaskGroup(of: (String, Result<[CalendarEvent], Error>).self) { group in
+            for source in sources {
+                group.addTask {
+                    await self.result(window, from: source, demoAccount: demoAccount, demo: demo, google: google, dates: dates)
+                }
+            }
+            var results: [(String, Result<[CalendarEvent], Error>)] = []
+            for await result in group { results.append(result) }
+            return results
         }
-        let api = GoogleCalendarAPI(email: mailbox.email) { [google] refresh in
-            try await google.accessToken(mailbox.email, force: refresh)
+    }
+
+    private func result(
+        _ window: EventWindow, from source: Mailbox, demoAccount: String?, demo: Bool, google: GoogleAuth, dates: CalendarDates
+    ) async -> (String, Result<[CalendarEvent], Error>) {
+        do {
+            let found = source.email == demoAccount
+                ? demoEvents(window, account: source.email, dates: dates)
+                : demo ? [] : try await fetch(window, from: source, google: google)
+            return (source.email, .success(found))
+        } catch {
+            return (source.email, .failure(error))
         }
-        let known = calendars.isEmpty ? try await api.calendars() : calendars
-        guard email == mailbox.email else { throw CancellationError() }
-        if calendars != known { calendars = known }
+    }
+
+    /** The demo's pretend calendar, under its first mailbox. */
+    private func demoEvents(_ window: EventWindow, account: String, dates: CalendarDates) -> [CalendarEvent] {
+        let calendars = DemoCalendar.calendars.map { $0.of(account) }
+        if lists[account] != calendars { lists[account] = calendars }
+        return DemoCalendar.events(in: window, dates: dates).map { event in
+            var event = event
+            event.calendar = event.calendar.of(account)
+            return event
+        }
+    }
+
+    private func fetch(_ window: EventWindow, from mailbox: Mailbox, google: GoogleAuth) async throws -> [CalendarEvent] {
+        let account = mailbox.email
+        let api = GoogleCalendarAPI(email: account) { [google] refresh in
+            try await google.accessToken(account, force: refresh)
+        }
+        let known: [EventCalendar]
+        if !stale.contains(account), let listed = lists[account] {
+            known = listed
+        } else {
+            known = try await api.calendars()
+        }
+        guard accounts.contains(account) else { throw CancellationError() }
+        stale.remove(account)
+        if lists[account] != known { lists[account] = known }
         // Every calendar, the ones Google hides included: the screen filters by `CalendarShown`, so turning one on needs no fetch.
         var found: [CalendarEvent] = []
         try await withThrowingTaskGroup(of: [CalendarEvent].self) { group in
@@ -109,19 +193,47 @@ final class CalendarStore {
         return found
     }
 
-    private func forget(_ next: String) {
-        cache.removeAll()
+    /** A different set of mailboxes keeps what the ones still there had and asks again for all of them. */
+    private func adopt(_ next: [String]) {
+        guard next != accounts else { return }
+        let gone = Set(accounts).subtracting(next)
+        accounts = next
         loadedAt.removeAll()
-        calendars = []
-        email = next
+        guard !gone.isEmpty else { return }
+        lists = lists.filter { !gone.contains($0.key) }
+        denied.subtract(gone)
+        for (window, byAccount) in parts {
+            let left = byAccount.filter { !gone.contains($0.key) }
+            parts[window] = left
+            cache[window] = Self.merged(left, accounts: next)
+        }
     }
 
-    /** A refresh that finds what's already there writes nothing, so the pages it would redraw (mid-swipe, perhaps) stay as they are. */
-    private func keep(_ found: [CalendarEvent], for window: EventWindow, shown: Bool) {
-        let sorted = EventDays.sorted(found)
-        if cache[window] != sorted { cache[window] = sorted }
-        loadedAt[window] = .now
-        if shown, state != .ready { state = .ready }
+    /**
+     * What each mailbox found, in its place in the window; a mailbox that failed keeps its part.
+     * A refresh that finds what's already there writes nothing, so the pages it would redraw
+     * (mid-swipe, perhaps) stay as they are. True when any mailbox answered.
+     */
+    @discardableResult
+    private func absorb(_ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow) -> Bool {
+        var byAccount = parts[window] ?? [:]
+        var reached = false
+        var complete = true
+        for (account, result) in results where accounts.contains(account) {
+            switch result {
+            case .success(let found):
+                byAccount[account] = found
+                reached = true
+            case .failure:
+                complete = false
+            }
+        }
+        guard reached else { return false }
+        parts[window] = byAccount
+        let merged = Self.merged(byAccount, accounts: accounts)
+        if cache[window] != merged { cache[window] = merged }
+        if complete { loadedAt[window] = .now }
+        return true
     }
 
     /** A window's events, nil until they have been fetched. */

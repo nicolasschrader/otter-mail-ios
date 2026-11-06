@@ -30,20 +30,20 @@ final class CalendarShown {
         shown[key] ?? !hiddenByDefault
     }
 
-    nonisolated static func isShown(_ shown: [String: Bool], _ calendar: EventCalendar, mailbox: String) -> Bool {
-        isShown(shown, key: EventStyle.key(mailbox: mailbox, calendar: calendar.id), hiddenByDefault: !calendar.shown)
+    nonisolated static func isShown(_ shown: [String: Bool], _ calendar: EventCalendar) -> Bool {
+        isShown(shown, key: calendar.key, hiddenByDefault: !calendar.shown)
     }
 
-    nonisolated static func visible(_ events: [CalendarEvent], shown: [String: Bool], mailbox: String) -> [CalendarEvent] {
-        events.filter { isShown(shown, $0.calendar, mailbox: mailbox) }
+    nonisolated static func visible(_ events: [CalendarEvent], shown: [String: Bool]) -> [CalendarEvent] {
+        events.filter { isShown(shown, $0.calendar) }
     }
 
     func isShown(key: String, hiddenByDefault: Bool) -> Bool {
         Self.isShown(shown, key: key, hiddenByDefault: hiddenByDefault)
     }
 
-    func isShown(_ calendar: EventCalendar, mailbox: String) -> Bool {
-        Self.isShown(shown, calendar, mailbox: mailbox)
+    func isShown(_ calendar: EventCalendar) -> Bool {
+        Self.isShown(shown, calendar)
     }
 
     func setShown(key: String, show: Bool) {
@@ -52,7 +52,7 @@ final class CalendarShown {
         defaults.set(String(decoding: data, as: UTF8.self), forKey: Self.key)
     }
 
-    func setShown(_ calendar: EventCalendar, mailbox: String, show: Bool) {
-        setShown(key: EventStyle.key(mailbox: mailbox, calendar: calendar.id), show: show)
+    func setShown(_ calendar: EventCalendar, show: Bool) {
+        setShown(key: calendar.key, show: show)
     }
 }

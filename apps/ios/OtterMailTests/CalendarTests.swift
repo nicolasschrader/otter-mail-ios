@@ -13,7 +13,7 @@ import Testing
  * same expected answers.
  */
 struct CalendarTests {
-    private let mine = EventCalendar(id: "primary", name: "Robin Otter", color: "#0ea5e9", primary: true)
+    private let mine = EventCalendar(id: "primary", name: "Robin Otter", color: "#0ea5e9", primary: true, account: "robin@otter.example")
     private let me = "robin@otter.example"
 
     private func zone(_ identifier: String, firstWeekday: Int = 2, locale: String = "en_US") -> Calendar {
@@ -90,7 +90,7 @@ struct CalendarTests {
         let calendar = zone("Europe/Berlin")
         let event = try #require(try events(review, in: calendar).first)
         #expect(event.eventId == "evt-1")
-        #expect(event.id == "primary/evt-1")
+        #expect(event.id == "robin@otter.example|primary/evt-1")
         #expect(event.title == "Design review")
         #expect(event.start == day(2026, 5, 4, 9, 0, in: calendar))
         #expect(event.end == day(2026, 5, 4, 10, 30, in: calendar))
@@ -541,8 +541,10 @@ struct CalendarTests {
           {"id": "birthdays", "summary": "Birthdays"}
         ]}
         """
-        let page = try GoogleEvents.calendars(Data(json.utf8))
+        let page = try GoogleEvents.calendars(Data(json.utf8), account: me)
         #expect(page.next == nil)
+        #expect(page.calendars.allSatisfy { $0.account == me })
+        #expect(page.calendars[0].key == "robin@otter.example|robin@otter.example")
         // Google's own order, without the ones hidden there.
         #expect(page.calendars.map(\.id) == ["robin@otter.example", "work@otter.example", "birthdays"])
         #expect(page.calendars[0].primary)
@@ -770,28 +772,29 @@ struct CalendarTests {
         #expect(!CalendarShown.isShown([key: false], key: key, hiddenByDefault: false))
         #expect(CalendarShown.isShown([key: false], key: "robin@otter.example|other", hiddenByDefault: false))
 
-        let unselected = EventCalendar(id: "holidays", name: "Holidays", shown: false)
-        #expect(!CalendarShown.isShown([:], unselected, mailbox: me))
-        #expect(CalendarShown.isShown(["\(me)|holidays": true], unselected, mailbox: me))
-        #expect(!CalendarShown.isShown(["someone@else.example|holidays": true], unselected, mailbox: me))
+        let unselected = EventCalendar(id: "holidays", name: "Holidays", shown: false, account: me)
+        #expect(!CalendarShown.isShown([:], unselected))
+        #expect(CalendarShown.isShown(["\(me)|holidays": true], unselected))
+        #expect(!CalendarShown.isShown(["someone@else.example|holidays": true], unselected))
+        #expect(CalendarShown.isShown(["someone@else.example|holidays": true], unselected.of("someone@else.example")))
     }
 
     @Test func dropsTheEventsOfHiddenCalendars() {
         let calendar = zone("Europe/Berlin")
         let start = day(2026, 3, 10, 9, in: calendar)
         let end = day(2026, 3, 10, 10, in: calendar)
-        let work = EventCalendar(id: "work", name: "Otterware")
-        let holidays = EventCalendar(id: "holidays", name: "Holidays", shown: false)
+        let work = EventCalendar(id: "work", name: "Otterware", account: me)
+        let holidays = EventCalendar(id: "holidays", name: "Holidays", shown: false, account: me)
         let all = [
             CalendarEvent(eventId: "a", calendar: mine, title: "a", start: start, end: end),
             CalendarEvent(eventId: "b", calendar: work, title: "b", start: start, end: end),
             CalendarEvent(eventId: "c", calendar: holidays, title: "c", start: start, end: end),
         ]
 
-        #expect(CalendarShown.visible(all, shown: [:], mailbox: me).map(\.eventId) == ["a", "b"])
-        #expect(CalendarShown.visible(all, shown: ["\(me)|work": false], mailbox: me).map(\.eventId) == ["a"])
+        #expect(CalendarShown.visible(all, shown: [:]).map(\.eventId) == ["a", "b"])
+        #expect(CalendarShown.visible(all, shown: ["\(me)|work": false]).map(\.eventId) == ["a"])
         #expect(
-            CalendarShown.visible(all, shown: ["\(me)|holidays": true, "\(me)|primary": false], mailbox: me).map(\.eventId)
+            CalendarShown.visible(all, shown: ["\(me)|holidays": true, "\(me)|primary": false]).map(\.eventId)
                 == ["b", "c"]
         )
     }
@@ -803,16 +806,74 @@ struct CalendarTests {
         defaults.removePersistentDomain(forName: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        let work = EventCalendar(id: "work", name: "Otterware")
+        let work = EventCalendar(id: "work", name: "Otterware", account: me)
         let visibility = CalendarShown(defaults: defaults)
-        #expect(visibility.isShown(work, mailbox: me))
-        visibility.setShown(work, mailbox: me, show: false)
-        #expect(!visibility.isShown(work, mailbox: me))
+        #expect(visibility.isShown(work))
+        visibility.setShown(work, show: false)
+        #expect(!visibility.isShown(work))
         #expect(CalendarShown.read(defaults.string(forKey: CalendarShown.key)) == ["\(me)|work": false])
-        #expect(!CalendarShown(defaults: defaults).isShown(work, mailbox: me))
+        #expect(!CalendarShown(defaults: defaults).isShown(work))
+        // Another account's calendar of the same id is its own.
+        #expect(CalendarShown(defaults: defaults).isShown(work.of("maya@otter.example")))
 
         #expect(CalendarShown.read(##"{"a|b": true, "bad": "yes"}"##) == ["a|b": true])
         #expect(CalendarShown.read("nonsense").isEmpty)
         #expect(CalendarShown.read(nil).isEmpty)
+    }
+
+    private func mailbox(_ email: String, _ name: String, signedOut: Bool = false) -> Mailbox {
+        Mailbox(email: email, name: name, displayName: name, color: "#336699", signature: "", labels: [], signedOut: signedOut)
+    }
+
+    /** calendar-view.tsx's calendarAccounts: every mailbox with a calendar, unless it's signed out. */
+    @Test func readsTheCalendarOfEveryMailboxThatHasOne() {
+        let personal = mailbox(me, "Personal")
+        let work = mailbox("work@otter.example", "Work")
+        let gone = mailbox("old@otter.example", "Old", signedOut: true)
+        let outlook = Mailbox(
+            email: "robin@outlook.example", name: "Robin", displayName: "Outlook",
+            color: "#000000", signature: "", labels: [], outlook: true
+        )
+        #expect(CalendarStore.sources([personal, outlook, gone, work]).map(\.email) == [me, "work@otter.example"])
+    }
+
+    /** Two accounts' primary calendars are both `primary`: the account tells them, and their events, apart. */
+    @Test func tellsTwoAccountsPrimaryCalendarsApart() {
+        let theirs = mine.of("work@otter.example")
+        #expect(mine != theirs)
+        #expect(mine.key == "robin@otter.example|primary")
+        #expect(theirs.key == "work@otter.example|primary")
+        let start = Date(timeIntervalSince1970: 1_000)
+        let a = CalendarEvent(eventId: "x", calendar: mine, title: "a", start: start, end: start.addingTimeInterval(60))
+        let b = CalendarEvent(eventId: "x", calendar: theirs, title: "a", start: start, end: start.addingTimeInterval(60))
+        #expect(a.id != b.id)
+        #expect(CalendarShown.visible([a, b], shown: ["work@otter.example|primary": false]).map(\.calendar.account) == [me])
+    }
+
+    /** One list of every account's events, in the calendar's order, whichever account answered first. */
+    @Test func mergesEveryAccountsEvents() {
+        let other = mine.of("work@otter.example")
+        let start = Date(timeIntervalSince1970: 10_000)
+        let early = CalendarEvent(eventId: "early", calendar: other, title: "early", start: start, end: start.addingTimeInterval(600))
+        let late = CalendarEvent(eventId: "late", calendar: mine, title: "late", start: start.addingTimeInterval(3600), end: start.addingTimeInterval(4200))
+        let allDay = CalendarEvent(eventId: "day", calendar: mine, title: "day", start: start.addingTimeInterval(7200), end: start.addingTimeInterval(90_000), allDay: true)
+        let parts = [me: [late, allDay], "work@otter.example": [early], "gone@otter.example": [early]]
+        let merged = CalendarStore.merged(parts, accounts: [me, "work@otter.example"])
+        #expect(merged.map(\.eventId) == ["day", "early", "late"])
+        #expect(CalendarStore.merged([:], accounts: [me]).isEmpty)
+    }
+
+    /** calendar-sidebar.tsx: a section a mailbox, in the mailboxes' order, one with no list yet empty. */
+    @Test func groupsTheCalendarsByAccount() {
+        let personal = mailbox(me, "Personal")
+        let work = mailbox("work@otter.example", "Work")
+        let lists = [
+            "work@otter.example": [mine.of("work@otter.example")],
+            "gone@otter.example": [mine.of("gone@otter.example")],
+        ]
+        let groups = CalendarStore.grouped([personal, work], lists: lists)
+        #expect(groups.map(\.mailbox.email) == [me, "work@otter.example"])
+        #expect(groups[0].calendars.isEmpty)
+        #expect(groups[1].calendars.map(\.key) == ["work@otter.example|primary"])
     }
 }
