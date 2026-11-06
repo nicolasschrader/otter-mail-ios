@@ -9,6 +9,7 @@ import Foundation
 nonisolated enum DemoCalendar {
     static let personal = EventCalendar(id: "demo-personal", name: "Robin Otter", color: "#0ea5e9", primary: true)
     static let work = EventCalendar(id: "demo-work", name: "Otterware", color: "#f97316")
+    static let calendars = [personal, work]
 
     private static let me = Person(name: "Robin Otter", email: "demo@otter.example")
     private static let maya = Person(name: "Maya Chen", email: "maya.chen@example.com")

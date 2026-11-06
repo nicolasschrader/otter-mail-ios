@@ -24,6 +24,9 @@ struct CalendarView: View {
     @State private var picked: Date?
     @State private var now = Date.now
     @State private var path: [CalendarEvent] = []
+    @State private var visibility = CalendarShown()
+    /** Listing the calendars to show or hide, in the events' place. */
+    @State private var listing = false
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
     private var mailbox: Mailbox? { store.mailbox(for: scope) }
@@ -41,16 +44,32 @@ struct CalendarView: View {
                 .toolbar(removing: .title)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(action: onTitle) {
-                            PlaceTitle(title: "Calendar", scope: mailbox?.displayName ?? "")
+                        if listing {
+                            Button { listing = false } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 17, weight: .semibold))
+                                        .foregroundStyle(palette.text)
+                                    PlaceTitle(title: "Calendars", scope: mailbox?.displayName ?? "")
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Back to Calendar")
+                        } else {
+                            Button(action: onTitle) {
+                                PlaceTitle(title: "Calendar", scope: mailbox?.displayName ?? "")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Shows every place")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Shows every place")
                     }
                     .sharedBackgroundVisibility(.hidden)
-                    ToolbarItem(placement: .topBarTrailing) {
-                        if mode != .agenda {
-                            Button("Today") { anchor = .now; picked = nil }
+                    if !listing, mailbox?.capabilities.calendar == true {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            if mode != .agenda {
+                                Button("Today") { anchor = .now; picked = nil }
+                            }
+                            Button("Calendars", systemImage: "calendar") { listing = true }
                         }
                     }
                 }
@@ -62,13 +81,18 @@ struct CalendarView: View {
 
     @ViewBuilder private var content: some View {
         if let mailbox, mailbox.capabilities.calendar {
-            list(mailbox)
-                .task(id: window) { await load() }
-                .refreshable { await load(force: true) }
-                // A sign-in finishing (the button a mailbox without calendar access shows) is reason to look again.
-                .onChange(of: session.busy) { before, current in
-                    if before != nil, current == nil { Task { await load(force: true) } }
+            Group {
+                if listing {
+                    calendarList(mailbox)
+                } else {
+                    list(mailbox).refreshable { await load(force: true) }
                 }
+            }
+            .task(id: window) { await load() }
+            // A sign-in finishing (the button a mailbox without calendar access shows) is reason to look again.
+            .onChange(of: session.busy) { before, current in
+                if before != nil, current == nil { Task { await load(force: true) } }
+            }
         } else {
             // The places bar offers Calendar only where there is one; this is for a mailbox that goes away.
             ContentUnavailableView(
@@ -78,6 +102,58 @@ struct CalendarView: View {
             )
             .foregroundStyle(palette.muted)
         }
+    }
+
+    private func calendarList(_ mailbox: Mailbox) -> some View {
+        List {
+            Section {
+                ForEach(events.calendars) { calendar in
+                    Toggle(isOn: Binding(
+                        get: { visibility.isShown(calendar, mailbox: mailbox.email) },
+                        set: { visibility.setShown(calendar, mailbox: mailbox.email, show: $0) }
+                    )) {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(color(calendar))
+                                .frame(width: 10, height: 10)
+                            Text(calendar.name)
+                                .font(.inter(.body))
+                                .foregroundStyle(palette.text)
+                                .lineLimit(1)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20))
+                    .listRowBackground(palette.canvas)
+                    .listRowSeparator(.hidden)
+                }
+            } header: {
+                Text(mailbox.displayName)
+                    .font(.inter(.footnote).weight(.medium))
+                    .foregroundStyle(palette.muted)
+                    .frame(minHeight: 36)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+            }
+            .textCase(nil)
+            if events.calendars.isEmpty {
+                if events.state == .loading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                } else {
+                    ContentUnavailableView("No calendars", systemImage: "calendar")
+                        .foregroundStyle(palette.muted)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .padding(.top, 40)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(palette.canvas)
+        .contentMargins(.bottom, 24, for: .scrollContent)
     }
 
     private func list(_ mailbox: Mailbox) -> some View {
@@ -313,9 +389,10 @@ struct CalendarView: View {
         .listRowInsets(EdgeInsets())
     }
 
-    /** What the account's `calendar:show-declined` allows, as calendar-view.tsx filters it. */
+    /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them. */
     private var shown: [CalendarEvent] {
-        preferences.calendar.showDeclined ? events.events : events.events.filter { $0.response != .declined }
+        let visible = CalendarShown.visible(events.events, shown: visibility.shown, mailbox: mailbox?.email ?? "")
+        return preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined }
     }
 
     private var byDay: [Date: [CalendarEvent]] {

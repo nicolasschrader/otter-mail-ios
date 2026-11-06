@@ -740,4 +740,59 @@ struct CalendarTests {
         #expect(!CalendarStore.isFresh(loaded, now: loaded.addingTimeInterval(30)))
         #expect(!CalendarStore.isFresh(nil, now: loaded))
     }
+
+    /** calendar-store.ts's isShown: a choice made by hand wins, else Google's own. */
+    @Test func showsACalendarAsTheWebAppDoes() {
+        let key = "robin@otter.example|work"
+        #expect(CalendarShown.isShown([:], key: key, hiddenByDefault: false))
+        #expect(!CalendarShown.isShown([:], key: key, hiddenByDefault: true))
+        #expect(CalendarShown.isShown([key: true], key: key, hiddenByDefault: true))
+        #expect(!CalendarShown.isShown([key: false], key: key, hiddenByDefault: false))
+        #expect(CalendarShown.isShown([key: false], key: "robin@otter.example|other", hiddenByDefault: false))
+
+        let unselected = EventCalendar(id: "holidays", name: "Holidays", shown: false)
+        #expect(!CalendarShown.isShown([:], unselected, mailbox: me))
+        #expect(CalendarShown.isShown(["\(me)|holidays": true], unselected, mailbox: me))
+        #expect(!CalendarShown.isShown(["someone@else.example|holidays": true], unselected, mailbox: me))
+    }
+
+    @Test func dropsTheEventsOfHiddenCalendars() {
+        let calendar = zone("Europe/Berlin")
+        let start = day(2026, 3, 10, 9, in: calendar)
+        let end = day(2026, 3, 10, 10, in: calendar)
+        let work = EventCalendar(id: "work", name: "Otterware")
+        let holidays = EventCalendar(id: "holidays", name: "Holidays", shown: false)
+        let all = [
+            CalendarEvent(eventId: "a", calendar: mine, title: "a", start: start, end: end),
+            CalendarEvent(eventId: "b", calendar: work, title: "b", start: start, end: end),
+            CalendarEvent(eventId: "c", calendar: holidays, title: "c", start: start, end: end),
+        ]
+
+        #expect(CalendarShown.visible(all, shown: [:], mailbox: me).map(\.eventId) == ["a", "b"])
+        #expect(CalendarShown.visible(all, shown: ["\(me)|work": false], mailbox: me).map(\.eventId) == ["a"])
+        #expect(
+            CalendarShown.visible(all, shown: ["\(me)|holidays": true, "\(me)|primary": false], mailbox: me).map(\.eventId)
+                == ["b", "c"]
+        )
+    }
+
+    /** Kept as localStorage keeps it: a JSON object under `calendar:shown`. */
+    @MainActor @Test func keepsTheChoiceOnThisDevice() throws {
+        let suite = "calendar-shown-tests"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let work = EventCalendar(id: "work", name: "Otterware")
+        let visibility = CalendarShown(defaults: defaults)
+        #expect(visibility.isShown(work, mailbox: me))
+        visibility.setShown(work, mailbox: me, show: false)
+        #expect(!visibility.isShown(work, mailbox: me))
+        #expect(CalendarShown.read(defaults.string(forKey: CalendarShown.key)) == ["\(me)|work": false])
+        #expect(!CalendarShown(defaults: defaults).isShown(work, mailbox: me))
+
+        #expect(CalendarShown.read(##"{"a|b": true, "bad": "yes"}"##) == ["a|b": true])
+        #expect(CalendarShown.read("nonsense").isEmpty)
+        #expect(CalendarShown.read(nil).isEmpty)
+    }
 }

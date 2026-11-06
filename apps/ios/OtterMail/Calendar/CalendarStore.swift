@@ -90,16 +90,20 @@ final class CalendarStore {
     private func fetch(
         _ window: EventWindow, mailbox: Mailbox, demo: Bool, google: GoogleAuth, dates: CalendarDates
     ) async throws -> [CalendarEvent] {
-        if demo { return DemoCalendar.events(in: window, dates: dates) }
+        if demo {
+            calendars = DemoCalendar.calendars
+            return DemoCalendar.events(in: window, dates: dates)
+        }
         let api = GoogleCalendarAPI(email: mailbox.email) { [google] refresh in
             try await google.accessToken(mailbox.email, force: refresh)
         }
         let known = calendars.isEmpty ? try await api.calendars() : calendars
         guard email == mailbox.email else { throw CancellationError() }
         calendars = known
+        // Every calendar, the ones Google hides included: the screen filters by `CalendarShown`, so turning one on needs no fetch.
         var found: [CalendarEvent] = []
         try await withThrowingTaskGroup(of: [CalendarEvent].self) { group in
-            for calendar in known.filter(\.shown) {
+            for calendar in known {
                 group.addTask { try await api.events(on: calendar, in: window) }
             }
             for try await part in group { found += part }
