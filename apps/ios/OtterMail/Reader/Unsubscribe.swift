@@ -91,7 +91,9 @@ struct Unsubscribe {
 
     /** Sends the mailto request from `mailbox` through the store, like any sent mail. */
     func run(from mailbox: Mailbox, store: MailStore) async -> Outcome {
-        await run(send: { email in
+        // The demo's lists are made up: nothing is posted, sent or opened.
+        guard !store.isDemo else { return .done }
+        return await run(send: { email in
             var draft = Draft.new(from: mailbox, to: email.to)
             draft.subject = email.subject
             draft.body = email.body

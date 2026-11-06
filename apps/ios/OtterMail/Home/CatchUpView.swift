@@ -110,6 +110,51 @@ nonisolated enum CatchUp {
 }
 
 /**
+ * What Catch up has been through, HomeView's so it outlives the Threads tab:
+ * the cards passed over, the unsubscribes under way, and the senders
+ * unsubscribed from, whose other mail no longer offers Unsubscribe.
+ */
+@Observable
+final class CatchUpState {
+    var passed: Set<String> = []
+    private(set) var unsubscribing: Set<String> = []
+    private(set) var unsubscribed: Set<String> = []
+
+    struct Result: Equatable {
+        let text: String
+        let ok: Bool
+    }
+
+    private static func sender(_ thread: MailThread) -> Person { (thread.sent.last ?? thread.latest).from }
+
+    func offersUnsubscribe(_ thread: MailThread) -> Bool {
+        !unsubscribed.contains(Self.sender(thread).email.lowercased())
+    }
+
+    /**
+     * Once the unsubscribe goes through (or is handed to the sender's page), the
+     * conversation is archived and read, so sync doesn't bring the card back. If
+     * that fails, the card stays and says so.
+     */
+    func unsubscribe(_ thread: MailThread, store: MailStore, run: () async -> Unsubscribe.Outcome) async -> Result {
+        let sender = Self.sender(thread)
+        unsubscribing.insert(thread.id)
+        defer { unsubscribing.remove(thread.id) }
+        let outcome = await run()
+        guard CatchUp.advances(after: outcome) else { return Result(text: outcome.notice(from: sender.label), ok: false) }
+        do {
+            try await store.archiveRead(thread.id)
+        } catch {
+            unsubscribed.insert(sender.email.lowercased())
+            return Result(text: "Unsubscribed, but couldn't archive “\(thread.subject)”: \(error.localizedDescription)", ok: false)
+        }
+        unsubscribed.insert(sender.email.lowercased())
+        passed.insert(thread.id)
+        return Result(text: outcome.notice(from: sender.label), ok: true)
+    }
+}
+
+/**
  * Threads: every shown mailbox's unread inbox mail one conversation at a time
  * (right to mark it read, left to keep it for later), after the invitations on
  * the shown calendars still waiting on an answer. Done, it hands back to Mail.
@@ -122,12 +167,12 @@ struct CatchUpView: View {
 
     /** HomeView's, which the calendar screen shares. */
     let calendar: CalendarStore
+    /** HomeView's too, so what was passed over stays passed when the tab comes back. */
+    let state: CatchUpState
     @Binding var draft: Draft?
     let onTitle: () -> Void
     let onDone: () -> Void
 
-    @State private var passed: Set<String> = []
-    @State private var unsubscribing: Set<String> = []
     @State private var answering: Set<String> = []
     @State private var invitesPending = true
     @State private var visibility = CalendarShown()
@@ -148,8 +193,8 @@ struct CatchUpView: View {
 
     private var items: [CatchUp.Item] {
         let invites = CalendarStore.invites(calendar.events(in: window) ?? [], shown: visibility.shown)
-            .filter { !passed.contains($0.id) }
-        return CatchUp.items(invites: invites, mail: CatchUp.queue(inboxes: inboxes, passed: passed))
+            .filter { !state.passed.contains($0.id) }
+        return CatchUp.items(invites: invites, mail: CatchUp.queue(inboxes: inboxes, passed: state.passed))
     }
 
     /** Each inbox as its list has it, so the cards match what the lists show. */
@@ -260,7 +305,7 @@ struct CatchUpView: View {
             case .star: store.toggleStar(thread.id)
             case nil: break
             }
-            passed.insert(thread.id)
+            state.passed.insert(thread.id)
         }
     }
 
@@ -270,18 +315,18 @@ struct CatchUpView: View {
 
     private func markRead(_ thread: MailThread) {
         store.setRead(true, thread.id)
-        passed.insert(thread.id)
+        state.passed.insert(thread.id)
     }
 
     private func buttons(_ thread: MailThread, _ mailbox: Mailbox) -> some View {
         HStack(spacing: 8) {
-            button("Keep Unread", symbol: "envelope.badge") { passed.insert(thread.id) }
+            button("Keep Unread", symbol: "envelope.badge") { state.passed.insert(thread.id) }
             if store.canArchive(thread) {
                 // Out of the inbox, so the card goes by itself; Undo brings it back.
                 button("Archive", symbol: "archivebox") { store.archive(thread.id) }
             }
-            if let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
-                let working = unsubscribing.contains(thread.id)
+            if state.offersUnsubscribe(thread), let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
+                let working = state.unsubscribing.contains(thread.id)
                 button(working ? "Unsubscribing…" : "Unsubscribe", symbol: "hand.raised") {
                     run(unsubscribe, thread, mailbox)
                 }
@@ -298,7 +343,7 @@ struct CatchUpView: View {
             ForEach(CatchUp.Answer.allCases, id: \.self) { answer in
                 button(answer.title, symbol: answer.symbol) { respond(answer, to: event) }
             }
-            button("Later", symbol: "clock") { passed.insert(event.id) }
+            button("Later", symbol: "clock") { state.passed.insert(event.id) }
         }
         .disabled(working)
         .opacity(working ? 0.5 : 1)
@@ -327,14 +372,10 @@ struct CatchUpView: View {
     }
 
     private func run(_ unsubscribe: Unsubscribe, _ thread: MailThread, _ mailbox: Mailbox) {
-        let sender = (thread.sent.last ?? thread.latest).from.label
-        unsubscribing.insert(thread.id)
         Task {
-            let outcome = await unsubscribe.run(from: mailbox, store: store)
-            unsubscribing.remove(thread.id)
-            if CatchUp.advances(after: outcome) { passed.insert(thread.id) }
-            outcome.haptic()
-            notice = Notice(text: outcome.notice(from: sender))
+            let result = await state.unsubscribe(thread, store: store) { await unsubscribe.run(from: mailbox, store: store) }
+            UINotificationFeedbackGenerator().notificationOccurred(result.ok ? .success : .error)
+            notice = Notice(text: result.text)
         }
     }
 

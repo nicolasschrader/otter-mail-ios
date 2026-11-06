@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var calendarListing = false
     @State private var calendar = CalendarStore()
     @State private var calendarShown = CalendarShown()
+    @State private var catchUp = CatchUpState()
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
@@ -76,7 +77,7 @@ struct HomeView: View {
         case .threads:
             NavigationStack {
                 withPlaces(CatchUpView(
-                    calendar: calendar, draft: $draft, onTitle: { setMenu(open: !menuOpen) }, onDone: { show(.mail) }
+                    calendar: calendar, state: catchUp, draft: $draft, onTitle: { setMenu(open: !menuOpen) }, onDone: { show(.mail) }
                 ))
             }
         case .mail:
