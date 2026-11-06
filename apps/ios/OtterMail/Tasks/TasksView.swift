@@ -1,8 +1,8 @@
 import SwiftUI
 
 /**
- * Tasks, opened from the places bar (⌃⌄ › Tasks) as the calendar and Search
- * are: what's open by when it's due, then what's done under a heading that
+ * Tasks, opened full screen from the inbox's toolbar or the places bar
+ * (⌃⌄ › Tasks) as the calendar is: what's open by when it's due, then what's done under a heading that
  * folds away. Swipe a row to finish it or to throw it away, tap it to change
  * it, tap the conversation under it to go back to the mail it came from.
  */

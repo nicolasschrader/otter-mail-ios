@@ -1,7 +1,8 @@
 import SwiftUI
 
 /**
- * The mailbox's calendar, opened from the places bar (⌃⌄ › Calendar), in the
+ * The mailbox's calendar, opened full screen from the inbox's toolbar or the
+ * places bar (⌃⌄ › Calendar), in the
  * Mac and web apps' modes (CALENDAR_MODES: Day, Week, Month) and the agenda of
  * the days ahead. It follows the account's Settings › Calendar
  * (`CalendarPreferences`). Read-only, as the sign-in asks only to read the

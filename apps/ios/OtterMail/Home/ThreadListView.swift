@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ThreadListView: View {
     @Environment(MailStore.self) private var store
+    @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -15,6 +16,8 @@ struct ThreadListView: View {
     let onTitle: () -> Void
     let onCompose: () -> Void
     let onSettings: () -> Void
+    var onCalendar: () -> Void = {}
+    var onTasks: () -> Void = {}
     let onResume: (Draft) -> Void
 
     @State private var collapsedDays: Set<Date> = []
@@ -145,19 +148,35 @@ struct ThreadListView: View {
                 if selecting {
                     Button("Done", action: endSelection)
                 } else if !searchTab {
-                    Button("Compose", systemImage: "square.and.pencil", action: onCompose)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                if !selecting && !searchTab {
-                    Menu("More", systemImage: "ellipsis") {
-                        Button("Select messages", systemImage: "checkmark.circle") { withAnimation(actionAnimation) { selecting = true } }
-                            .disabled(threads.isEmpty)
-                        Button("Mark all as read", systemImage: "envelope.open") {
-                            for thread in threads where thread.unread { store.setRead(true, thread.id) }
+                    // One trailing item so Liquid Glass doesn't overflow Calendar/Tasks off the bar.
+                    HStack(spacing: 16) {
+                        if mailbox?.capabilities.calendar == true {
+                            Button("Calendar", systemImage: "calendar", action: onCalendar)
                         }
-                        .disabled(!threads.contains(where: \.unread))
-                        Button("Settings", systemImage: "gearshape", action: onSettings)
+                        Button("Tasks", systemImage: "checklist", action: onTasks)
+                            .overlay(alignment: .topTrailing) {
+                                if openTaskCount > 0 {
+                                    Text("\(min(openTaskCount, 99))")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .frame(minWidth: 16, minHeight: 16)
+                                        .background(.red, in: .capsule)
+                                        .offset(x: 8, y: -6)
+                                        .accessibilityHidden(true)
+                                }
+                            }
+                            .accessibilityLabel(openTaskCount > 0 ? "Tasks, \(openTaskCount) open" : "Tasks")
+                        Button("Compose", systemImage: "square.and.pencil", action: onCompose)
+                        Menu("More", systemImage: "ellipsis") {
+                            Button("Select messages", systemImage: "checkmark.circle") { withAnimation(actionAnimation) { selecting = true } }
+                                .disabled(threads.isEmpty)
+                            Button("Mark all as read", systemImage: "envelope.open") {
+                                for thread in threads where thread.unread { store.setRead(true, thread.id) }
+                            }
+                            .disabled(!threads.contains(where: \.unread))
+                            Button("Settings", systemImage: "gearshape", action: onSettings)
+                        }
                     }
                 }
             }
@@ -252,6 +271,7 @@ struct ThreadListView: View {
     }
 
     private var mailbox: Mailbox? { store.mailbox(for: place.scope) }
+    private var openTaskCount: Int { session.tasks.tasks.count(where: { !$0.done }) }
 
     private var scopeName: String { mailbox?.displayName ?? "" }
 

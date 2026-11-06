@@ -53,8 +53,8 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
-            .sheet(isPresented: $calendarOpen) { CalendarView(scope: place.scope) }
-            .sheet(isPresented: $tasksOpen, onDismiss: { openingTask = nil }) {
+            .fullScreenCover(isPresented: $calendarOpen) { CalendarView(scope: place.scope) }
+            .fullScreenCover(isPresented: $tasksOpen, onDismiss: { openingTask = nil }) {
                 TasksView(opening: openingTask, onEmail: openTaskEmail)
             }
     }
@@ -68,6 +68,8 @@ struct HomeView: View {
                 onTitle: { setMenu(open: true) },
                 onCompose: { compose() },
                 onSettings: { settingsOpen = true },
+                onCalendar: { setMenu(open: false); calendarOpen = true },
+                onTasks: { setMenu(open: false); tasksOpen = true },
                 onResume: { draft = $0 }
             )
             .overlay {
