@@ -27,6 +27,7 @@ struct HomeView: View {
     @State private var agentOpen = false
     @State private var searchOpen = false
     @State private var section: HomeSection = .mail
+    @State private var catchingUp = false
     @State private var calendar = CalendarStore()
     @State private var openingTask: UUID?
     @State private var query = ""
@@ -68,16 +69,23 @@ struct HomeView: View {
         case .mail:
             NavigationStack(path: $path) {
                 // The bar is on the list, so it goes with it when a conversation opens.
-                withPlaces(ThreadListView(
-                    place: place,
-                    messageTransition: messageTransition,
-                    selecting: $selecting,
-                    onTitle: { setMenu(open: true) },
-                    onCompose: { compose() },
-                    onSettings: { settingsOpen = true },
-                    onSearch: { setMenu(open: false); searchOpen = true },
-                    onResume: { draft = $0 }
-                ))
+                Group {
+                    if catchingUp {
+                        withPlaces(CatchUpView(scope: place.scope, draft: $draft, onBack: { catchingUp = false }))
+                    } else {
+                        withPlaces(ThreadListView(
+                            place: place,
+                            messageTransition: messageTransition,
+                            selecting: $selecting,
+                            onTitle: { setMenu(open: true) },
+                            onCompose: { compose() },
+                            onSettings: { settingsOpen = true },
+                            onSearch: { setMenu(open: false); searchOpen = true },
+                            onCatchUp: { setMenu(open: false); path = []; catchingUp = true },
+                            onResume: { draft = $0 }
+                        ))
+                    }
+                }
                 .navigationDestination(for: String.self) { id in
                     let reader = ThreadView(threadID: id, place: place, path: $path, draft: $draft)
                     if reduceMotion {
@@ -176,6 +184,7 @@ struct HomeView: View {
     private func select(_ next: Place) {
         place = next
         path = []
+        catchingUp = false
         section = .mail
         setMenu(open: false)
     }
@@ -183,6 +192,7 @@ struct HomeView: View {
     private func show(_ next: HomeSection) {
         setMenu(open: false)
         selecting = false
+        catchingUp = false
         section = next
     }
 
@@ -216,6 +226,7 @@ struct HomeView: View {
             setMenu(open: false)
             agentOpen = false
             searchOpen = false
+            catchingUp = false
             section = .mail
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
@@ -239,6 +250,7 @@ struct HomeView: View {
     /** The conversation a task came from, opened as a notification's is. */
     private func openTaskEmail(_ email: TaskEmail) {
         section = .mail
+        catchingUp = false
         if let thread = store.thread(email.thread) {
             let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox
             place = Place(scope: scope)
