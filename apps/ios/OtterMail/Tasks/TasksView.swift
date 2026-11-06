@@ -1,22 +1,24 @@
 import SwiftUI
 
 /**
- * Tasks, opened full screen from the places bar
- * (⌃⌄ › Tasks) as the calendar is: what's open by when it's due, then what's done under a heading that
+ * Tasks, a section of the home screen in the mail's place, chosen from the
+ * bottom bar or the places bar (⌃⌄ › Tasks) as the calendar is: what's open by when it's due, then what's done under a heading that
  * folds away. Swipe a row to finish it or to throw it away, tap it to change
  * it, tap the conversation under it to go back to the mail it came from.
  */
 struct TasksView: View {
+    @Environment(MailStore.self) private var store
     @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     /** A task whose reminder was tapped: it opens on top of the list. */
     var opening: UUID?
+    var scope = ""
     let onEmail: (TaskEmail) -> Void
+    var onTitle: () -> Void = {}
 
     @State private var editing: MailTask?
     @State private var showDone = false
@@ -49,10 +51,16 @@ struct TasksView: View {
             .contentMargins(.bottom, 24, for: .scrollContent)
             .navigationTitle("Tasks")
             .toolbarTitleDisplayMode(.inline)
+            .toolbar(removing: .title)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onTitle) {
+                        PlaceTitle(title: "Tasks", scope: store.mailbox(for: scope)?.displayName ?? "")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Shows every place")
                 }
+                .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add task", systemImage: "plus") { editing = MailTask() }
                 }

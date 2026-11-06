@@ -135,7 +135,7 @@ struct ThreadListView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: onTitle) {
-                    Header(title: searching || searchTab ? "Search" : place.folder.title(in: mailbox), scope: scopeName)
+                    PlaceTitle(title: searching || searchTab ? "Search" : place.folder.title(in: mailbox), scope: scopeName)
                 }
                 .buttonStyle(.plain)
                 .disabled(searchTab)
@@ -405,19 +405,20 @@ struct ThreadListView: View {
         }
     }
 
-    private struct Header: View {
-        @Environment(\.palette) private var palette
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-        let title: String
-        let scope: String
+}
 
-        var body: some View {
-            Text("\(Text(title).fontWeight(.semibold).foregroundStyle(palette.text)) \(Text(scope).foregroundStyle(palette.muted))")
-                .font(.inter(.title3))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .fixedSize()
-        }
+/** The home screen's title, top left: the place in semibold, then the mailbox, muted. */
+struct PlaceTitle: View {
+    @Environment(\.palette) private var palette
+    let title: String
+    let scope: String
+
+    var body: some View {
+        Text("\(Text(title).fontWeight(.semibold).foregroundStyle(palette.text)) \(Text(scope).foregroundStyle(palette.muted))")
+            .font(.inter(.title3))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .fixedSize()
     }
 }
 

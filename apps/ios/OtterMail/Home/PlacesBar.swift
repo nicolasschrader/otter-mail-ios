@@ -7,6 +7,7 @@ struct PlacesBar: View {
     @Namespace private var glass
 
     let place: Place
+    let section: HomeSection
     let menuOpen: Bool
     let showsAgent: Bool
     let onSelect: (Folder) -> Void
@@ -27,7 +28,7 @@ struct PlacesBar: View {
             HStack(alignment: .bottom, spacing: 12) {
                 ZStack(alignment: .bottomLeading) {
                     if menuOpen {
-                        PlacesPanel(place: place, onSelect: onPlace, onSearch: onSearch, onCalendar: onCalendar,
+                        PlacesPanel(place: place, section: section, onSelect: onPlace, onSearch: onSearch, onCalendar: onCalendar,
                                     onTasks: onTasks, onSettings: onSettings)
                             .frame(maxHeight: 560)
                             .fixedSize(horizontal: false, vertical: true)
@@ -68,6 +69,7 @@ struct PlacesBar: View {
         let showsCalendar = mailbox?.capabilities.calendar == true
         // Inbox stays; drafts slot → Calendar when capable (drafts stay in the panel); search slot → Tasks (search moves to the top bar).
         let pinnedFolders: [Folder] = showsCalendar ? [.inbox] : Self.pinned
+        let mail = section == .mail
         return HStack(spacing: 0) {
             Menu {
                 MailboxChoices(current: place.scope, onPick: onMailbox)
@@ -80,31 +82,31 @@ struct PlacesBar: View {
             .accessibilityLabel("Mailbox, \(mailbox?.displayName ?? "")")
             .accessibilityHint("Switches mailbox")
             Button { onSelect(.inbox) } label: {
-                tabLabel(Folder.inbox.symbol(in: mailbox), selected: place.folder == .inbox,
+                tabLabel(Folder.inbox.symbol(in: mailbox), selected: mail && place.folder == .inbox,
                          dot: store.badge(in: .inbox, scope: place.scope) > 0)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Folder.inbox.title(in: mailbox))
             if showsCalendar {
-                Button(action: onCalendar) { tabLabel("calendar", selected: false) }
+                Button(action: onCalendar) { tabLabel("calendar", selected: section == .calendar) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Calendar")
             } else {
                 Button { onSelect(.drafts) } label: {
-                    tabLabel(Folder.drafts.symbol(in: mailbox), selected: place.folder == .drafts)
+                    tabLabel(Folder.drafts.symbol(in: mailbox), selected: mail && place.folder == .drafts)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Folder.drafts.title(in: mailbox))
             }
             Button(action: onTasks) {
                 let open = session.tasks.tasks.count(where: { !$0.done })
-                tabLabel("checklist", selected: false, badge: open)
+                tabLabel("checklist", selected: section == .tasks, badge: open)
                     .accessibilityLabel(open > 0 ? "Tasks, \(open) open" : "Tasks")
             }
             .buttonStyle(.plain)
-            // Lit for any place the bar doesn't pin.
+            // Lit for any mail place the bar doesn't pin.
             Button(action: onMenu) {
-                tabLabel("chevron.up.chevron.down", selected: !pinnedFolders.contains(place.folder))
+                tabLabel("chevron.up.chevron.down", selected: mail && !pinnedFolders.contains(place.folder))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("All places")
@@ -144,6 +146,7 @@ struct PlacesPanel: View {
     @Environment(\.palette) private var palette
 
     let place: Place
+    let section: HomeSection
     let onSelect: (Place) -> Void
     let onSearch: () -> Void
     let onCalendar: () -> Void
@@ -172,15 +175,16 @@ struct PlacesPanel: View {
                     }
                     ForEach(mailbox?.folders ?? [], id: \.self) { folder in
                         row(folder.title(in: mailbox), symbol: folder.symbol(in: mailbox),
-                            count: store.badge(in: folder, scope: place.scope), selected: place.folder == folder) {
+                            count: store.badge(in: folder, scope: place.scope), selected: section == .mail && place.folder == folder) {
                             onSelect(Place(scope: place.scope, folder: folder))
                         }
                     }
                     labels(mailbox)
                     if mailbox?.capabilities.calendar == true {
-                        row("Calendar", symbol: "calendar", action: onCalendar)
+                        row("Calendar", symbol: "calendar", selected: section == .calendar, action: onCalendar)
                     }
-                    row("Tasks", symbol: "checklist", count: session.tasks.tasks.count(where: { !$0.done }), action: onTasks)
+                    row("Tasks", symbol: "checklist", count: session.tasks.tasks.count(where: { !$0.done }),
+                        selected: section == .tasks, action: onTasks)
                     row("Search", symbol: "magnifyingglass", action: onSearch)
                     row("Settings", symbol: "gearshape", action: onSettings)
                     SyncStatusLine(scope: mailbox?.source ?? place.scope)
@@ -219,7 +223,7 @@ struct PlacesPanel: View {
             ForEach(labels) { label in
                 let folder = Folder.label(id: label.id, name: label.name)
                 row(folder.title, symbol: folder.symbol, color: label.color,
-                    count: store.badge(in: folder, scope: place.scope), selected: place.folder == folder,
+                    count: store.badge(in: folder, scope: place.scope), selected: section == .mail && place.folder == folder,
                     indent: label.depth) {
                     onSelect(Place(scope: place.scope, folder: folder))
                 }

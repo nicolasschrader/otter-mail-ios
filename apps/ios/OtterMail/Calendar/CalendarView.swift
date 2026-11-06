@@ -1,8 +1,8 @@
 import SwiftUI
 
 /**
- * The mailbox's calendar, opened full screen from the bottom bar or the
- * places bar (⌃⌄ › Calendar), in the
+ * The mailbox's calendar, a section of the home screen in the mail's place,
+ * chosen from the bottom bar or the places bar (⌃⌄ › Calendar), in the
  * Mac and web apps' modes (CALENDAR_MODES: Day, Week, Month) and the agenda of
  * the days ahead. It follows the account's Settings › Calendar
  * (`CalendarPreferences`). Read-only, as the sign-in asks only to read the
@@ -13,9 +13,9 @@ struct CalendarView: View {
     @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
-    @Environment(\.dismiss) private var dismiss
 
     let scope: String
+    var onTitle: () -> Void = {}
 
     @State private var events = CalendarStore()
     @State private var mode: CalendarMode = .agenda
@@ -37,10 +37,16 @@ struct CalendarView: View {
                 .background(palette.canvas)
                 .navigationTitle("Calendar")
                 .toolbarTitleDisplayMode(.inline)
+                .toolbar(removing: .title)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close", systemImage: "xmark") { dismiss() }
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: onTitle) {
+                            PlaceTitle(title: "Calendar", scope: mailbox?.displayName ?? "")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows every place")
                     }
+                    .sharedBackgroundVisibility(.hidden)
                     ToolbarItem(placement: .topBarTrailing) {
                         if mode != .agenda {
                             Button("Today") { anchor = .now; picked = nil }

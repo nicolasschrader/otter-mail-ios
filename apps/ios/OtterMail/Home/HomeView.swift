@@ -5,6 +5,11 @@ struct Place: Hashable {
     var folder: Folder = .inbox
 }
 
+/** What the home screen shows above the bar: the mail, or the calendar or tasks in its place. */
+enum HomeSection: Hashable {
+    case mail, calendar, tasks
+}
+
 struct HomeView: View {
     @Environment(MailStore.self) private var store
     @Environment(Session.self) private var session
@@ -21,8 +26,7 @@ struct HomeView: View {
     @State private var settingsOpen = false
     @State private var agentOpen = false
     @State private var searchOpen = false
-    @State private var calendarOpen = false
-    @State private var tasksOpen = false
+    @State private var section: HomeSection = .mail
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
@@ -32,9 +36,12 @@ struct HomeView: View {
     private var menuAnimation: Animation? { reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.15) }
 
     var body: some View {
-        mail
+        content
             .onChange(of: store.shownScopes.map(\.email), initial: true) { _, shown in
                 if !shown.contains(place.scope) { place = Place(scope: shown.first ?? "") }
+            }
+            .onChange(of: section) { _, shown in
+                if shown != .tasks { openingTask = nil }
             }
             .onChange(of: session.opening, initial: true) { _, _ in openNotification() }
             .onChange(of: session.openingTask, initial: true) { _, _ in openTaskReminder() }
@@ -53,24 +60,43 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
-            .fullScreenCover(isPresented: $calendarOpen) { CalendarView(scope: place.scope) }
-            .fullScreenCover(isPresented: $tasksOpen, onDismiss: { openingTask = nil }) {
-                TasksView(opening: openingTask, onEmail: openTaskEmail)
-            }
     }
 
-    private var mail: some View {
-        NavigationStack(path: $path) {
-            ThreadListView(
-                place: place,
-                messageTransition: messageTransition,
-                selecting: $selecting,
-                onTitle: { setMenu(open: true) },
-                onCompose: { compose() },
-                onSettings: { settingsOpen = true },
-                onSearch: { setMenu(open: false); searchOpen = true },
-                onResume: { draft = $0 }
-            )
+    @ViewBuilder private var content: some View {
+        switch section {
+        case .mail:
+            NavigationStack(path: $path) {
+                // The bar is on the list, so it goes with it when a conversation opens.
+                withPlaces(ThreadListView(
+                    place: place,
+                    messageTransition: messageTransition,
+                    selecting: $selecting,
+                    onTitle: { setMenu(open: true) },
+                    onCompose: { compose() },
+                    onSettings: { settingsOpen = true },
+                    onSearch: { setMenu(open: false); searchOpen = true },
+                    onResume: { draft = $0 }
+                ))
+                .navigationDestination(for: String.self) { id in
+                    let reader = ThreadView(threadID: id, place: place, path: $path, draft: $draft)
+                    if reduceMotion {
+                        reader
+                    } else {
+                        reader.navigationTransition(.zoom(sourceID: id, in: messageTransition))
+                    }
+                }
+            }
+        case .calendar:
+            withPlaces(CalendarView(scope: place.scope, onTitle: { setMenu(open: true) }))
+        case .tasks:
+            withPlaces(TasksView(
+                opening: openingTask, scope: place.scope, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }
+            ))
+        }
+    }
+
+    private func withPlaces(_ view: some View) -> some View {
+        view
             .overlay {
                 if menuOpen {
                     Color.clear
@@ -79,7 +105,6 @@ struct HomeView: View {
                         .onTapGesture { setMenu(open: false) }
                 }
             }
-            // On the list, so it goes with it when a conversation opens.
             .safeAreaInset(edge: .bottom, spacing: 8) {
                 VStack(spacing: 12) {
                     if let action = store.undoAction {
@@ -99,14 +124,15 @@ struct HomeView: View {
                     if !selecting {
                         PlacesBar(
                             place: place,
+                            section: section,
                             menuOpen: menuOpen,
                             showsAgent: showsAgent,
                             onSelect: { select(Place(scope: place.scope, folder: $0)) },
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onSearch: { setMenu(open: false); searchOpen = true },
-                            onCalendar: { setMenu(open: false); calendarOpen = true },
-                            onTasks: { setMenu(open: false); tasksOpen = true },
+                            onCalendar: { show(.calendar) },
+                            onTasks: { show(.tasks) },
                             onSettings: { setMenu(open: false); settingsOpen = true },
                             onMenu: { setMenu(open: !menuOpen) },
                             onAgent: { agentOpen = true }
@@ -114,15 +140,6 @@ struct HomeView: View {
                     }
                 }
             }
-            .navigationDestination(for: String.self) { id in
-                let reader = ThreadView(threadID: id, place: place, path: $path, draft: $draft)
-                if reduceMotion {
-                    reader
-                } else {
-                    reader.navigationTransition(.zoom(sourceID: id, in: messageTransition))
-                }
-            }
-        }
     }
 
     private var search: some View {
@@ -158,11 +175,21 @@ struct HomeView: View {
     private func select(_ next: Place) {
         place = next
         path = []
+        section = .mail
         setMenu(open: false)
     }
 
+    private func show(_ next: HomeSection) {
+        setMenu(open: false)
+        selecting = false
+        section = next
+    }
+
+    /** The calendar or tasks stay up across mailboxes, unless the new one has no calendar. */
     private func switchMailbox(_ mailbox: Mailbox) {
+        let kept = section == .calendar && !mailbox.capabilities.calendar ? .mail : section
         select(Place(scope: mailbox.email, folder: mailbox.folders.contains(place.folder) ? place.folder : .inbox))
+        section = kept
     }
 
     private func compose(to: String = "") {
@@ -188,8 +215,7 @@ struct HomeView: View {
             setMenu(open: false)
             agentOpen = false
             searchOpen = false
-            calendarOpen = false
-            tasksOpen = false
+            section = .mail
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
                 path = [thread]
@@ -197,23 +223,21 @@ struct HomeView: View {
         }
     }
 
-    /** A task reminder opens that task over the list, wherever the app was. */
+    /** A task reminder opens Tasks with that task over it, wherever the app was. */
     private func openTaskReminder() {
         guard let destination = session.openingTask else { return }
         session.openingTask = nil
         guard destination.scope == session.tasks.scope, session.tasks.contains(destination.id) else { return }
-        setMenu(open: false)
         agentOpen = false
         searchOpen = false
-        calendarOpen = false
         settingsOpen = false
         openingTask = destination.id
-        tasksOpen = true
+        show(.tasks)
     }
 
     /** The conversation a task came from, opened as a notification's is. */
     private func openTaskEmail(_ email: TaskEmail) {
-        tasksOpen = false
+        section = .mail
         if let thread = store.thread(email.thread) {
             let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox
             place = Place(scope: scope)
