@@ -68,8 +68,7 @@ struct HomeView: View {
                 onTitle: { setMenu(open: true) },
                 onCompose: { compose() },
                 onSettings: { settingsOpen = true },
-                onCalendar: { setMenu(open: false); calendarOpen = true },
-                onTasks: { setMenu(open: false); tasksOpen = true },
+                onSearch: { setMenu(open: false); searchOpen = true },
                 onResume: { draft = $0 }
             )
             .overlay {

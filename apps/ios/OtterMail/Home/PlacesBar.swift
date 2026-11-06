@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PlacesBar: View {
     @Environment(MailStore.self) private var store
+    @Environment(Session.self) private var session
     @Environment(\.palette) private var palette
     @Namespace private var glass
 
@@ -64,6 +65,9 @@ struct PlacesBar: View {
 
     private var tabs: some View {
         let mailbox = store.mailbox(for: place.scope)
+        let showsCalendar = mailbox?.capabilities.calendar == true
+        // Inbox stays; drafts slot → Calendar when capable (drafts stay in the panel); search slot → Tasks (search moves to the top bar).
+        let pinnedFolders: [Folder] = showsCalendar ? [.inbox] : Self.pinned
         return HStack(spacing: 0) {
             Menu {
                 MailboxChoices(current: place.scope, onPick: onMailbox)
@@ -75,20 +79,32 @@ struct PlacesBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Mailbox, \(mailbox?.displayName ?? "")")
             .accessibilityHint("Switches mailbox")
-            ForEach(Self.pinned, id: \.self) { folder in
-                Button { onSelect(folder) } label: {
-                    tabLabel(folder.symbol(in: mailbox), selected: place.folder == folder,
-                             dot: folder == .inbox && store.badge(in: .inbox, scope: place.scope) > 0)
+            Button { onSelect(.inbox) } label: {
+                tabLabel(Folder.inbox.symbol(in: mailbox), selected: place.folder == .inbox,
+                         dot: store.badge(in: .inbox, scope: place.scope) > 0)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Folder.inbox.title(in: mailbox))
+            if showsCalendar {
+                Button(action: onCalendar) { tabLabel("calendar", selected: false) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Calendar")
+            } else {
+                Button { onSelect(.drafts) } label: {
+                    tabLabel(Folder.drafts.symbol(in: mailbox), selected: place.folder == .drafts)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(folder.title(in: mailbox))
+                .accessibilityLabel(Folder.drafts.title(in: mailbox))
             }
-            Button(action: onSearch) { tabLabel("magnifyingglass", selected: false) }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Search")
+            Button(action: onTasks) {
+                let open = session.tasks.tasks.count(where: { !$0.done })
+                tabLabel("checklist", selected: false, badge: open)
+                    .accessibilityLabel(open > 0 ? "Tasks, \(open) open" : "Tasks")
+            }
+            .buttonStyle(.plain)
             // Lit for any place the bar doesn't pin.
             Button(action: onMenu) {
-                tabLabel("chevron.up.chevron.down", selected: !Self.pinned.contains(place.folder))
+                tabLabel("chevron.up.chevron.down", selected: !pinnedFolders.contains(place.folder))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("All places")
@@ -96,13 +112,22 @@ struct PlacesBar: View {
         .padding(4)
     }
 
-    private func tabLabel(_ symbol: String, selected: Bool, dot: Bool = false) -> some View {
+    private func tabLabel(_ symbol: String, selected: Bool, dot: Bool = false, badge: Int = 0) -> some View {
         Image(systemName: symbol)
                 .font(.system(size: 19, weight: .medium))
                 .symbolVariant(selected ? .fill : .none)
                 .foregroundStyle(palette.text)
                 .overlay(alignment: .topTrailing) {
-                    if dot {
+                    if badge > 0 {
+                        Text("\(min(badge, 99))")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(.red, in: .capsule)
+                            .offset(x: 8, y: -6)
+                            .accessibilityHidden(true)
+                    } else if dot {
                         Circle().fill(palette.focus).frame(width: 9, height: 9).offset(x: 6, y: -4)
                     }
                 }
