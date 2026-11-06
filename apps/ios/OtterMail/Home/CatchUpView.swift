@@ -33,19 +33,104 @@ nonisolated enum CatchUp {
         case .failed: false
         }
     }
+
+    /**
+     * Every mailbox's inbox as one queue, newest first. A tie goes by mailbox,
+     * then by id, so the cards hold still while sync reorders nothing.
+     */
+    static func queue(inboxes: [[MailThread]], passed: Set<String> = []) -> [MailThread] {
+        var seen: Set<String> = []
+        return inboxes.flatMap { queue($0, passed: passed) }
+            .filter { seen.insert($0.id).inserted }
+            .sorted { a, b in
+                if a.latest.date != b.latest.date { return a.latest.date > b.latest.date }
+                return (a.mailbox, a.id) < (b.mailbox, b.id)
+            }
+    }
+
+    enum Item: Identifiable {
+        case invite(CalendarEvent)
+        case mail(MailThread)
+
+        var id: String {
+            switch self {
+            case .invite(let event): "invite/\(event.id)"
+            case .mail(let thread): "mail/\(thread.id)"
+            }
+        }
+    }
+
+    /** Invitations first, soonest first, as they're the ones with a date; then the mail. */
+    static func items(invites: [CalendarEvent], mail: [MailThread]) -> [Item] {
+        invites.map(Item.invite) + mail.map(Item.mail)
+    }
+
+    /** Nothing left, and nothing still coming (the invitations' fetch) or still saying how the last card went. */
+    static func isDone(items: Int, invitesPending: Bool, noticeShowing: Bool) -> Bool {
+        items == 0 && !invitesPending && !noticeShowing
+    }
+
+    /** An invitation card's answers, as Google Calendar's: Yes, No, Maybe. */
+    enum Answer: CaseIterable {
+        case accept, decline, maybe
+
+        var title: String {
+            switch self {
+            case .accept: "Accept"
+            case .decline: "Decline"
+            case .maybe: "Maybe"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .accept: "checkmark.circle"
+            case .decline: "xmark.circle"
+            case .maybe: "questionmark.circle"
+            }
+        }
+
+        /** Google's `responseStatus`. */
+        var response: CalendarEvent.Response {
+            switch self {
+            case .accept: .accepted
+            case .decline: .declined
+            case .maybe: .tentative
+            }
+        }
+
+        var done: String {
+            switch self {
+            case .accept: "Accepted"
+            case .decline: "Declined"
+            case .maybe: "Answered maybe to"
+            }
+        }
+    }
 }
 
-/** Unread mail one conversation at a time: right to mark it read, left to keep it for later. */
+/**
+ * Threads: every shown mailbox's unread inbox mail one conversation at a time
+ * (right to mark it read, left to keep it for later), after the invitations on
+ * the shown calendars still waiting on an answer. Done, it hands back to Mail.
+ */
 struct CatchUpView: View {
     @Environment(MailStore.self) private var store
+    @Environment(Session.self) private var session
+    @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
 
-    let scope: String
+    /** HomeView's, which the calendar screen shares. */
+    let calendar: CalendarStore
     @Binding var draft: Draft?
-    let onBack: () -> Void
+    let onTitle: () -> Void
+    let onDone: () -> Void
 
     @State private var passed: Set<String> = []
     @State private var unsubscribing: Set<String> = []
+    @State private var answering: Set<String> = []
+    @State private var invitesPending = true
+    @State private var visibility = CalendarShown()
     @State private var notice: Notice?
 
     private struct Notice: Equatable {
@@ -53,58 +138,101 @@ struct CatchUpView: View {
         let text: String
     }
 
+    private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
+    private var sources: [Mailbox] { CalendarStore.sources(store.shownMailboxes) }
+
+    private var window: EventWindow {
+        let from = dates.startOfDay(.now)
+        return EventWindow(from: from, to: dates.addDays(from, CalendarStore.inviteDays))
+    }
+
+    private var items: [CatchUp.Item] {
+        let invites = CalendarStore.invites(calendar.events(in: window) ?? [], shown: visibility.shown)
+            .filter { !passed.contains($0.id) }
+        return CatchUp.items(invites: invites, mail: CatchUp.queue(inboxes: inboxes, passed: passed))
+    }
+
+    /** Each inbox as its list has it, so the cards match what the lists show. */
+    private var inboxes: [[MailThread]] {
+        store.shownMailboxes.filter { !$0.signedOut }.map { mailbox in
+            let threads = store.threads(in: .inbox, scope: mailbox.email)
+            return store.sync?.listed(threads, in: .inbox) ?? threads
+        }
+    }
+
     var body: some View {
-        let queue = CatchUp.queue(inbox, passed: passed)
+        let items = self.items
         Group {
-            if let thread = queue.first, let mailbox = store.mailbox(thread.mailbox) {
+            if let item = items.first {
                 VStack(spacing: 12) {
-                    Text("\(queue.count) left")
+                    Text("\(items.count) left")
                         .font(.inter(.footnote).weight(.medium))
                         .foregroundStyle(palette.muted)
                         .monospacedDigit()
-                    CatchUpCard(thread: thread, mailbox: mailbox, scope: scope, draft: $draft)
-                        .modifier(MailSwipeActions(leading: readAction(thread), trailing: markAction(thread, mailbox)))
-                        .id(thread.id)
-                        .padding(.horizontal, 12)
-                        .overlay(alignment: .bottom) { banner }
-                    buttons(thread, mailbox)
+                    card(item)
                 }
                 .padding(.top, 4)
+            } else if invitesPending {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView {
-                    Label("You're all caught up", systemImage: "checkmark.circle")
-                } actions: {
-                    Button("Back to Inbox", action: onBack)
-                }
-                .foregroundStyle(palette.muted)
-                // The last card's unsubscribe still says how it went.
-                .overlay(alignment: .bottom) { banner }
+                ContentUnavailableView("You're all caught up", systemImage: "checkmark.circle")
+                    .foregroundStyle(palette.muted)
+                    // The last card's unsubscribe or answer still says how it went.
+                    .overlay(alignment: .bottom) { banner }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.canvas)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button(action: onBack) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left")
-                            .font(.inter(.body).weight(.semibold))
-                            .foregroundStyle(palette.text)
-                        PlaceTitle(title: "Catch up", scope: store.mailbox(for: scope)?.displayName ?? "")
-                    }
+                Button(action: onTitle) {
+                    PlaceTitle(title: "Catch up", scope: scopeTitle)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Back to Inbox")
+                .accessibilityHint("Shows what Catch up covers")
             }
             .sharedBackgroundVisibility(.hidden)
         }
         .toolbarTitleDisplayMode(.inline)
-        .onChange(of: scope) { _, _ in passed.removeAll() }
+        .task(id: sources.map(\.email)) { await loadInvites() }
+        .onChange(of: CatchUp.isDone(items: items.count, invitesPending: invitesPending, noticeShowing: notice != nil), initial: true) {
+            _, done in if done { onDone() }
+        }
         .task(id: notice) {
             guard notice != nil else { return }
             try? await Task.sleep(for: .seconds(4))
             notice = nil
         }
+    }
+
+    private var scopeTitle: String {
+        let shown = store.shownMailboxes
+        return shown.count == 1 ? shown[0].displayName : "All mailboxes"
+    }
+
+    @ViewBuilder private func card(_ item: CatchUp.Item) -> some View {
+        switch item {
+        case .mail(let thread):
+            if let mailbox = store.mailbox(thread.mailbox) {
+                CatchUpCard(thread: thread, mailbox: mailbox, scope: thread.mailbox, draft: $draft)
+                    .modifier(MailSwipeActions(leading: readAction(thread), trailing: markAction(thread, mailbox)))
+                    .id(item.id)
+                    .padding(.horizontal, 12)
+                    .overlay(alignment: .bottom) { banner }
+                buttons(thread, mailbox)
+            }
+        case .invite(let event):
+            InviteCard(event: event, mailbox: store.mailbox(event.calendar.account), dates: dates)
+                .id(item.id)
+                .padding(.horizontal, 12)
+                .overlay(alignment: .bottom) { banner }
+            inviteButtons(event)
+        }
+    }
+
+    private func loadInvites() async {
+        await calendar.load(window, sources: sources, demo: store.isDemo, google: session.google, dates: dates)
+        invitesPending = false
     }
 
     private var banner: some View {
@@ -114,12 +242,6 @@ struct CatchUpView: View {
             }
         }
         .animation(.snappy(duration: 0.2), value: notice)
-    }
-
-    /** The inbox as its list has it, so the count and the cards match it. */
-    private var inbox: [MailThread] {
-        let threads = store.threads(in: .inbox, scope: scope)
-        return store.sync?.listed(threads, in: .inbox) ?? threads
     }
 
     private func readAction(_ thread: MailThread) -> MailSwipeAction {
@@ -170,12 +292,45 @@ struct CatchUpView: View {
         .padding(.horizontal, 12)
     }
 
+    private func inviteButtons(_ event: CalendarEvent) -> some View {
+        let working = answering.contains(event.id)
+        return HStack(spacing: 8) {
+            ForEach(CatchUp.Answer.allCases, id: \.self) { answer in
+                button(answer.title, symbol: answer.symbol) { respond(answer, to: event) }
+            }
+            button("Later", symbol: "clock") { passed.insert(event.id) }
+        }
+        .disabled(working)
+        .opacity(working ? 0.5 : 1)
+        .padding(.horizontal, 12)
+    }
+
+    /** The card goes once Google has the answer; a refusal leaves it, saying why. */
+    private func respond(_ answer: CatchUp.Answer, to event: CalendarEvent) {
+        answering.insert(event.id)
+        Task {
+            do {
+                try await calendar.respond(answer.response, to: event, demo: store.isDemo, google: session.google)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                notice = Notice(text: "\(answer.done) “\(event.title)”")
+            } catch is GoogleCalendarAPI.NoAccess, GoogleAuth.Failure.signedOut {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                let name = store.mailbox(event.calendar.account)?.displayName ?? event.calendar.account
+                notice = Notice(text: "Sign in to \(name) again to answer invitations.")
+            } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                ErrorReports.capture(error, scope: "calendar")
+                notice = Notice(text: "Couldn't answer “\(event.title)”: \(error.localizedDescription)")
+            }
+            answering.remove(event.id)
+        }
+    }
+
     private func run(_ unsubscribe: Unsubscribe, _ thread: MailThread, _ mailbox: Mailbox) {
-        let shown = store.alias(scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
         let sender = (thread.sent.last ?? thread.latest).from.label
         unsubscribing.insert(thread.id)
         Task {
-            let outcome = await unsubscribe.run(from: shown, store: store)
+            let outcome = await unsubscribe.run(from: mailbox, store: store)
             unsubscribing.remove(thread.id)
             if CatchUp.advances(after: outcome) { passed.insert(thread.id) }
             outcome.haptic()
@@ -195,6 +350,64 @@ struct CatchUpView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+        .accessibilityLabel(title)
+    }
+}
+
+/** An invitation: what, when, where, and who asked and who else is coming. */
+private struct InviteCard: View {
+    @Environment(\.palette) private var palette
+    let event: CalendarEvent
+    let mailbox: Mailbox?
+    let dates: CalendarDates
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(mailbox.map { "Invitation · \($0.displayName)" } ?? "Invitation", systemImage: "calendar.badge.clock")
+                    .font(.inter(.footnote).weight(.medium))
+                    .foregroundStyle(palette.muted)
+                Text(event.title)
+                    .font(.inter(.title3).weight(.semibold))
+                    .foregroundStyle(palette.text)
+                Text(dates.when(event))
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(palette.text)
+                if event.recurring {
+                    Text("Repeats: the answer is for every occurrence")
+                        .font(.inter(.footnote))
+                        .foregroundStyle(palette.muted)
+                }
+                if let location = event.location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
+                    Label(location, systemImage: "mappin.and.ellipse")
+                        .font(.inter(.subheadline))
+                        .foregroundStyle(palette.text)
+                }
+                if let organizer = event.organizer {
+                    Label("From \(organizer.label)", systemImage: "person")
+                        .font(.inter(.subheadline))
+                        .foregroundStyle(palette.text)
+                }
+                let guests = event.guests
+                if !guests.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(CalendarEvent.responseSummary(guests))
+                            .font(.inter(.footnote).weight(.medium))
+                            .foregroundStyle(palette.muted)
+                        Text(guests.map(\.person.label).joined(separator: ", "))
+                            .font(.inter(.footnote))
+                            .foregroundStyle(palette.muted)
+                            .lineLimit(4)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
+        .scrollContentBackground(.hidden)
+        .background(palette.raised)
+        .clipShape(.rect(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(palette.border))
     }
 }
 

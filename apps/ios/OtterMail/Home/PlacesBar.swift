@@ -9,18 +9,18 @@ struct PlacesBar: View {
     let place: Place
     let section: HomeSection
     let menuOpen: Bool
+    /** The calendar's own list of calendars is up, which is what its ⌃⌄ opens. */
+    let calendarListing: Bool
     let showsAgent: Bool
-    let onSelect: (Folder) -> Void
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
     let onSearch: () -> Void
+    let onThreads: () -> Void
     let onCalendar: () -> Void
     let onTasks: () -> Void
     let onSettings: () -> Void
     let onMenu: () -> Void
     let onAgent: () -> Void
-
-    static let pinned: [Folder] = [.inbox, .drafts]
 
     var body: some View {
         // One glass: the bar grows into the menu and shrinks back (Linear's).
@@ -28,12 +28,18 @@ struct PlacesBar: View {
             HStack(alignment: .bottom, spacing: 12) {
                 ZStack(alignment: .bottomLeading) {
                     if menuOpen {
-                        PlacesPanel(place: place, section: section, onSelect: onPlace, onSearch: onSearch, onCalendar: onCalendar,
-                                    onTasks: onTasks, onSettings: onSettings)
-                            .frame(maxHeight: 560)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .glassEffect(.regular, in: .rect(cornerRadius: 32))
-                            .glassEffectID("places", in: glass)
+                        Group {
+                            if section == .threads {
+                                CatchUpScopePanel()
+                            } else {
+                                PlacesPanel(place: place, section: section, onSelect: onPlace, onMailbox: onMailbox,
+                                            onSearch: onSearch, onSettings: onSettings)
+                            }
+                        }
+                        .frame(maxHeight: 560)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 32))
+                        .glassEffectID("places", in: glass)
                     } else {
                         tabs
                             .glassEffect(.regular.interactive(), in: .capsule)
@@ -64,39 +70,25 @@ struct PlacesBar: View {
         .padding(.bottom, 4)
     }
 
+    /** Threads, Mail, Calendar (when any mailbox has one), Tasks, and ⌃⌄ for what's in front. */
     private var tabs: some View {
         let mailbox = store.mailbox(for: place.scope)
-        let showsCalendar = mailbox?.capabilities.calendar == true
-        // Inbox stays; drafts slot → Calendar when capable (drafts stay in the panel); search slot → Tasks (search moves to the top bar).
-        let pinnedFolders: [Folder] = showsCalendar ? [.inbox] : Self.pinned
         let mail = section == .mail
         return HStack(spacing: 0) {
-            Menu {
-                MailboxChoices(current: place.scope, onPick: onMailbox)
-            } label: {
-                MailboxAvatar(mailbox: mailbox, size: 30)
-                    .frame(width: 52, height: 48)
-                    .contentShape(.capsule)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Mailbox, \(mailbox?.displayName ?? "")")
-            .accessibilityHint("Switches mailbox")
-            Button { onSelect(.inbox) } label: {
+            Button(action: onThreads) { tabLabel("rectangle.stack", selected: section == .threads) }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Threads")
+                .accessibilityHint("Catches up on every mailbox")
+            Button { onPlace(Place(scope: place.scope, folder: .inbox)) } label: {
                 tabLabel(Folder.inbox.symbol(in: mailbox), selected: mail && place.folder == .inbox,
                          dot: store.badge(in: .inbox, scope: place.scope) > 0)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Folder.inbox.title(in: mailbox))
-            if showsCalendar {
+            .accessibilityLabel("Mail")
+            if !CalendarStore.sources(store.shownMailboxes).isEmpty {
                 Button(action: onCalendar) { tabLabel("calendar", selected: section == .calendar) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Calendar")
-            } else {
-                Button { onSelect(.drafts) } label: {
-                    tabLabel(Folder.drafts.symbol(in: mailbox), selected: mail && place.folder == .drafts)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Folder.drafts.title(in: mailbox))
             }
             Button(action: onTasks) {
                 let open = session.tasks.tasks.count(where: { !$0.done })
@@ -104,14 +96,33 @@ struct PlacesBar: View {
                     .accessibilityLabel(open > 0 ? "Tasks, \(open) open" : "Tasks")
             }
             .buttonStyle(.plain)
-            // Lit for any mail place the bar doesn't pin.
-            Button(action: onMenu) {
-                tabLabel("chevron.up.chevron.down", selected: mail && !pinnedFolders.contains(place.folder))
+            // Tasks has nothing to scope; the others' ⌃⌄ opens what they're scoped by.
+            if section != .tasks {
+                Button(action: onMenu) {
+                    tabLabel("chevron.up.chevron.down", selected: scopeLit)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(scopeLabel)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("All places")
         }
         .padding(4)
+    }
+
+    /** Lit for a mail place the bar doesn't pin, and while the calendar lists its calendars. */
+    private var scopeLit: Bool {
+        switch section {
+        case .mail: place.folder != .inbox
+        case .calendar: calendarListing
+        case .threads, .tasks: false
+        }
+    }
+
+    private var scopeLabel: String {
+        switch section {
+        case .calendar: "Calendars"
+        case .threads: "Mailboxes in Catch up"
+        case .mail, .tasks: "All places"
+        }
     }
 
     private func tabLabel(_ symbol: String, selected: Bool, dot: Bool = false, badge: Int = 0) -> some View {
@@ -142,15 +153,13 @@ struct PlacesBar: View {
 
 struct PlacesPanel: View {
     @Environment(MailStore.self) private var store
-    @Environment(Session.self) private var session
     @Environment(\.palette) private var palette
 
     let place: Place
     let section: HomeSection
     let onSelect: (Place) -> Void
+    let onMailbox: (Mailbox) -> Void
     let onSearch: () -> Void
-    let onCalendar: () -> Void
-    let onTasks: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
@@ -162,6 +171,7 @@ struct PlacesPanel: View {
             Divider().overlay(palette.border).padding(.horizontal, 12)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
+                    mailboxes
                     if let mailbox = mailbox.flatMap({ store.mailbox($0.source) }), mailbox.signedOut {
                         HStack(spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(palette.warning)
@@ -180,11 +190,6 @@ struct PlacesPanel: View {
                         }
                     }
                     labels(mailbox)
-                    if mailbox?.capabilities.calendar == true {
-                        row("Calendar", symbol: "calendar", selected: section == .calendar, action: onCalendar)
-                    }
-                    row("Tasks", symbol: "checklist", count: session.tasks.tasks.count(where: { !$0.done }),
-                        selected: section == .tasks, action: onTasks)
                     row("Search", symbol: "magnifyingglass", action: onSearch)
                     row("Settings", symbol: "gearshape", action: onSettings)
                     SyncStatusLine(scope: mailbox?.source ?? place.scope)
@@ -207,6 +212,24 @@ struct PlacesPanel: View {
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
             Spacer(minLength: 0)
+        }
+    }
+
+    /** Where switching mailboxes went from the bar: each one, its unread count, the current one lit. */
+    @ViewBuilder
+    private var mailboxes: some View {
+        let scopes = store.shownScopes
+        if scopes.count > 1 {
+            ForEach(scopes) { mailbox in
+                let current = mailbox.email == place.scope
+                PlaceRow(title: mailbox.displayName, count: store.badge(in: .inbox, scope: mailbox.email), selected: current) {
+                    MailboxAvatar(mailbox: mailbox, size: 24)
+                } action: {
+                    onMailbox(mailbox)
+                }
+                .accessibilityAddTraits(current ? .isSelected : [])
+            }
+            Divider().overlay(palette.border).padding(.vertical, 6).padding(.horizontal, 4)
         }
     }
 
@@ -234,51 +257,87 @@ struct PlacesPanel: View {
 
     private func row(_ title: String, symbol: String, color: String? = nil, count: Int = 0,
                      selected: Bool = false, indent: Int = 0, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol)
-                    .font(.system(size: 17))
-                    .foregroundStyle(color.map(Color.init(hex:)) ?? palette.text)
-                    .frame(width: 24)
-                Text(title)
-                    .font(.inter(.body))
-                    .foregroundStyle(palette.text)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if count > 0 {
-                    Text("\(count)")
-                        .font(.inter(.footnote).weight(.medium))
-                        .foregroundStyle(palette.muted)
-                        .monospacedDigit()
-                }
-            }
-            .padding(.leading, 12 + CGFloat(indent) * 20)
-            .padding(.trailing, 12)
-            .frame(height: 48)
-            .background(selected ? palette.text.opacity(0.1) : .clear, in: .rect(cornerRadius: 16))
-            .contentShape(.rect)
+        PlaceRow(title: title, count: count, selected: selected, indent: indent) {
+            Image(systemName: symbol)
+                .font(.system(size: 17))
+                .foregroundStyle(color.map(Color.init(hex:)) ?? palette.text)
+        } action: {
+            action()
         }
-        .buttonStyle(.plain)
     }
 }
 
-struct MailboxChoices: View {
-    @Environment(MailStore.self) private var store
-    let current: String
-    let onPick: (Mailbox) -> Void
+/** A row of the panels over the bar: an icon, a title, a count. */
+private struct PlaceRow<Icon: View>: View {
+    @Environment(\.palette) private var palette
+    let title: String
+    var count = 0
+    var selected = false
+    var indent = 0
+    @ViewBuilder let icon: Icon
+    var action: (() -> Void)?
 
     var body: some View {
-        ForEach(store.shownScopes) { mailbox in
-            let unread = store.badge(in: .inbox, scope: mailbox.email)
-            Button { onPick(mailbox) } label: {
-                if mailbox.email == current {
-                    Label(mailbox.displayName, systemImage: "checkmark")
-                } else {
-                    Text(mailbox.displayName)
-                }
-                if unread > 0 { Text("\(unread) unread") }
+        let label = HStack(spacing: 14) {
+            icon.frame(width: 24)
+            Text(title)
+                .font(.inter(.body))
+                .foregroundStyle(palette.text)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if count > 0 {
+                Text("\(count)")
+                    .font(.inter(.footnote).weight(.medium))
+                    .foregroundStyle(palette.muted)
+                    .monospacedDigit()
             }
         }
+        .padding(.leading, 12 + CGFloat(indent) * 20)
+        .padding(.trailing, 12)
+        .frame(height: 48)
+        .background(selected ? palette.text.opacity(0.1) : .clear, in: .rect(cornerRadius: 16))
+        .contentShape(.rect)
+        if let action {
+            Button(action: action) { label }.buttonStyle(.plain)
+        } else {
+            label
+        }
+    }
+}
+
+/** What Threads covers: every shown mailbox, read-only (no mailbox filter yet). */
+private struct CatchUpScopePanel: View {
+    @Environment(MailStore.self) private var store
+    @Environment(\.palette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Catch up")
+                .font(.inter(.headline))
+                .foregroundStyle(palette.text)
+                .padding(.horizontal, 16)
+                .frame(height: 56)
+            Divider().overlay(palette.border).padding(.horizontal, 12)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Unread mail in every inbox, and invitations waiting on your answer, from all of these.")
+                        .font(.inter(.footnote))
+                        .foregroundStyle(palette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                    ForEach(store.shownMailboxes) { mailbox in
+                        PlaceRow(title: mailbox.displayName, count: store.badge(in: .inbox, scope: mailbox.email)) {
+                            MailboxAvatar(mailbox: mailbox, size: 24)
+                        }
+                    }
+                }
+                .padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxWidth: 340)
     }
 }
 

@@ -38,7 +38,7 @@ struct EventView: View {
                 .font(.inter(.title2).weight(.semibold))
                 .foregroundStyle(palette.text)
                 .strikethrough(event.status == .cancelled)
-            Text(when)
+            Text(dates.when(event))
                 .font(.inter(.subheadline))
                 .foregroundStyle(palette.muted)
             // An all-day event is a date, not a time, so it has no zone to read it in.
@@ -171,19 +171,6 @@ struct EventView: View {
         .frame(minHeight: 52)
     }
 
-    private var when: String {
-        let first = dates.startOfDay(event.start)
-        let last = EventDays.endDay(of: event, dates: dates)
-        let day = { (date: Date) in self.dates.dayTitle(date) }
-        if event.allDay {
-            return last > first ? "\(day(first)) – \(day(last))" : "All-day · \(day(first))"
-        }
-        if last > first {
-            return "\(day(first)), \(dates.timeLabel(event.start)) – \(day(last)), \(dates.timeLabel(event.end))"
-        }
-        let length = CalendarDates.durationLabel(event.end.timeIntervalSince(event.start))
-        return "\(day(first)) · \(dates.rangeLabel(event.start, event.end)) · \(length)"
-    }
 
     /** Google's descriptions are often HTML, read as eventPresentation.ts reads them. */
     private var details: String? {

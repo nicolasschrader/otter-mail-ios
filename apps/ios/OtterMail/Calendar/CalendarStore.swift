@@ -42,6 +42,11 @@ final class CalendarStore {
     /** Mailboxes whose calendar list is asked for again on their next fetch. */
     @ObservationIgnored private var stale: Set<String> = []
     @ObservationIgnored private var generation = 0
+    /** The demo's answers, as its pretend events are made again on every load. */
+    @ObservationIgnored private var demoAnswers: [String: CalendarEvent.Response] = [:]
+
+    /** How far ahead Catch up looks for invitations. */
+    nonisolated static let inviteDays = 60
 
     /** The mailboxes the calendar is read from: calendar-view.tsx's calendarAccounts. */
     nonisolated static func sources(_ mailboxes: [Mailbox]) -> [Mailbox] {
@@ -58,6 +63,55 @@ final class CalendarStore {
         _ sources: [Mailbox], lists: [String: [EventCalendar]]
     ) -> [(mailbox: Mailbox, calendars: [EventCalendar])] {
         sources.map { ($0, lists[$0.email] ?? []) }
+    }
+
+    /**
+     * The invitations waiting on an answer, soonest first: on a shown calendar,
+     * not cancelled or over, one per series (its next occurrence), and an event
+     * on two of a mailbox's calendars once, its primary one's.
+     */
+    nonisolated static func invites(_ events: [CalendarEvent], shown: [String: Bool], now: Date = .now) -> [CalendarEvent] {
+        var seen: Set<String> = []
+        return CalendarShown.visible(events, shown: shown)
+            .filter { $0.response == .needsAction && $0.status != .cancelled && $0.end > now }
+            .sorted { ($0.start, $0.calendar.primary ? 0 : 1) < ($1.start, $1.calendar.primary ? 0 : 1) }
+            .filter { seen.insert(answerKey($0)).inserted }
+    }
+
+    /** What an answer is given to: the series for an occurrence of one (core's `allEvents`), else the event. */
+    nonisolated static func answerKey(_ event: CalendarEvent) -> String {
+        "\(event.calendar.account.lowercased())/\(event.seriesId ?? event.eventId)"
+    }
+
+    /** Answers an invitation, and every window's copy of it (each occurrence, for a series) says so at once. */
+    func respond(_ response: CalendarEvent.Response, to event: CalendarEvent, demo: Bool, google: GoogleAuth) async throws {
+        let account = event.calendar.account
+        let key = Self.answerKey(event)
+        if demo {
+            demoAnswers[key] = response
+        } else {
+            let api = GoogleCalendarAPI(email: account) { [google] refresh in
+                try await google.accessToken(account, force: refresh)
+            }
+            try await api.respond(response, to: event.seriesId ?? event.eventId, on: event.calendar.id)
+        }
+        for (window, byAccount) in parts {
+            guard let mine = byAccount[account] else { continue }
+            parts[window]?[account] = mine.map { Self.answerKey($0) == key ? Self.answered($0, response) : $0 }
+            cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts)
+        }
+    }
+
+    nonisolated static func answered(_ event: CalendarEvent, _ response: CalendarEvent.Response) -> CalendarEvent {
+        var event = event
+        event.response = response
+        let me = event.calendar.account.lowercased()
+        event.attendees = event.attendees.map { who in
+            var who = who
+            if who.person.email.lowercased() == me { who.response = response }
+            return who
+        }
+        return event
     }
 
     func load(
@@ -164,7 +218,7 @@ final class CalendarStore {
         return DemoCalendar.events(in: window, dates: dates).map { event in
             var event = event
             event.calendar = event.calendar.of(account)
-            return event
+            return demoAnswers[Self.answerKey(event)].map { Self.answered(event, $0) } ?? event
         }
     }
 

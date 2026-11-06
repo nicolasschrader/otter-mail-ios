@@ -199,6 +199,20 @@ nonisolated struct CalendarDates {
 
     func dayTitle(_ date: Date) -> String { localized("MMMMdy").string(from: date) }
 
+    /** "May 4, 2026 · 9–10 AM · 1h", or the days an all-day or longer event covers. */
+    func when(_ event: CalendarEvent) -> String {
+        let first = startOfDay(event.start)
+        let last = EventDays.endDay(of: event, dates: self)
+        if event.allDay {
+            return last > first ? "\(dayTitle(first)) – \(dayTitle(last))" : "All-day · \(dayTitle(first))"
+        }
+        if last > first {
+            return "\(dayTitle(first)), \(timeLabel(event.start)) – \(dayTitle(last)), \(timeLabel(event.end))"
+        }
+        let length = Self.durationLabel(event.end.timeIntervalSince(event.start))
+        return "\(dayTitle(first)) · \(rangeLabel(event.start, event.end)) · \(length)"
+    }
+
     func weekdayLong(_ date: Date) -> String { localized("EEEE").string(from: date) }
 
     /**

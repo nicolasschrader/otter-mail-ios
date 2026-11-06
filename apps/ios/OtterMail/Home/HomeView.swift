@@ -5,9 +5,9 @@ struct Place: Hashable {
     var folder: Folder = .inbox
 }
 
-/** What the home screen shows above the bar: the mail, or the calendar or tasks in its place. */
+/** What the home screen shows above the bar, in the bar's order: Catch up, the mail, the calendar, tasks. */
 enum HomeSection: Hashable {
-    case mail, calendar, tasks
+    case threads, mail, calendar, tasks
 }
 
 struct HomeView: View {
@@ -27,13 +27,19 @@ struct HomeView: View {
     @State private var agentOpen = false
     @State private var searchOpen = false
     @State private var section: HomeSection = .mail
-    @State private var catchingUp = false
+    @State private var calendarListing = false
     @State private var calendar = CalendarStore()
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
 
     private var showsAgent: Bool { session.agent.isOn || session.user != nil }
+
+    /** Catch up is the Threads section. */
+    private var catchingUp: Bool {
+        get { section == .threads }
+        nonmutating set { section = newValue ? .threads : .mail }
+    }
 
     private var menuAnimation: Animation? { reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.15) }
 
@@ -62,30 +68,31 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
+            }
     }
 
     @ViewBuilder private var content: some View {
         switch section {
+        case .threads:
+            NavigationStack {
+                withPlaces(CatchUpView(
+                    calendar: calendar, draft: $draft, onTitle: { setMenu(open: !menuOpen) }, onDone: { show(.mail) }
+                ))
+            }
         case .mail:
             NavigationStack(path: $path) {
                 // The bar is on the list, so it goes with it when a conversation opens.
-                Group {
-                    if catchingUp {
-                        withPlaces(CatchUpView(scope: place.scope, draft: $draft, onBack: { catchingUp = false }))
-                    } else {
-                        withPlaces(ThreadListView(
-                            place: place,
-                            messageTransition: messageTransition,
-                            selecting: $selecting,
-                            onTitle: { setMenu(open: true) },
-                            onCompose: { compose() },
-                            onSettings: { settingsOpen = true },
-                            onSearch: { setMenu(open: false); searchOpen = true },
-                            onCatchUp: { setMenu(open: false); path = []; catchingUp = true },
-                            onResume: { draft = $0 }
-                        ))
-                    }
-                }
+                withPlaces(ThreadListView(
+                    place: place,
+                    messageTransition: messageTransition,
+                    selecting: $selecting,
+                    onTitle: { setMenu(open: true) },
+                    onCompose: { compose() },
+                    onSettings: { settingsOpen = true },
+                    onSearch: { setMenu(open: false); searchOpen = true },
+                    onCatchUp: { show(.threads) },
+                    onResume: { draft = $0 }
+                ))
                 .navigationDestination(for: String.self) { id in
                     let reader = ThreadView(threadID: id, place: place, path: $path, draft: $draft)
                     if reduceMotion {
@@ -96,7 +103,7 @@ struct HomeView: View {
                 }
             }
         case .calendar:
-            withPlaces(CalendarView(events: calendar, onTitle: { setMenu(open: true) }))
+            withPlaces(CalendarView(events: calendar, listing: $calendarListing, onTitle: { calendarListing = true }))
         case .tasks:
             withPlaces(TasksView(
                 opening: openingTask, scope: place.scope, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }
@@ -135,15 +142,16 @@ struct HomeView: View {
                             place: place,
                             section: section,
                             menuOpen: menuOpen,
+                            calendarListing: calendarListing,
                             showsAgent: showsAgent,
-                            onSelect: { select(Place(scope: place.scope, folder: $0)) },
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onSearch: { setMenu(open: false); searchOpen = true },
+                            onThreads: { show(.threads) },
                             onCalendar: { show(.calendar) },
                             onTasks: { show(.tasks) },
                             onSettings: { setMenu(open: false); settingsOpen = true },
-                            onMenu: { setMenu(open: !menuOpen) },
+                            onMenu: openScope,
                             onAgent: { agentOpen = true }
                         )
                     }
@@ -184,7 +192,6 @@ struct HomeView: View {
     private func select(_ next: Place) {
         place = next
         path = []
-        catchingUp = false
         section = .mail
         setMenu(open: false)
     }
@@ -192,8 +199,17 @@ struct HomeView: View {
     private func show(_ next: HomeSection) {
         setMenu(open: false)
         selecting = false
-        catchingUp = false
+        calendarListing = false
         section = next
+    }
+
+    /** ⌃⌄: the mail's places and mailboxes, the calendar's list of calendars, or what Catch up covers. */
+    private func openScope() {
+        switch section {
+        case .calendar: calendarListing.toggle()
+        case .mail, .threads: setMenu(open: !menuOpen)
+        case .tasks: break
+        }
     }
 
     /** The calendar or tasks stay up across mailboxes, unless the new one has no calendar. */
@@ -226,7 +242,6 @@ struct HomeView: View {
             setMenu(open: false)
             agentOpen = false
             searchOpen = false
-            catchingUp = false
             section = .mail
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
@@ -250,7 +265,6 @@ struct HomeView: View {
     /** The conversation a task came from, opened as a notification's is. */
     private func openTaskEmail(_ email: TaskEmail) {
         section = .mail
-        catchingUp = false
         if let thread = store.thread(email.thread) {
             let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox
             place = Place(scope: scope)

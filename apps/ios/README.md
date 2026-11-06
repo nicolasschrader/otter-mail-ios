@@ -7,11 +7,15 @@ their code.
 ## Design
 
 - **Linear's frame.** The mail list is the page, with All and Unread pills under its title and
-  Compose and More at the top right. Under it, a glass bar (`Home/PlacesBar.swift`): the mailbox's
-  picture (tap to switch mailbox, the one switcher), Inbox, Drafts, Search, and ⌃⌄ for every other
-  place (the mailbox's folders and labels, Calendar where the provider has one, Tasks, Search,
-  Settings; the title opens it too). The agent has its own round button beside the bar and opens as a sheet;
-  so does Search, and so do the calendar and Tasks. Settings is ChatGPT's grouped sheet.
+  Compose and More at the top right. Under it, a glass bar (`Home/PlacesBar.swift`): Threads
+  (Catch up, `Home/CatchUpView.swift`: every shown mailbox's unread inbox mail, newest first, after
+  the invitations on shown calendars still waiting on an answer, with Accept, Decline, Maybe;
+  empty, it hands back to Mail), Mail (the inbox), Calendar (when any mailbox has one), Tasks, and
+  ⌃⌄ for what the one in front is scoped by: in Mail the mailboxes (the one switcher) and the
+  mailbox's folders and labels, Search, Settings (the title opens it too); in Calendar its list
+  of calendars to show or hide; in Threads the mailboxes it covers. Tasks has none. The agent has
+  its own round button beside the bar and opens as a sheet; so does Search. Settings is ChatGPT's
+  grouped sheet.
   Gmail's folders include All Mail and Important; Outlook's and IMAP's an Archive of their own,
   and their Starred is Flagged (a flag, not a star).
 - **The desktop's rows.** The sender's picture, who and when, the subject, a line of the latest
@@ -132,7 +136,9 @@ add limited server grants (or an encrypted IMAP password), while mail content st
     `EventView.swift` one event (when and where, the rooms, who's coming under their counts).
     The sign-in asks for `calendar.readonly`, so a mailbox that
     signed in before that offers signing in again instead of a calendar (core's
-    `NoCalendarAccess`). `DemoCalendar.swift` is the demo's own events.
+    `NoCalendarAccess`), and `calendar.events.owned` to answer invitations
+    (`GoogleCalendarAPI.respond`, core's setResponse: the attendees PATCHed back with
+    sendUpdates=all; an occurrence answers for its series). `DemoCalendar.swift` is the demo's own events.
 - `Tasks/`: **new logic, this app's own.** A small to-do list with reminders, local to this iPhone:
   it is not a port, and no other Otter app has one (Otter Mail's only task feature is the Todoist
   extension, which needs a Todoist account and Todoist's cloud). **Nothing here syncs** — no relay,

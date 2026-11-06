@@ -3,13 +3,12 @@ import SwiftUI
 /**
  * Every mailbox's calendar in one, as the Mac and web apps combine them, a
  * section of the home screen in the mail's place,
- * chosen from the bottom bar or the places bar (⌃⌄ › Calendar), in the
+ * chosen from the bottom bar (whose ⌃⌄ lists the calendars here), in the
  * phone's pages, Agenda, Day and Month (the Mac and web apps' CALENDAR_MODES
  * less Week, with the agenda of the days ahead), turned by the picker or a
  * sideways swipe that follows the finger, each page kept up between turns.
  * It follows the account's Settings › Calendar (`CalendarPreferences`).
- * Read-only, as the sign-in asks only to read the calendar; answering an
- * invitation stays in the mail.
+ * Read-only here; invitations are answered in Catch up (`CatchUpView`).
  */
 struct CalendarView: View {
     @Environment(MailStore.self) private var store
@@ -20,6 +19,8 @@ struct CalendarView: View {
 
     /** Held by HomeView, so the events outlive switching sections. */
     let events: CalendarStore
+    /** Listing the calendars to show or hide, in the events' place: the bar's ⌃⌄ opens it too. */
+    @Binding var listing: Bool
     var onTitle: () -> Void = {}
 
     @State private var mode: CalendarMode = .agenda
@@ -30,10 +31,15 @@ struct CalendarView: View {
     @State private var now = Date.now
     @State private var path: [CalendarEvent] = []
     @State private var visibility = CalendarShown()
-    /** Listing the calendars to show or hide, in the events' place. */
-    @State private var listing = false
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
+
+    /** Every calendar of every mailbox unless some are turned off: then how many of them show. */
+    private var shownTitle: String {
+        let calendars = sources.flatMap { events.lists[$0.email] ?? [] }
+        let shown = calendars.count(where: { visibility.isShown($0) })
+        return shown == calendars.count ? "All calendars" : "\(shown) of \(calendars.count)"
+    }
     private var sources: [Mailbox] { CalendarStore.sources(store.shownMailboxes) }
     private var denied: [Mailbox] { sources.filter { events.denied.contains($0.email) } }
     /** Every page's window, so turning one doesn't wait on a fetch. */
@@ -66,10 +72,10 @@ struct CalendarView: View {
                             .accessibilityLabel("Back to Calendar")
                         } else {
                             Button(action: onTitle) {
-                                PlaceTitle(title: "Calendar")
+                                PlaceTitle(title: "Calendar", scope: shownTitle)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityHint("Shows every place")
+                            .accessibilityHint("Lists the calendars")
                         }
                     }
                     .sharedBackgroundVisibility(.hidden)

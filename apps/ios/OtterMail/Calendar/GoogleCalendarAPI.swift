@@ -1,10 +1,11 @@
 import Foundation
 
 /**
- * Google Calendar, read-only: the account's calendars and the events in a
- * window, mapped as core maps them (packages/core/src/providers/gmail/calendar.ts).
- * A sign-in from before the app asked for calendar access is refused with 403,
- * which is `NoAccess`: the screen then offers signing in again.
+ * Google Calendar: the account's calendars and the events in a window, mapped
+ * as core maps them (packages/core/src/providers/gmail/calendar.ts), and the
+ * answer to an invitation, as core's respondToEvent gives it. A sign-in from
+ * before the app asked for calendar access is refused with 403, which is
+ * `NoAccess`: the screen then offers signing in again.
  */
 nonisolated struct GoogleCalendarAPI {
     let email: String
@@ -58,6 +59,20 @@ nonisolated struct GoogleCalendarAPI {
         return found
     }
 
+    /**
+     * Answers an invitation as core's setResponse does: the event's attendees
+     * with this mailbox's answer in them, PATCHed back with sendUpdates=all, so
+     * the organizer hears of it. The whole list goes back, so it's read first.
+     */
+    @concurrent
+    func respond(_ response: CalendarEvent.Response, to eventId: String, on calendarId: String) async throws {
+        let path = "calendars/\(encoded(calendarId))/events/\(encoded(eventId))"
+        let event = (try JSONSerialization.jsonObject(with: try await request(path, query: [])) as? [String: Any]) ?? [:]
+        let attendees = GoogleEvents.answered(event["attendees"] as? [[String: Any]] ?? [], me: email, response: response)
+        let body = try JSONSerialization.data(withJSONObject: ["attendees": attendees])
+        _ = try await request(path, query: [.init(name: "sendUpdates", value: "all")], method: "PATCH", body: body)
+    }
+
     /** As core's calendarFetch reads a refusal: the grant doesn't cover the calendar. */
     static func lacksAccess(_ message: String) -> Bool {
         ["insufficient", "scope", "PERMISSION_DENIED", "accessNotConfigured", "has not been used"]
@@ -68,10 +83,15 @@ nonisolated struct GoogleCalendarAPI {
         id.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~"))) ?? id
     }
 
-    private func request(_ path: String, query: [URLQueryItem]) async throws -> Data {
+    private func request(_ path: String, query: [URLQueryItem], method: String = "GET", body: Data? = nil) async throws -> Data {
         var components = URLComponents(string: "https://www.googleapis.com/calendar/v3/\(path)")!
-        components.queryItems = query
+        if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
+        request.httpMethod = method
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         for attempt in 0..<3 {
             request.setValue("Bearer \(try await token(attempt > 0))", forHTTPHeaderField: "Authorization")
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -146,6 +166,22 @@ nonisolated enum GoogleEvents {
         return (calendars, page.nextPageToken)
     }
 
+    /** core's setResponse: this mailbox's answer on its own attendee, added when it isn't one yet; the rest as they were. */
+    static func answered(_ attendees: [[String: Any]], me: String, response: CalendarEvent.Response) -> [[String: Any]] {
+        let email = me.lowercased()
+        let isMe = { (who: [String: Any]) in who["self"] as? Bool == true || (who["email"] as? String)?.lowercased() == email }
+        var answered = attendees.map { who in
+            guard isMe(who) else { return who }
+            var who = who
+            who["responseStatus"] = response.rawValue
+            return who
+        }
+        if !attendees.contains(where: isMe) {
+            answered.append(["email": email, "self": true, "responseStatus": response.rawValue])
+        }
+        return answered
+    }
+
     /** How the account's calendars are listed: the primary one first, then by name. */
     static func sorted(_ calendars: [EventCalendar]) -> [EventCalendar] {
         calendars.sorted { ($0.primary ? 0 : 1, $0.name.lowercased()) < ($1.primary ? 0 : 1, $1.name.lowercased()) }
@@ -184,7 +220,8 @@ nonisolated enum GoogleEvents {
             response: mine.map { response($0.responseStatus) },
             meetingLink: video ?? api.hangoutLink ?? Meetings.findLink(in: [api.location, api.description]),
             htmlLink: api.htmlLink,
-            recurring: api.recurringEventId != nil || api.recurrence?.isEmpty == false
+            recurring: api.recurringEventId != nil || api.recurrence?.isEmpty == false,
+            seriesId: api.recurringEventId
         )
     }
 

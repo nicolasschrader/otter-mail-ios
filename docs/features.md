@@ -301,11 +301,11 @@ These are Otter Mail actions, separate from Gmail's own scheduled and snoozed fo
 
 ## Calendar invitations
 
-| Feature                             | Mac                                                                               | Web | iPhone |
-| ----------------------------------- | --------------------------------------------------------------------------------- | --- | ------ |
-| Invitation card (what, when, where) | ✓                                                                                 | ✓   | —      |
-| Yes / No / Maybe                    | Gmail: Google Calendar; Outlook: Outlook calendar; IMAP: email reply to organizer | ✓   | —      |
-| Google's RSVP links in the body     | ✓ (answered in place)                                                             | ✓   | —      |
+| Feature                             | Mac                                                                               | Web | iPhone                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------- | --- | ----------------------------------------------- |
+| Invitation card (what, when, where) | ✓                                                                                 | ✓   | ✓ (in Catch up, Gmail)                          |
+| Yes / No / Maybe                    | Gmail: Google Calendar; Outlook: Outlook calendar; IMAP: email reply to organizer | ✓   | ✓ (Gmail: Google Calendar; a series as a whole) |
+| Google's RSVP links in the body     | ✓ (answered in place)                                                             | ✓   | —                                               |
 
 ## Calendar
 
@@ -314,14 +314,14 @@ of every Gmail and Outlook mailbox side by side (its own, shared and followed: b
 holidays), grouped by mailbox as Notion Calendar does. The default calendar wears its mailbox's
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
-The iPhone reads every Google mailbox's calendars in one, as the Mac and web do (⌃⌄ › Calendar),
-its calendar button listing them by mailbox to show or hide, in the same modes: a day, the month's
+The iPhone reads every Google mailbox's calendars in one, as the Mac and web do (the bar's
+Calendar), its calendar button and ⌃⌄ listing them by mailbox to show or hide, in the same modes: a day, the month's
 grid where a day lists itself, and the days ahead as an agenda, Day and Month with ‹ › and Today,
 and an event's own screen (where it is,
 the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
 when that clock differs). An event over several days says where it starts and ends on each of them,
-and which of its days this is. It changes nothing, and leaves out the calendars Google has
-unchecked. It follows Settings → Calendar from the account without a page of
+and which of its days this is. It changes nothing (invitations are answered in Catch up), and
+leaves out the calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
 its own.
 
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |
@@ -403,7 +403,7 @@ recalled. See [behavior and setup](../apps/ios/README.md#verified-background-not
 | New mail during a long sync           | ✓                                  | ✓                      | —                                    |
 | Changes applied at once, synced after | ✓                                  | ✓                      | ✓ (no outbox)                        |
 
-On iPhone, a glass bar under the list holds the mailbox's picture (tap to switch mailbox), Inbox, Drafts, Search (a sheet that searches the mailbox shown) and ⌃⌄, which opens every other folder and label, Calendar, Tasks, Search and Settings. The Agent (with an agent on, or an Otter account's chats to read) has its own round button beside it and opens as a sheet. The bar steps aside for the reader and selection. Conversations zoom from their list rows (respecting Reduce Motion), the reader's navigation bar minimizes while scrolling, and selection morphs the glass buttons into bulk actions.
+On iPhone, a glass bar under the list holds Threads (Catch up across every mailbox: unread inbox mail newest first, after invitations waiting on an answer; empty, it goes back to Mail), Mail, Calendar (when a mailbox has one), Tasks and ⌃⌄, which opens what the one in front is scoped by: in Mail the mailboxes and every folder and label, Search and Settings; in Calendar the calendars to show or hide; in Threads the mailboxes it covers (Tasks has none). The Agent (with an agent on, or an Otter account's chats to read) has its own round button beside it and opens as a sheet. The bar steps aside for the reader and selection. Conversations zoom from their list rows (respecting Reduce Motion), the reader's navigation bar minimizes while scrolling, and selection morphs the glass buttons into bulk actions.
 
 ## Settings & customization
 
@@ -593,8 +593,8 @@ clients receive a link to that page instead of deleting a shared identity withou
 What each scope in `GMAIL_SCOPES` (`packages/contracts/src/google.ts`) is for:
 
 - `https://mail.google.com/`: every Gmail mail feature (reading, search, sending, drafts,
-  labels, delete forever, push). The iPhone app asks for this one, `gmail.settings.basic` and
-  `calendar.readonly` (plus `openid email profile`), not the others.
+  labels, delete forever, push). The iPhone app asks for this one, `gmail.settings.basic`,
+  `calendar.readonly` and `calendar.events.owned` (plus `openid email profile`), not the others.
 - `gmail.settings.basic`: saving signatures in Gmail (reading them needs only the mail scope).
 - `calendar.events.owned`: answering invitations in Google Calendar, replacing the broader
   `calendar.events` the Mac and web apps ask for today. Without it, RSVPs go by email reply.
@@ -609,8 +609,7 @@ What each scope in `GMAIL_SCOPES` (`packages/contracts/src/google.ts`) is for:
 
 ## Gaps worth closing
 
-- iPhone: calendar invitations (card and RSVP).
-- iPhone: making and changing events (its calendar only reads), and Outlook calendars.
+- iPhone: making and changing events (its calendar only reads and answers invitations), and Outlook calendars.
 - iPhone: rich text in the composer.
 - iPhone: forward with the original HTML.
 - iPhone: synced draft autosave and undo send.
