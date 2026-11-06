@@ -10,6 +10,10 @@ nonisolated enum DemoCalendar {
     static let personal = EventCalendar(id: "demo-personal", name: "Robin Otter", color: "#0ea5e9", primary: true)
     static let work = EventCalendar(id: "demo-work", name: "Otterware", color: "#f97316")
     static let calendars = [personal, work]
+    /** The demo's second Gmail mailbox (Work, Sam at Acme): its own calendars, so there is one mailbox to scope to. */
+    static let samPark = EventCalendar(id: "demo-sam", name: "Sam Park", color: "#f97316", primary: true)
+    static let acme = EventCalendar(id: "demo-acme", name: "Acme team", color: "#8e8cf0")
+    static let acmeCalendars = [samPark, acme]
 
     private static let me = Person(name: "Robin Otter", email: "demo@otter.example")
     private static let maya = Person(name: "Maya Chen", email: "maya.chen@example.com")
@@ -20,6 +24,37 @@ nonisolated enum DemoCalendar {
 
     static func events(in window: EventWindow, now: Date = .now, dates: CalendarDates = CalendarDates()) -> [CalendarEvent] {
         let found = weekly(in: window, dates: dates) + anchored(to: dates.startOfDay(now), dates: dates)
+        return EventDays.sorted(found.filter { $0.end > window.from && $0.start < window.to })
+    }
+
+    /** Acme's week: planning on Mondays, the all-hands on Thursdays, and a gym slot on Sam's own calendar. */
+    static func acmeEvents(in window: EventWindow, dates: CalendarDates = CalendarDates()) -> [CalendarEvent] {
+        let calendar = dates.calendar
+        let found = dates.days(in: window).flatMap { day -> [CalendarEvent] in
+            let weekday = calendar.component(.weekday, from: day)
+            var events: [CalendarEvent] = []
+            if weekday == 2 {
+                events.append(CalendarEvent(
+                    eventId: "acme-planning-\(stamp(day))", calendar: acme, title: "Sprint planning",
+                    start: at(day, 10, calendar: calendar), end: at(day, 11, calendar: calendar),
+                    organizer: sam, response: .accepted, recurring: true
+                ))
+            }
+            if weekday == 5 {
+                events.append(CalendarEvent(
+                    eventId: "acme-all-hands-\(stamp(day))", calendar: acme, title: "Acme all-hands",
+                    start: at(day, 16, calendar: calendar), end: at(day, 17, calendar: calendar),
+                    organizer: sam, response: .accepted, recurring: true
+                ))
+            }
+            if (2...6).contains(weekday) {
+                events.append(CalendarEvent(
+                    eventId: "sam-gym-\(stamp(day))", calendar: samPark, title: "Gym",
+                    start: at(day, 7, minutes: 30, calendar: calendar), end: at(day, 8, minutes: 15, calendar: calendar)
+                ))
+            }
+            return events
+        }
         return EventDays.sorted(found.filter { $0.end > window.from && $0.start < window.to })
     }
 

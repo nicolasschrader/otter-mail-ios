@@ -41,6 +41,18 @@ struct TaskEditor: View {
                         .frame(minHeight: 60, alignment: .topLeading)
                 }
 
+                if !tasks.projects.isEmpty {
+                    Section {
+                        Picker(selection: $task.projectId) {
+                            ForEach(tasks.lists) { list in
+                                Text(list.name).tag(list.id == TaskProject.inbox.id ? nil : Optional(list.id))
+                            }
+                        } label: {
+                            Label("List", systemImage: "list.bullet")
+                        }
+                    }
+                }
+
                 Section {
                     Toggle(isOn: hasDue) { Label("Due date", systemImage: "calendar") }
                     if task.due != nil {

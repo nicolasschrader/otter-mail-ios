@@ -30,14 +30,31 @@ nonisolated final class TaskFiles: Sendable {
         }
     }
 
+    /** The scope's lists, beside its tasks, so a tasks file from before lists reads as it always did. */
+    func loadProjects(_ scope: String) throws -> [TaskProject]? {
+        try queue.sync {
+            let file = file("\(scope).projects")
+            guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+            return try JSONDecoder().decode([TaskProject].self, from: try Data(contentsOf: file))
+        }
+    }
+
+    func saveProjects(_ projects: [TaskProject], scope: String) async throws {
+        try await write(projects, to: file("\(scope).projects"))
+    }
+
     /** Returns once the file is on disk, so a failure reaches whoever asked for the save. */
     func save(_ tasks: [MailTask], scope: String) async throws {
-        let (folder, file) = (folder, file(scope))
+        try await write(tasks, to: file(scope))
+    }
+
+    private func write(_ value: some Encodable & Sendable, to file: URL) async throws {
+        let folder = folder
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async {
                 do {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    let data = try JSONEncoder().encode(tasks)
+                    let data = try JSONEncoder().encode(value)
                     try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
                     continuation.resume()
                 } catch {

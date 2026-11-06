@@ -2,12 +2,12 @@ import SwiftUI
 
 /**
  * Tasks, a section of the home screen in the mail's place, chosen from the
- * bottom bar or the places bar (⌃⌄ › Tasks) as the calendar is: what's open by when it's due, then what's done under a heading that
- * folds away. Swipe a row to finish it or to throw it away, tap it to change
+ * bottom bar as the calendar is, its ⌃⌄ picking the list (`TaskListsPanel`):
+ * what's open by when it's due, then what's done under a heading that folds
+ * away. Swipe a row to finish it or to throw it away, tap it to change
  * it, tap the conversation under it to go back to the mail it came from.
  */
 struct TasksView: View {
-    @Environment(MailStore.self) private var store
     @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
@@ -16,7 +16,6 @@ struct TasksView: View {
 
     /** A task whose reminder was tapped: it opens on top of the list. */
     var opening: UUID?
-    var scope = ""
     let onEmail: (TaskEmail) -> Void
     var onTitle: () -> Void = {}
 
@@ -26,7 +25,11 @@ struct TasksView: View {
 
     private var tasks: TaskStore { session.tasks }
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
-    private var sections: [TaskSection] { TaskList.sections(tasks.tasks, now: now, dates: dates) }
+    private var sections: [TaskSection] { TaskList.sections(tasks.visible, now: now, dates: dates) }
+    /** A new task goes on the list shown; All and the Inbox leave it without one. */
+    private var newTask: MailTask {
+        MailTask(projectId: tasks.selected == TaskProject.inbox.id ? nil : tasks.selected)
+    }
     private var animation: Animation? { reduceMotion ? nil : .smooth(duration: 0.18) }
 
     var body: some View {
@@ -55,14 +58,14 @@ struct TasksView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: onTitle) {
-                        PlaceTitle(title: "Tasks", scope: store.mailbox(for: scope)?.displayName ?? "")
+                        PlaceTitle(title: "Tasks", scope: tasks.project(tasks.selected)?.name ?? "")
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Shows every place")
+                    .accessibilityHint("Shows the task lists")
                 }
                 .sharedBackgroundVisibility(.hidden)
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Add task", systemImage: "plus") { editing = MailTask() }
+                    Button("Add task", systemImage: "plus") { editing = newTask }
                 }
             }
             .sheet(item: $editing) { task in

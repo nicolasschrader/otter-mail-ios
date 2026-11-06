@@ -76,7 +76,7 @@ final class Session {
     private func openTasks() {
         switch state {
         case .welcome: tasks.close()
-        case .demo: tasks.open(TaskStore.scope(user: nil), seed: DemoTasks.seed())
+        case .demo: tasks.open(TaskStore.scope(user: nil), seed: DemoTasks.seed(), seedProjects: DemoTasks.projects)
         case .signedIn(let user): tasks.open(TaskStore.scope(user: user.id))
         }
     }

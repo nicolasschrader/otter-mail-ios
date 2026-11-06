@@ -3,7 +3,7 @@ import SwiftUI
 /**
  * Every mailbox's calendar in one, as the Mac and web apps combine them, a
  * section of the home screen in the mail's place,
- * chosen from the bottom bar (whose ⌃⌄ lists the calendars here), in the
+ * chosen from the bottom bar (whose ⌃⌄ scopes it, `CalendarScopePanel`), in the
  * phone's pages, Agenda, Day and Month (the Mac and web apps' CALENDAR_MODES
  * less Week, with the agenda of the days ahead), turned by the picker or a
  * sideways swipe that follows the finger, each page kept up between turns.
@@ -19,7 +19,9 @@ struct CalendarView: View {
 
     /** Held by HomeView, so the events outlive switching sections. */
     let events: CalendarStore
-    /** Listing the calendars to show or hide, in the events' place: the bar's ⌃⌄ opens it too. */
+    /** Held by HomeView too, as the bar's ⌃⌄ panel shows, hides and scopes the calendars. */
+    let visibility: CalendarShown
+    /** Listing the calendars to show or hide, in the events' place (the toolbar's Calendars). */
     @Binding var listing: Bool
     var onTitle: () -> Void = {}
 
@@ -30,15 +32,19 @@ struct CalendarView: View {
     @State private var picked: Date?
     @State private var now = Date.now
     @State private var path: [CalendarEvent] = []
-    @State private var visibility = CalendarShown()
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
 
-    /** Every calendar of every mailbox unless some are turned off: then how many of them show. */
+    private var calendars: [EventCalendar] { sources.flatMap { events.lists[$0.email] ?? [] } }
+
+    /** The mailbox scoped to, else every calendar unless some are turned off: then how many of them show. */
     private var shownTitle: String {
-        let calendars = sources.flatMap { events.lists[$0.email] ?? [] }
-        let shown = calendars.count(where: { visibility.isShown($0) })
-        return shown == calendars.count ? "All calendars" : "\(shown) of \(calendars.count)"
+        if let account = visibility.account, let mailbox = sources.first(where: { $0.email == account }) {
+            return mailbox.displayName
+        }
+        let all = calendars
+        let shown = all.count(where: { visibility.isShown($0) })
+        return shown == all.count ? "All calendars" : "\(shown) of \(all.count)"
     }
     private var sources: [Mailbox] { CalendarStore.sources(store.shownMailboxes) }
     private var denied: [Mailbox] { sources.filter { events.denied.contains($0.email) } }
@@ -103,7 +109,10 @@ struct CalendarView: View {
                 }
             }
             .task(id: windows) { await load() }
-            .onChange(of: sources.map(\.email)) { Task { await load() } }
+            .onChange(of: sources.map(\.email)) { _, shown in
+                if let account = visibility.account, !shown.contains(account) { visibility.account = nil }
+                Task { await load() }
+            }
             // Runs once a turn has come to rest (`settle`), never under the finger.
             .onChange(of: mode) {
                 picked = nil
@@ -234,7 +243,7 @@ struct CalendarView: View {
             anchor: anchor,
             picked: picked,
             now: now,
-            shown: visibility.shown,
+            shown: visibility.scoped(calendars),
             onStep: { by in
                 anchor = dates.step(mode, anchor, by: by)
                 picked = nil

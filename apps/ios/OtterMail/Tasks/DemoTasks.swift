@@ -9,6 +9,11 @@ import Foundation
 nonisolated enum DemoTasks {
     private static let mailbox = "demo@otter.example"
 
+    /** As the web demo's Todoist has an Inbox and Work (apps/web/src/web/demo/todoist.ts). */
+    static let home = TaskProject(id: "demo-home", name: "Home")
+    static let work = TaskProject(id: "demo-work", name: "Work")
+    static let projects = [home, work]
+
     static func seed(now: Date = .now, calendar: Calendar = .current) -> [MailTask] {
         let day = { (ahead: Int) in calendar.date(byAdding: .day, value: ahead, to: calendar.startOfDay(for: now)) ?? now }
         let at = { (date: Date, hour: Int) in calendar.date(bySettingHour: hour, minute: 0, second: 0, of: date) ?? date }
@@ -31,8 +36,12 @@ nonisolated enum DemoTasks {
                     subject: "Your flight to Lisbon is confirmed — TP 1352, Fri 16 Oct"
                 )
             ),
-            MailTask(content: "Pick up the parcel", due: day(-1), created: now.addingTimeInterval(-86400 * 3)),
-            MailTask(content: "Water the garden plot", notes: "The raised beds first.", created: now.addingTimeInterval(-86400)),
+            MailTask(content: "Pick up the parcel", due: day(-1), created: now.addingTimeInterval(-86400 * 3), projectId: home.id),
+            MailTask(
+                content: "Water the garden plot", notes: "The raised beds first.", created: now.addingTimeInterval(-86400),
+                projectId: home.id
+            ),
+            MailTask(content: "Draft the offsite agenda", due: day(5), created: now.addingTimeInterval(-5400), projectId: work.id),
             MailTask(
                 content: "Read the welcome message",
                 done: true,

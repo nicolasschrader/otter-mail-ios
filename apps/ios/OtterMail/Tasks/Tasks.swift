@@ -22,6 +22,8 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
     var created = Date.now
     /** The conversation it came from (Todoist's `email`). */
     var email: TaskEmail? = nil
+    /** The list it's on (Todoist's `projectId`); nil is the Inbox, as every task was before lists. */
+    var projectId: String? = nil
 
     /** When a local notification is due: a time, still to come, on a task that isn't finished. */
     var reminderAt: Date? {
@@ -37,12 +39,13 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, content, notes, due, hasTime, reminder, done, completed, created, email
+        case id, content, notes, due, hasTime, reminder, done, completed, created, email, projectId
     }
 
     init(
         id: UUID = UUID(), content: String = "", notes: String = "", due: Date? = nil, hasTime: Bool = false,
-        reminder: Bool = false, done: Bool = false, completed: Date? = nil, created: Date = .now, email: TaskEmail? = nil
+        reminder: Bool = false, done: Bool = false, completed: Date? = nil, created: Date = .now, email: TaskEmail? = nil,
+        projectId: String? = nil
     ) {
         self.id = id
         self.content = content
@@ -54,6 +57,7 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
         self.completed = completed
         self.created = created
         self.email = email
+        self.projectId = projectId
     }
 
     /** "Add task" in the reader: the subject, linked back to the conversation. */
@@ -76,6 +80,7 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
         completed = try container.decodeIfPresent(Date.self, forKey: .completed)
         created = try container.decodeIfPresent(Date.self, forKey: .created) ?? .now
         email = try container.decodeIfPresent(TaskEmail.self, forKey: .email)
+        projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
     }
 }
 
@@ -86,6 +91,30 @@ nonisolated struct TaskEmail: Hashable, Codable, Sendable {
     var thread: String
     var message: String? = nil
     var subject: String
+}
+
+/**
+ * A list of tasks, shaped as the Todoist extension's projects are
+ * (packages/contracts/src/todoist.ts's `TodoistProject`: an id and a name), and
+ * local to this iPhone like the tasks. The Inbox is every task without one.
+ */
+nonisolated struct TaskProject: Identifiable, Hashable, Codable, Sendable {
+    var id: String
+    var name: String
+
+    static let inbox = TaskProject(id: "inbox", name: "Inbox")
+
+    /** The tasks on a list: every one for All (nil), the ones without a list for the Inbox. */
+    static func filter(_ tasks: [MailTask], project: String?) -> [MailTask] {
+        guard let project else { return tasks }
+        return tasks.filter { ($0.projectId ?? inbox.id) == project }
+    }
+
+    /** A name as it's kept: trimmed, and nil when that leaves nothing. */
+    static func named(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(100))
+    }
 }
 
 nonisolated enum TaskHeading: String, CaseIterable, Identifiable, Sendable {

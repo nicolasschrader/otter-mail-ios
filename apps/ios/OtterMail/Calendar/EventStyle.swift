@@ -25,6 +25,20 @@ enum EventStyle {
         return color
     }
 
+    /** The colors a calendar can be given, calendar-sidebar.tsx's CALENDAR_COLORS. */
+    nonisolated struct Choice: Hashable, Sendable {
+        let name: String
+        let hex: String
+    }
+
+    nonisolated static let choices = [
+        ("Red", "#e5484d"), ("Coral", "#d9776f"), ("Orange", "#f2834d"), ("Yellow", "#f0c24d"),
+        ("Lime", "#bddb6e"), ("Grass", "#8fd165"), ("Green", "#6cc78f"), ("Mint", "#94dcc4"),
+        ("Blue", "#5ea8e0"), ("Sapphire", "#4f80e8"), ("Indigo", "#8e8cf0"), ("Violet", "#b48ef0"),
+        ("Purple", "#9b5cf0"), ("Pink", "#ec8fb5"), ("Blush", "#d4a5ae"), ("Brown", "#b07a62"),
+        ("Gray", "#a3a3a3"),
+    ].map { Choice(name: $0.0, hex: $0.1) }
+
     /** A near-black color lifted toward the text, so it reads on a dark canvas. */
     static func legible(_ hex: String, over text: RGB) -> Color {
         let color = RGB(css: hex)

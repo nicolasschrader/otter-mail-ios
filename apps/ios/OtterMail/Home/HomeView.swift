@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var section: HomeSection = .mail
     @State private var calendarListing = false
     @State private var calendar = CalendarStore()
+    @State private var calendarShown = CalendarShown()
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
@@ -68,7 +69,6 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
-            }
     }
 
     @ViewBuilder private var content: some View {
@@ -103,10 +103,12 @@ struct HomeView: View {
                 }
             }
         case .calendar:
-            withPlaces(CalendarView(events: calendar, listing: $calendarListing, onTitle: { calendarListing = true }))
+            withPlaces(CalendarView(
+                events: calendar, visibility: calendarShown, listing: $calendarListing, onTitle: { setMenu(open: true) }
+            ))
         case .tasks:
             withPlaces(TasksView(
-                opening: openingTask, scope: place.scope, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }
+                opening: openingTask, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }
             ))
         }
     }
@@ -142,7 +144,8 @@ struct HomeView: View {
                             place: place,
                             section: section,
                             menuOpen: menuOpen,
-                            calendarListing: calendarListing,
+                            calendar: calendar,
+                            calendarShown: calendarShown,
                             showsAgent: showsAgent,
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
@@ -151,7 +154,8 @@ struct HomeView: View {
                             onCalendar: { show(.calendar) },
                             onTasks: { show(.tasks) },
                             onSettings: { setMenu(open: false); settingsOpen = true },
-                            onMenu: openScope,
+                            onMenu: { setMenu(open: !menuOpen) },
+                            onDone: { setMenu(open: false) },
                             onAgent: { agentOpen = true }
                         )
                     }
@@ -201,15 +205,6 @@ struct HomeView: View {
         selecting = false
         calendarListing = false
         section = next
-    }
-
-    /** ⌃⌄: the mail's places and mailboxes, the calendar's list of calendars, or what Catch up covers. */
-    private func openScope() {
-        switch section {
-        case .calendar: calendarListing.toggle()
-        case .mail, .threads: setMenu(open: !menuOpen)
-        case .tasks: break
-        }
     }
 
     /** The calendar or tasks stay up across mailboxes, unless the new one has no calendar. */

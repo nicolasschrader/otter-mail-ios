@@ -81,7 +81,7 @@ final class Preferences {
     }
     /** Themes made on the Mac or the web (`CustomThemes`): worn and picked here, never written (so not in `uiSection`). */
     private(set) var customThemes: [Theme]
-    /** Settings › Calendar, made on the Mac or the web: followed here, never written (so not in `uiSection`). */
+    /** Settings › Calendar, made on the Mac or the web and followed here; only a calendar's color is written (`setCalendarColor`). */
     private(set) var calendar: CalendarPreferences
     var notifications: Notifications { didSet { setting("notificationsMode", notifications.rawValue) } }
     /** BCP-47 codes, first = where translations go; empty = the system's languages. */
@@ -91,6 +91,16 @@ final class Preferences {
     private func ui(_ key: String, _ value: String) {
         defaults.set(value, forKey: key)
         if !applying { onChange("ui") }
+    }
+
+    /** calendar-sidebar.tsx's color pick: a color by calendarKey, or nil for its own again, under the synced `calendar:colors`. */
+    func setCalendarColor(_ hex: String?, for key: String) {
+        var colors = calendar.colors
+        colors[key] = hex
+        guard colors != calendar.colors,
+              let data = try? JSONSerialization.data(withJSONObject: colors, options: [.sortedKeys]) else { return }
+        calendar.colors = colors
+        ui("calendar:colors", String(decoding: data, as: UTF8.self))
     }
 
     private func setting(_ key: String, _ value: Any) {
@@ -109,7 +119,7 @@ final class Preferences {
     }
 
     var uiSection: [String: String] {
-        [
+        var section = [
             "otter:theme-source": scheme.rawValue,
             "otter:theme:light": lightTheme,
             "otter:theme:dark": darkTheme,
@@ -120,6 +130,9 @@ final class Preferences {
             "mail:mailboxes": Self.json(arrangement),
             "mail:alias-mail-apart": Self.json(aliasMailApart),
         ]
+        // Only once there is one here (pulled, or picked): an empty record would write over the other devices' colors.
+        if let colors = defaults.string(forKey: "calendar:colors") { section["calendar:colors"] = colors }
+        return section
     }
 
     var settingsSection: [String: Any] {

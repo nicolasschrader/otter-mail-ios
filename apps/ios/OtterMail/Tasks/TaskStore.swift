@@ -22,6 +22,10 @@ final class TaskStore {
     }
 
     private(set) var tasks: [MailTask] = []
+    /** The lists made here, after the Inbox (`TaskProject.inbox`), which is always there. */
+    private(set) var projects: [TaskProject] = []
+    /** The list shown, nil for All; kept on this iPhone for the scope. */
+    private(set) var selected: String?
     private(set) var scope: String?
     /** Notifications are off for Otter Mail, so a reminder can't arrive (the editor says so). */
     private(set) var remindersDenied = false
@@ -38,10 +42,21 @@ final class TaskStore {
     /** The file couldn't be read: it keeps whatever it holds until the next sign-in. */
     @ObservationIgnored private var unreadable = false
 
-    init(files: TaskFiles = .live, reminders: any TaskReminding = LiveReminders()) {
+    @ObservationIgnored private let defaults: UserDefaults
+
+    init(files: TaskFiles = .live, reminders: any TaskReminding = LiveReminders(), defaults: UserDefaults = .standard) {
         self.files = files
         self.reminders = reminders
+        self.defaults = defaults
     }
+
+    /** The Inbox, then the lists made here. */
+    var lists: [TaskProject] { [.inbox] + projects }
+
+    /** The tasks on the list shown. */
+    var visible: [MailTask] { TaskProject.filter(tasks, project: selected) }
+
+    func project(_ id: String?) -> TaskProject? { lists.first { $0.id == id } }
 
     /** One scope an account, the same slug the draft recovery uses, and `demo` for the demo. */
     static func scope(user: String?) -> String {
@@ -49,7 +64,7 @@ final class TaskStore {
         return Data(user.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_")
     }
 
-    func open(_ scope: String, seed: [MailTask] = []) {
+    func open(_ scope: String, seed: [MailTask] = [], seedProjects: [TaskProject] = []) {
         self.scope = scope
         unreadable = false
         failure = nil
@@ -60,19 +75,61 @@ final class TaskStore {
                 tasks = seed
                 persist()
             }
+            if let known = try files.loadProjects(scope) {
+                projects = known
+            } else {
+                projects = seedProjects
+                if !seedProjects.isEmpty { persistProjects() }
+            }
         } catch {
             tasks = []
+            projects = []
             unreadable = true
             failure = Failure.unreadable.localizedDescription
             ErrorReports.capture(error, scope: "tasks")
         }
+        let chosen = defaults.string(forKey: Self.selectedKey(scope))
+        selected = lists.contains { $0.id == chosen } ? chosen : nil
         reschedule()
+    }
+
+    nonisolated static func selectedKey(_ scope: String) -> String { "tasks:project:\(scope)" }
+
+    /** Shows one list, or every task for nil. */
+    func select(_ project: String?) {
+        guard let scope, project == nil || self.project(project) != nil else { return }
+        selected = project
+        defaults.set(project, forKey: Self.selectedKey(scope))
+    }
+
+    /** A new list, kept on disk before it's shown, and then the one shown. */
+    @discardableResult
+    func createProject(_ name: String) async throws -> TaskProject? {
+        guard let scope, let name = TaskProject.named(name) else { return nil }
+        let made = TaskProject(id: UUID().uuidString, name: name)
+        let keeping = projects + [made]
+        try await writeProjects(keeping, scope: scope)
+        projects = keeping
+        select(made.id)
+        return made
+    }
+
+    /** A list made here takes a new name; the Inbox keeps its own. */
+    func renameProject(_ id: String, to name: String) async throws {
+        guard let scope, let name = TaskProject.named(name),
+              let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        var keeping = projects
+        keeping[index].name = name
+        try await writeProjects(keeping, scope: scope)
+        projects = keeping
     }
 
     /** Signing out: this account's reminders go, its tasks wait on disk for the next sign-in. */
     func close() {
         let closing = scope
         tasks = []
+        projects = []
+        selected = nil
         scope = nil
         waiting = []
         failure = nil
@@ -205,5 +262,18 @@ final class TaskStore {
     private func write(_ tasks: [MailTask], scope: String) async throws {
         guard !unreadable else { throw Failure.unreadable }
         try await files.save(tasks, scope: scope)
+    }
+
+    private func persistProjects() {
+        guard let scope else { return }
+        let keeping = projects
+        Task {
+            do { try await writeProjects(keeping, scope: scope) } catch { failure = error.localizedDescription }
+        }
+    }
+
+    private func writeProjects(_ projects: [TaskProject], scope: String) async throws {
+        guard !unreadable else { throw Failure.unreadable }
+        try await files.saveProjects(projects, scope: scope)
     }
 }

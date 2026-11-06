@@ -315,19 +315,23 @@ holidays), grouped by mailbox as Notion Calendar does. The default calendar wear
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
 The iPhone reads every Google mailbox's calendars in one, as the Mac and web do (the bar's
-Calendar), its calendar button and ⌃⌄ listing them by mailbox to show or hide, in the same modes: a day, the month's
+Calendar), its calendar button listing them by mailbox to show or hide, and the bar's ⌃⌄ opening the
+mail's places panel for them: All calendars, each mailbox (which scopes the calendar to it) with its
+calendars under it to switch, and holding one for Show only this calendar and its color (synced as on
+the Mac and web), in the same modes: a day, the month's
 grid where a day lists itself, and the days ahead as an agenda, Day and Month with ‹ › and Today,
 and an event's own screen (where it is,
 the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
 when that clock differs). An event over several days says where it starts and ends on each of them,
-and which of its days this is. It changes nothing (invitations are answered in Catch up), and
+and which of its days this is. It changes no events (invitations are answered in Catch up), and
 leaves out the calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
 its own.
 
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- | ------ |
 | Day, week and month views; mini month and calendars in sidebar                                                                                                                    | ✓   | ✓   | ✓      |
-| Show or hide each calendar with its eye (Google's unchecked ones start hidden); click one for its coming events in a drawer; right-click: color, make default, show only this one | ✓   | ✓   | —      |
+| Show or hide each calendar with its eye (Google's unchecked ones start hidden); click one for its coming events in a drawer; right-click: color, make default, show only this one | ✓   | ✓   | ✓ (⌃⌄ panel: show/hide, color, show only; no drawer or default) |
+| One mailbox's calendars only (⌃⌄ panel; All calendars turns every one on)                                                                                                         | —   | —   | ✓      |
 | Followed and read-only calendars: looked at, not changed (no drag, read-only card)                                                                                                | ✓   | ✓   | ✓      |
 | New events on any calendar that takes them (picked in the card; the default first: click a calendar's square to make it the default)                                              | ✓   | ✓   | —      |
 | Event panel: title, time, place, notes edit in place; guests                                                                                                                      | ✓   | ✓   | —      |
@@ -344,7 +348,9 @@ its own.
 
 ## Tasks (iPhone)
 
-A small to-do list of its own on the iPhone (⌃⌄ › Tasks), local to the phone: what's open by when
+A small to-do list of its own on the iPhone (the bar's Tasks), local to the phone, in lists: the
+bar's ⌃⌄ opens the same panel as the mail's places, with All, the Inbox (every task without a list)
+and the lists made there (New list; hold one to rename it), shaped as Todoist's projects. What's open by when
 it's due (overdue, today, upcoming, no date) and what's done under a heading that folds away.
 Swipe a row right to finish it, left to delete it; tap it to change it. "Add task" in a
 conversation's More menu fills in the subject and links back, and tapping that link opens the
@@ -361,6 +367,7 @@ the Todoist integration above, which is a Todoist account's tasks.
 | Sorted by due: overdue, today, upcoming, no date; done folds away | —   | —   | ✓                      |
 | Optional due date, a time, and a reminder at that time            | —   | —   | ✓ (local notification) |
 | Add a task from a conversation, with a link back to it            | —   | —   | ✓                      |
+| Task lists: All, Inbox, new and renamed lists; a task's list      | —   | —   | ✓                      |
 | Stored on the device, per Otter account (demo apart); no sync     | —   | —   | ✓                      |
 
 ## Contacts & avatars

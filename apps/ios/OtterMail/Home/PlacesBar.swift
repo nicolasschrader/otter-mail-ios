@@ -9,8 +9,9 @@ struct PlacesBar: View {
     let place: Place
     let section: HomeSection
     let menuOpen: Bool
-    /** The calendar's own list of calendars is up, which is what its ⌃⌄ opens. */
-    let calendarListing: Bool
+    /** What the calendar's ⌃⌄ panel lists and scopes. */
+    let calendar: CalendarStore
+    let calendarShown: CalendarShown
     let showsAgent: Bool
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
@@ -20,6 +21,8 @@ struct PlacesBar: View {
     let onTasks: () -> Void
     let onSettings: () -> Void
     let onMenu: () -> Void
+    /** A choice in the calendar's or tasks' panel that is the whole errand: the panel folds back into the bar. */
+    let onDone: () -> Void
     let onAgent: () -> Void
 
     var body: some View {
@@ -29,9 +32,14 @@ struct PlacesBar: View {
                 ZStack(alignment: .bottomLeading) {
                     if menuOpen {
                         Group {
-                            if section == .threads {
+                            switch section {
+                            case .threads:
                                 CatchUpScopePanel()
-                            } else {
+                            case .calendar:
+                                CalendarScopePanel(events: calendar, visibility: calendarShown, onDone: onDone)
+                            case .tasks:
+                                TaskListsPanel(onDone: onDone)
+                            case .mail:
                                 PlacesPanel(place: place, section: section, onSelect: onPlace, onMailbox: onMailbox,
                                             onSearch: onSearch, onSettings: onSettings)
                             }
@@ -96,24 +104,24 @@ struct PlacesBar: View {
                     .accessibilityLabel(open > 0 ? "Tasks, \(open) open" : "Tasks")
             }
             .buttonStyle(.plain)
-            // Tasks has nothing to scope; the others' ⌃⌄ opens what they're scoped by.
-            if section != .tasks {
-                Button(action: onMenu) {
-                    tabLabel("chevron.up.chevron.down", selected: scopeLit)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(scopeLabel)
+            // ⌃⌄ opens what the one in front is scoped by, in the same panel for each.
+            Button(action: onMenu) {
+                tabLabel("chevron.up.chevron.down", selected: scopeLit)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(scopeLabel)
+            .accessibilityIdentifier("places-scope")
         }
         .padding(4)
     }
 
-    /** Lit for a mail place the bar doesn't pin, and while the calendar lists its calendars. */
+    /** Lit for a mail place the bar doesn't pin, a calendar scoped to one mailbox, a task list picked. */
     private var scopeLit: Bool {
         switch section {
         case .mail: place.folder != .inbox
-        case .calendar: calendarListing
-        case .threads, .tasks: false
+        case .calendar: calendarShown.account != nil
+        case .tasks: session.tasks.selected != nil
+        case .threads: false
         }
     }
 
@@ -121,7 +129,8 @@ struct PlacesBar: View {
         switch section {
         case .calendar: "Calendars"
         case .threads: "Mailboxes in Catch up"
-        case .mail, .tasks: "All places"
+        case .tasks: "Task lists"
+        case .mail: "All places"
         }
     }
 
@@ -164,44 +173,34 @@ struct PlacesPanel: View {
 
     var body: some View {
         let mailbox = store.mailbox(for: place.scope)
-        VStack(alignment: .leading, spacing: 0) {
+        ScopePanel {
             header(mailbox)
-                .padding(.horizontal, 16)
-                .frame(height: 56)
-            Divider().overlay(palette.border).padding(.horizontal, 12)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    mailboxes
-                    if let mailbox = mailbox.flatMap({ store.mailbox($0.source) }), mailbox.signedOut {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(palette.warning)
-                            Text(signedOutTitle(mailbox)).font(.inter(.subheadline)).lineLimit(1)
-                            Spacer(minLength: 8)
-                            SignInAgainButton(mailbox: mailbox)
-                        }
-                        .foregroundStyle(palette.text)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 48)
-                    }
-                    ForEach(mailbox?.folders ?? [], id: \.self) { folder in
-                        row(folder.title(in: mailbox), symbol: folder.symbol(in: mailbox),
-                            count: store.badge(in: folder, scope: place.scope), selected: section == .mail && place.folder == folder) {
-                            onSelect(Place(scope: place.scope, folder: folder))
-                        }
-                    }
-                    labels(mailbox)
-                    row("Search", symbol: "magnifyingglass", action: onSearch)
-                    row("Settings", symbol: "gearshape", action: onSettings)
-                    SyncStatusLine(scope: mailbox?.source ?? place.scope)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
+        } rows: {
+            mailboxes
+            if let mailbox = mailbox.flatMap({ store.mailbox($0.source) }), mailbox.signedOut {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(palette.warning)
+                    Text(signedOutTitle(mailbox)).font(.inter(.subheadline)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    SignInAgainButton(mailbox: mailbox)
                 }
-                .padding(8)
+                .foregroundStyle(palette.text)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 48)
             }
-            .scrollIndicators(.hidden)
-            .scrollBounceBehavior(.basedOnSize)
+            ForEach(mailbox?.folders ?? [], id: \.self) { folder in
+                row(folder.title(in: mailbox), symbol: folder.symbol(in: mailbox),
+                    count: store.badge(in: folder, scope: place.scope), selected: section == .mail && place.folder == folder) {
+                    onSelect(Place(scope: place.scope, folder: folder))
+                }
+            }
+            labels(mailbox)
+            row("Search", symbol: "magnifyingglass", action: onSearch)
+            row("Settings", symbol: "gearshape", action: onSettings)
+            SyncStatusLine(scope: mailbox?.source ?? place.scope)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
         }
-        .frame(maxWidth: 340)
     }
 
     private func header(_ mailbox: Mailbox?) -> some View {
@@ -237,12 +236,7 @@ struct PlacesPanel: View {
     private func labels(_ mailbox: Mailbox?) -> some View {
         let labels = mailbox?.labels ?? []
         if !labels.isEmpty {
-            Text(mailbox?.provider == .gmail ? "Labels" : "Folders")
-                .font(.inter(.footnote))
-                .foregroundStyle(palette.muted)
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 4)
+            PanelHeading(title: mailbox?.provider == .gmail ? "Labels" : "Folders")
             ForEach(labels) { label in
                 let folder = Folder.label(id: label.id, name: label.name)
                 row(folder.title, symbol: folder.symbol, color: label.color,
@@ -267,13 +261,56 @@ struct PlacesPanel: View {
     }
 }
 
-/** A row of the panels over the bar: an icon, a title, a count. */
-private struct PlaceRow<Icon: View>: View {
+/**
+ * What every panel over the bar is drawn in (the mail's places, Catch up's
+ * mailboxes, the calendars, the task lists): a header, a hairline, and its
+ * rows scrolling under it once they're taller than the panel.
+ */
+struct ScopePanel<Header: View, Rows: View>: View {
+    @Environment(\.palette) private var palette
+    @ViewBuilder let header: Header
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .frame(height: 56)
+            Divider().overlay(palette.border).padding(.horizontal, 12)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) { rows }
+                    .padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .frame(maxWidth: 340)
+    }
+}
+
+/** A panel's own heading over a group of rows ("Labels"). */
+struct PanelHeading: View {
+    @Environment(\.palette) private var palette
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.inter(.footnote))
+            .foregroundStyle(palette.muted)
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
+    }
+}
+
+/** A row of the panels over the bar: an icon, a title, a count, or a check for one that switches on and off. */
+struct PlaceRow<Icon: View>: View {
     @Environment(\.palette) private var palette
     let title: String
     var count = 0
     var selected = false
     var indent = 0
+    var checked: Bool?
     @ViewBuilder let icon: Icon
     var action: (() -> Void)?
 
@@ -285,7 +322,12 @@ private struct PlaceRow<Icon: View>: View {
                 .foregroundStyle(palette.text)
                 .lineLimit(1)
             Spacer(minLength: 8)
-            if count > 0 {
+            if let checked {
+                Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 19))
+                    .foregroundStyle(checked ? palette.text : palette.muted)
+                    .accessibilityHidden(true)
+            } else if count > 0 {
                 Text("\(count)")
                     .font(.inter(.footnote).weight(.medium))
                     .foregroundStyle(palette.muted)
@@ -298,7 +340,11 @@ private struct PlaceRow<Icon: View>: View {
         .background(selected ? palette.text.opacity(0.1) : .clear, in: .rect(cornerRadius: 16))
         .contentShape(.rect)
         if let action {
-            Button(action: action) { label }.buttonStyle(.plain)
+            Button(action: action) { label }
+                .buttonStyle(.plain)
+                .accessibilityLabel(title)
+                .accessibilityValue(checked.map { $0 ? "Shown" : "Hidden" } ?? "")
+                .accessibilityAddTraits(selected ? .isSelected : [])
         } else {
             label
         }
@@ -311,33 +357,23 @@ private struct CatchUpScopePanel: View {
     @Environment(\.palette) private var palette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ScopePanel {
             Text("Catch up")
                 .font(.inter(.headline))
                 .foregroundStyle(palette.text)
-                .padding(.horizontal, 16)
-                .frame(height: 56)
-            Divider().overlay(palette.border).padding(.horizontal, 12)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Unread mail in every inbox, and invitations waiting on your answer, from all of these.")
-                        .font(.inter(.footnote))
-                        .foregroundStyle(palette.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                    ForEach(store.shownMailboxes) { mailbox in
-                        PlaceRow(title: mailbox.displayName, count: store.badge(in: .inbox, scope: mailbox.email)) {
-                            MailboxAvatar(mailbox: mailbox, size: 24)
-                        }
-                    }
+        } rows: {
+            Text("Unread mail in every inbox, and invitations waiting on your answer, from all of these.")
+                .font(.inter(.footnote))
+                .foregroundStyle(palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            ForEach(store.shownMailboxes) { mailbox in
+                PlaceRow(title: mailbox.displayName, count: store.badge(in: .inbox, scope: mailbox.email)) {
+                    MailboxAvatar(mailbox: mailbox, size: 24)
                 }
-                .padding(8)
             }
-            .scrollIndicators(.hidden)
-            .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(maxWidth: 340)
     }
 }
 

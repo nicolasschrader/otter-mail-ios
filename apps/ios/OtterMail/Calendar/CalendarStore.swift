@@ -202,20 +202,21 @@ final class CalendarStore {
         _ window: EventWindow, from source: Mailbox, demoAccount: String?, demo: Bool, google: GoogleAuth, dates: CalendarDates
     ) async -> (String, Result<[CalendarEvent], Error>) {
         do {
-            let found = source.email == demoAccount
-                ? demoEvents(window, account: source.email, dates: dates)
-                : demo ? [] : try await fetch(window, from: source, google: google)
+            let found = demo
+                ? demoEvents(window, account: source.email, first: source.email == demoAccount, dates: dates)
+                : try await fetch(window, from: source, google: google)
             return (source.email, .success(found))
         } catch {
             return (source.email, .failure(error))
         }
     }
 
-    /** The demo's pretend calendar, under its first mailbox. */
-    private func demoEvents(_ window: EventWindow, account: String, dates: CalendarDates) -> [CalendarEvent] {
-        let calendars = DemoCalendar.calendars.map { $0.of(account) }
+    /** The demo's pretend calendars: Robin's under its first mailbox, Acme's under the others. */
+    private func demoEvents(_ window: EventWindow, account: String, first: Bool, dates: CalendarDates) -> [CalendarEvent] {
+        let calendars = (first ? DemoCalendar.calendars : DemoCalendar.acmeCalendars).map { $0.of(account) }
         if lists[account] != calendars { lists[account] = calendars }
-        return DemoCalendar.events(in: window, dates: dates).map { event in
+        let events = first ? DemoCalendar.events(in: window, dates: dates) : DemoCalendar.acmeEvents(in: window, dates: dates)
+        return events.map { event in
             var event = event
             event.calendar = event.calendar.of(account)
             return demoAnswers[Self.answerKey(event)].map { Self.answered(event, $0) } ?? event

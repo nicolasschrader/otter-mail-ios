@@ -12,6 +12,8 @@ final class CalendarShown {
     nonisolated static let key = "calendar:shown"
 
     private(set) var shown: [String: Bool]
+    /** One mailbox's calendars only, picked in the bar's ⌃⌄; nil for all of them. Not kept, as the mail's place isn't. */
+    var account: String?
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -38,6 +40,38 @@ final class CalendarShown {
         events.filter { isShown(shown, $0.calendar) }
     }
 
+    /** What the pages draw: the calendars shown, and of one mailbox only while `account` picks one. */
+    nonisolated static func scoped(_ shown: [String: Bool], account: String?, calendars: [EventCalendar]) -> [String: Bool] {
+        guard let account else { return shown }
+        var scoped = shown
+        for calendar in calendars where calendar.account.lowercased() != account.lowercased() { scoped[calendar.key] = false }
+        return scoped
+    }
+
+    /** calendar-store.ts's showOnly: this calendar on, every other one listed off. */
+    nonisolated static func showingOnly(_ shown: [String: Bool], key: String, keys: [String]) -> [String: Bool] {
+        shown.merging(keys.map { ($0, $0 == key) }) { _, only in only }
+    }
+
+    /** All calendars: every listed one on, Google's unchecked ones included; switching one off is the exception. */
+    nonisolated static func allShown(_ shown: [String: Bool], keys: [String]) -> [String: Bool] {
+        shown.merging(keys.map { ($0, true) }) { _, on in on }
+    }
+
+    func showAll(_ calendars: [EventCalendar]) {
+        account = nil
+        write(Self.allShown(shown, keys: calendars.map(\.key)))
+    }
+
+    func scoped(_ calendars: [EventCalendar]) -> [String: Bool] {
+        Self.scoped(shown, account: account, calendars: calendars)
+    }
+
+    func showOnly(_ calendar: EventCalendar, among calendars: [EventCalendar]) {
+        write(Self.showingOnly(shown, key: calendar.key, keys: calendars.map(\.key)))
+        if let account, account.lowercased() != calendar.account.lowercased() { self.account = nil }
+    }
+
     func isShown(key: String, hiddenByDefault: Bool) -> Bool {
         Self.isShown(shown, key: key, hiddenByDefault: hiddenByDefault)
     }
@@ -47,7 +81,13 @@ final class CalendarShown {
     }
 
     func setShown(key: String, show: Bool) {
-        shown[key] = show
+        var next = shown
+        next[key] = show
+        write(next)
+    }
+
+    private func write(_ next: [String: Bool]) {
+        shown = next
         guard let data = try? JSONSerialization.data(withJSONObject: shown, options: [.sortedKeys]) else { return }
         defaults.set(String(decoding: data, as: UTF8.self), forKey: Self.key)
     }
