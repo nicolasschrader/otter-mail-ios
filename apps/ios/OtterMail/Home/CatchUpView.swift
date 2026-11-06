@@ -37,6 +37,14 @@ struct CatchUpView: View {
     let onBack: () -> Void
 
     @State private var passed: Set<String> = []
+    @State private var unsubscribing: Set<String> = []
+    @State private var unsubscribed: Set<String> = []
+    @State private var notice: Notice?
+
+    private struct Notice: Equatable {
+        let id = UUID()
+        let text: String
+    }
 
     var body: some View {
         let queue = CatchUp.queue(inbox, passed: passed)
@@ -51,6 +59,12 @@ struct CatchUpView: View {
                         .modifier(MailSwipeActions(leading: readAction(thread), trailing: markAction(thread, mailbox)))
                         .id(thread.id)
                         .padding(.horizontal, 12)
+                        .overlay(alignment: .bottom) {
+                            if let notice {
+                                NoticeBanner(text: notice.text).padding(.bottom, 12).id(notice.id)
+                            }
+                        }
+                        .animation(.snappy(duration: 0.2), value: notice)
                     buttons(thread, mailbox)
                 }
                 .padding(.top, 4)
@@ -82,6 +96,11 @@ struct CatchUpView: View {
         }
         .toolbarTitleDisplayMode(.inline)
         .onChange(of: scope) { _, _ in passed.removeAll() }
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            notice = nil
+        }
     }
 
     /** The inbox as its list has it, so the count and the cards match it. */
@@ -126,15 +145,31 @@ struct CatchUpView: View {
                 // Out of the inbox, so the card goes by itself; Undo brings it back.
                 button("Archive", symbol: "archivebox") { store.archive(thread.id) }
             }
-            if let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
-                button("Unsubscribe", symbol: "hand.raised") {
-                    let shown = store.alias(scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
-                    Task { await unsubscribe.run(from: shown, compose: { draft = $0 }) }
+            if unsubscribed.contains(thread.id) {
+                button("Unsubscribed", symbol: "checkmark") {}.disabled(true)
+            } else if let unsubscribe = Unsubscribe((thread.sent.last ?? thread.latest).headers) {
+                let working = unsubscribing.contains(thread.id)
+                button(working ? "Unsubscribing…" : "Unsubscribe", symbol: "hand.raised") {
+                    run(unsubscribe, thread, mailbox)
                 }
+                .disabled(working)
             }
             button("Mark as Read", symbol: "envelope.open") { markRead(thread) }
         }
         .padding(.horizontal, 12)
+    }
+
+    private func run(_ unsubscribe: Unsubscribe, _ thread: MailThread, _ mailbox: Mailbox) {
+        let shown = store.alias(scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
+        let sender = (thread.sent.last ?? thread.latest).from.label
+        unsubscribing.insert(thread.id)
+        Task {
+            let outcome = await unsubscribe.run(from: shown, store: store)
+            unsubscribing.remove(thread.id)
+            if outcome == .done { unsubscribed.insert(thread.id) }
+            outcome.haptic()
+            notice = Notice(text: outcome.notice(from: sender))
+        }
     }
 
     private func button(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {

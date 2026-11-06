@@ -16,6 +16,14 @@ struct ThreadView: View {
     @State private var expanded: Set<String> = []
     @State private var asking: [MailContext]?
     @State private var newTask: MailTask?
+    @State private var unsubscribed = false
+    @State private var unsubscribing = false
+    @State private var notice: Notice?
+
+    private struct Notice: Equatable {
+        let id = UUID()
+        let text: String
+    }
 
     var body: some View {
         if let thread = store.thread(threadID), let mailbox = store.mailbox(thread.mailbox) {
@@ -83,10 +91,20 @@ struct ThreadView: View {
                     Button("Add task", systemImage: "checklist") {
                         newTask = MailTask(from: thread, mailbox: shown(mailbox).email)
                     }
-                    if let unsubscribe = Unsubscribe(thread.sent.last?.headers ?? [:]) {
-                        Button("Unsubscribe", systemImage: "hand.raised") {
-                            Task { await unsubscribe.run(from: shown(mailbox), compose: { draft = $0 }) }
+                    if !unsubscribed, let unsubscribe = Unsubscribe(thread.sent.last?.headers ?? [:]) {
+                        Button(unsubscribing ? "Unsubscribing…" : "Unsubscribe", systemImage: "hand.raised") {
+                            guard !unsubscribing else { return }
+                            let sender = (thread.sent.last ?? thread.latest).from.label
+                            unsubscribing = true
+                            Task {
+                                let outcome = await unsubscribe.run(from: shown(mailbox), store: store)
+                                unsubscribing = false
+                                if outcome == .done { unsubscribed = true }
+                                outcome.haptic()
+                                notice = Notice(text: outcome.notice(from: sender))
+                            }
                         }
+                        .disabled(unsubscribing)
                     }
                     Divider()
                     ThreadActions(thread: thread, onGone: { leave(thread) })
@@ -94,7 +112,16 @@ struct ThreadView: View {
             }
         }
         .safeAreaBar(edge: .bottom) {
-            replyBar(thread, mailbox)
+            VStack(spacing: 8) {
+                if let notice { NoticeBanner(text: notice.text) }
+                replyBar(thread, mailbox)
+            }
+            .animation(.snappy(duration: 0.2), value: notice)
+        }
+        .task(id: notice) {
+            guard notice != nil else { return }
+            try? await Task.sleep(for: .seconds(4))
+            notice = nil
         }
         .toolbarVisibility(.hidden, for: .tabBar)
         .sheet(item: $newTask) { task in
