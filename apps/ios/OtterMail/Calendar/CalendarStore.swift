@@ -47,7 +47,7 @@ final class CalendarStore {
         let mine = generation
         let kept = cache[window]
         if kept != nil {
-            state = .ready
+            if state != .ready { state = .ready }
             if Self.isFresh(loadedAt[window]) { return }
         } else {
             state = .loading
@@ -89,7 +89,7 @@ final class CalendarStore {
         _ window: EventWindow, mailbox: Mailbox, demo: Bool, google: GoogleAuth, dates: CalendarDates
     ) async throws -> [CalendarEvent] {
         if demo {
-            calendars = DemoCalendar.calendars
+            if calendars != DemoCalendar.calendars { calendars = DemoCalendar.calendars }
             return DemoCalendar.events(in: window, dates: dates)
         }
         let api = GoogleCalendarAPI(email: mailbox.email) { [google] refresh in
@@ -97,7 +97,7 @@ final class CalendarStore {
         }
         let known = calendars.isEmpty ? try await api.calendars() : calendars
         guard email == mailbox.email else { throw CancellationError() }
-        calendars = known
+        if calendars != known { calendars = known }
         // Every calendar, the ones Google hides included: the screen filters by `CalendarShown`, so turning one on needs no fetch.
         var found: [CalendarEvent] = []
         try await withThrowingTaskGroup(of: [CalendarEvent].self) { group in
@@ -116,11 +116,12 @@ final class CalendarStore {
         email = next
     }
 
+    /** A refresh that finds what's already there writes nothing, so the pages it would redraw (mid-swipe, perhaps) stay as they are. */
     private func keep(_ found: [CalendarEvent], for window: EventWindow, shown: Bool) {
         let sorted = EventDays.sorted(found)
-        cache[window] = sorted
+        if cache[window] != sorted { cache[window] = sorted }
         loadedAt[window] = .now
-        if shown { state = .ready }
+        if shown, state != .ready { state = .ready }
     }
 
     /** A window's events, nil until they have been fetched. */

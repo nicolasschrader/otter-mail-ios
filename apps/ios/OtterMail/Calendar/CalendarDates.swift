@@ -15,6 +15,12 @@ nonisolated enum CalendarMode: String, CaseIterable, Identifiable {
         guard let index = Self.phone.firstIndex(of: self), Self.phone.indices.contains(index + by) else { return nil }
         return Self.phone[index + by]
     }
+
+    /** The page a turn came to rest on, nil when it's this one (or not one of the phone's). */
+    func settling(on page: CalendarMode?) -> CalendarMode? {
+        guard let page, page != self, Self.phone.contains(page) else { return nil }
+        return page
+    }
 }
 
 nonisolated struct EventWindow: Hashable {

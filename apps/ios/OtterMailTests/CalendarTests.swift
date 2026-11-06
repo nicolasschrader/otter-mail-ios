@@ -728,6 +728,15 @@ struct CalendarTests {
         #expect(CalendarMode.week.neighbour(1) == nil)
     }
 
+    /** A swipe or tap changes the mode only once it lands on another of the phone's pages. */
+    @Test func aTurnSettlesOnlyOnAnotherPage() {
+        #expect(CalendarMode.agenda.settling(on: .day) == .day)
+        #expect(CalendarMode.month.settling(on: .agenda) == .agenda)
+        #expect(CalendarMode.day.settling(on: .day) == nil)
+        #expect(CalendarMode.day.settling(on: nil) == nil)
+        #expect(CalendarMode.day.settling(on: .week) == nil)
+    }
+
     @Test func theDemoFillsEveryView() {
         let calendar = zone("Europe/Berlin")
         let dates = calendarDates(calendar)

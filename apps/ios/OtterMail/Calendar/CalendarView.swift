@@ -23,6 +23,8 @@ struct CalendarView: View {
     var onTitle: () -> Void = {}
 
     @State private var mode: CalendarMode = .agenda
+    /** Where the pager is, under the finger; `mode` is the page it last came to rest on. */
+    @State private var page: CalendarMode?
     @State private var anchor = Date.now
     @State private var picked: Date?
     @State private var now = Date.now
@@ -39,10 +41,6 @@ struct CalendarView: View {
     /** The agenda is the days ahead from today; Day and Month share the anchor their chevrons move. */
     private func window(_ mode: CalendarMode) -> EventWindow {
         dates.window(mode, anchor: mode == .agenda ? now : anchor)
-    }
-
-    private func days(_ mode: CalendarMode) -> [Date] {
-        dates.visibleDays(mode, anchor, weekends: dates.showsWeekends(mode))
     }
 
     var body: some View {
@@ -99,10 +97,11 @@ struct CalendarView: View {
                 }
             }
             .task(id: windows) { await load() }
+            // Runs once a turn has come to rest (`settle`), never under the finger.
             .onChange(of: mode) {
                 picked = nil
                 // The agenda is the days ahead and has no way to move: it starts today.
-                if mode == .agenda { anchor = .now }
+                if mode == .agenda, !dates.sameDay(anchor, .now) { anchor = .now }
                 // A page whose prefetch failed asks again once it's turned to.
                 if events.events(in: window(mode)) == nil { Task { await load() } }
                 #if DEBUG
@@ -180,308 +179,71 @@ struct CalendarView: View {
     }
 
     /**
-     * Agenda, Day and Month side by side in a paged TabView, the pager owning
-     * sideways drags and each page's list its own scrolling, as UIKit's paging
-     * does. The pages stay mounted, so turning one draws what is already there.
+     * Agenda, Day and Month side by side in a paging ScrollView, the pager
+     * owning sideways drags and each page's list its own scrolling. The pages
+     * stay mounted, so turning one draws what is already there, and `mode`
+     * follows `page` only once the scroll has come to rest: nothing the turn
+     * sets off (the picked day, the agenda's anchor, a load, the Today button)
+     * runs under the finger.
      */
     private func pages(_ mailbox: Mailbox) -> some View {
         VStack(spacing: 0) {
-            modes
-            TabView(selection: $mode) {
-                ForEach(CalendarMode.phone) { page in
-                    list(mailbox, mode: page)
-                        .refreshable { await load(force: true) }
-                        .tag(page)
+            ModePicker(page: $page, settled: mode, select: select)
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(CalendarMode.phone) { option in
+                        calendarPage(mailbox, option)
+                            .equatable()
+                            .containerRelativeFrame([.horizontal, .vertical])
+                            .id(option)
+                    }
                 }
+                .scrollTargetLayout()
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
+            .scrollPosition(id: $page)
+            .onScrollPhaseChange { _, phase in
+                if phase == .idle { settle() }
+            }
+            .onAppear { page = mode }
             .background(palette.canvas)
         }
     }
 
-    private func select(_ option: CalendarMode) {
-        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { mode = option }
-    }
-
-    private func list(_ mailbox: Mailbox, mode: CalendarMode) -> some View {
-        let found = events.events(in: window(mode))
-        return List {
-            if mode == .day { periodRow(mode) }
-            if mode == .week { weekStrip }
-            if mode == .month { monthGrid }
-            switch events.state {
-            case .noAccess: noAccess(mailbox)
-            case .failed(let message) where found == nil: failed(message)
-            default: listed(mode, found)
-            }
-        }
-        .listStyle(.plain)
-        .listSectionSeparator(.hidden, edges: .top)
-        .scrollContentBackground(.hidden)
-        .background(palette.canvas)
-        .contentMargins(.bottom, 24, for: .scrollContent)
-    }
-
-    @ViewBuilder private func listed(_ mode: CalendarMode, _ found: [CalendarEvent]?) -> some View {
-        let withEvents = shownDays(mode, shown(found ?? [])).filter { !$0.events.isEmpty }
-        ForEach(withEvents) { day in
-            Section {
-                ForEach(day.events) { event in row(event, on: day.id) }
-            } header: {
-                header(day)
-            }
-            .textCase(nil)
-        }
-        if withEvents.isEmpty {
-            if found == nil {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 60)
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            } else {
-                empty(mode)
-            }
-        }
-    }
-
-    private func empty(_ mode: CalendarMode) -> some View {
-        ContentUnavailableView(
-            emptyTitle(mode),
-            systemImage: "calendar",
-            description: Text(mode == .agenda ? "The months ahead are clear." : "")
+    private func calendarPage(_ mailbox: Mailbox, _ mode: CalendarMode) -> CalendarPage {
+        CalendarPage(
+            mode: mode,
+            mailbox: mailbox,
+            found: events.events(in: window(mode)),
+            state: events.state,
+            anchor: anchor,
+            picked: picked,
+            now: now,
+            shown: visibility.shown,
+            onStep: { by in
+                anchor = dates.step(mode, anchor, by: by)
+                picked = nil
+            },
+            onPick: { picked = $0 },
+            onRetry: { Task { await load(force: true) } },
+            onRefresh: { await load(force: true) }
         )
-        .foregroundStyle(palette.muted)
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .padding(.top, 40)
     }
 
-    private func emptyTitle(_ mode: CalendarMode) -> String {
-        switch mode {
-        case .agenda: "Nothing coming up"
-        case .week: "Nothing this week"
-        case .day: "Nothing on \(dates.heading(days(.day).first ?? anchor, now: now))"
-        case .month: "Nothing on \(dates.heading(pickedDay, now: now))"
+    /** The picker scrolls the pager, animating only the scroll; `mode` follows once it lands. */
+    private func select(_ option: CalendarMode) {
+        guard option != page else { return }
+        if reduceMotion {
+            page = option
+            settle()
+        } else {
+            withAnimation(.smooth(duration: 0.3)) { page = option } completion: { settle() }
         }
     }
 
-    private func noAccess(_ mailbox: Mailbox) -> some View {
-        ContentUnavailableView {
-            Label("Sign in again to show your calendar", systemImage: "calendar.badge.exclamationmark")
-        } description: {
-            Text("\(mailbox.displayName) signed in to Google before Otter Mail asked to read its calendar.")
-        } actions: {
-            SignInAgainButton(mailbox: mailbox, title: "Sign in again")
-                .buttonStyle(.glass)
-        }
-        .foregroundStyle(palette.text)
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .padding(.top, 40)
-    }
-
-    private func failed(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Couldn't load the calendar", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try again") { Task { await load(force: true) } }
-                .buttonStyle(.glass)
-        }
-        .foregroundStyle(palette.text)
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
-        .padding(.top, 40)
-    }
-
-    private var modes: some View {
-        HStack(spacing: 4) {
-            ForEach(CalendarMode.phone) { option in
-                Button {
-                    select(option)
-                } label: {
-                    Text(option.title)
-                        .font(.inter(.subheadline).weight(.medium))
-                        .foregroundStyle(mode == option ? palette.text : palette.muted)
-                        .padding(.horizontal, 14)
-                        .frame(height: 36)
-                        .background(mode == option ? palette.text.opacity(0.08) : .clear, in: .capsule)
-                        .contentShape(.capsule)
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(mode == option ? .isSelected : [])
-            }
-            Spacer()
-        }
-        .padding(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-    }
-
-    private func periodRow(_ mode: CalendarMode) -> some View {
-        period(mode)
-            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
-            .listRowSeparator(.hidden)
-            .listRowBackground(palette.canvas)
-    }
-
-    private var weekStrip: some View {
-        let days = self.days(.week)
-        let grouped = byDay(.week, days)
-        return VStack(spacing: 8) {
-            period(.week)
-            HStack(spacing: 2) {
-                ForEach(days, id: \.self) { day in
-                    let on = grouped[day] ?? []
-                    DayCell(
-                        day: day,
-                        dots: dots(on),
-                        count: on.count,
-                        weekday: dates.weekdayShort(day),
-                        today: dates.sameDay(day, now)
-                    )
-                }
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 12, trailing: 12))
-        .listRowSeparator(.hidden)
-        .listRowBackground(palette.canvas)
-    }
-
-    private var monthGrid: some View {
-        let days = self.days(.month)
-        let columns = dates.showsWeekends(.month) ? 7 : 5
-        let grouped = byDay(.month, days)
-        let pickedDay = self.pickedDay
-        return VStack(spacing: 8) {
-            period(.month)
-            HStack(spacing: 2) {
-                ForEach(days.prefix(columns), id: \.self) { day in
-                    Text(dates.weekdayShort(day))
-                        .font(.inter(.caption2))
-                        .foregroundStyle(palette.muted)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: columns), spacing: 2) {
-                ForEach(days, id: \.self) { day in
-                    let on = grouped[day] ?? []
-                    DayCell(
-                        day: day,
-                        dots: dots(on),
-                        count: on.count,
-                        inMonth: dates.calendar.isDate(day, equalTo: anchor, toGranularity: .month),
-                        selected: dates.sameDay(day, pickedDay),
-                        today: dates.sameDay(day, now),
-                        action: { picked = day }
-                    )
-                }
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 12, trailing: 12))
-        .listRowSeparator(.hidden)
-        .listRowBackground(palette.canvas)
-    }
-
-    private func period(_ mode: CalendarMode) -> some View {
-        HStack(spacing: 0) {
-            Text(title(mode))
-                .font(.inter(.headline))
-                .foregroundStyle(palette.text)
-            Spacer(minLength: 8)
-            stepper(mode, -1, symbol: "chevron.left", title: "Previous")
-            stepper(mode, 1, symbol: "chevron.right", title: "Next")
-        }
-        .padding(.horizontal, 8)
-    }
-
-    private func stepper(_ mode: CalendarMode, _ by: Int, symbol: String, title: String) -> some View {
-        Button {
-            anchor = dates.step(mode, anchor, by: by)
-            picked = nil
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(palette.muted)
-                .frame(width: 40, height: 36)
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-
-    private func header(_ day: EventDay) -> some View {
-        HStack(spacing: 6) {
-            Text(dates.heading(day.id, now: now)).fontWeight(.medium).foregroundStyle(palette.text)
-            Spacer()
-            Text("\(day.events.count)").monospacedDigit()
-        }
-        .font(.inter(.footnote))
-        .foregroundStyle(palette.muted)
-        .frame(minHeight: 36)
-        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-    }
-
-    private func row(_ event: CalendarEvent, on day: Date) -> some View {
-        NavigationLink(value: event) {
-            EventRow(event: event, day: day, dates: dates, color: color(event.calendar))
-        }
-        .navigationLinkIndicatorVisibility(.hidden)
-        .padding(.leading, 20)
-        .padding(.trailing, 16)
-        .padding(.vertical, 8)
-        .listRowBackground(palette.canvas)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets())
-    }
-
-    /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them. */
-    private func shown(_ found: [CalendarEvent]) -> [CalendarEvent] {
-        let visible = CalendarShown.visible(found, shown: visibility.shown, mailbox: mailbox?.email ?? "")
-        return preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined }
-    }
-
-    private func byDay(_ mode: CalendarMode, _ days: [Date]) -> [Date: [CalendarEvent]] {
-        EventDays.byDay(shown(events.events(in: window(mode)) ?? []), days: days, dates: dates)
-    }
-
-    private func shownDays(_ mode: CalendarMode, _ shown: [CalendarEvent]) -> [EventDay] {
-        switch mode {
-        case .agenda:
-            return EventDays.agenda(shown, from: dates.startOfDay(now), now: now, dates: dates)
-        case .day:
-            let day = days(.day).first ?? anchor
-            return [EventDay(id: day, events: EventDays.events(shown, on: day, dates: dates))]
-        case .week:
-            return EventDays.grouped(shown, days: days(.week), dates: dates)
-        case .month:
-            return [EventDay(id: pickedDay, events: EventDays.events(shown, on: pickedDay, dates: dates))]
-        }
-    }
-
-    /** The day the month's grid is listing: the one tapped, else today, else the month's first. */
-    private var pickedDay: Date {
-        let window = self.window(.month)
-        if let picked, picked >= window.from, picked < window.to { return picked }
-        let today = dates.startOfDay(now)
-        let month = dates.startOfMonth(anchor)
-        let chosen = dates.calendar.isDate(today, equalTo: month, toGranularity: .month) ? today : month
-        // With weekends hidden the grid has no weekend cell to list, so the next weekday leads.
-        return dates.stepDays(chosen, 0, weekends: dates.showsWeekends(.month))
-    }
-
-    /** As CalendarTitle writes it: the day itself, else the month the week sits in. */
-    private func title(_ mode: CalendarMode) -> String {
-        let first = days(mode).first ?? anchor
-        switch mode {
-        case .day: return "\(dates.dayTitle(first)) · \(dates.weekdayLong(first))"
-        case .week: return dates.monthTitle(dates.addDays(first, 3))
-        default: return dates.monthTitle(anchor)
-        }
-    }
-
-    private func dots(_ onDay: [CalendarEvent]) -> [Color] {
-        onDay.prefix(3).map { color($0.calendar) }
+    private func settle() {
+        if let landed = mode.settling(on: page) { mode = landed }
     }
 
     private func color(_ calendar: EventCalendar) -> Color {
@@ -494,7 +256,8 @@ struct CalendarView: View {
     /** The page in front first, then the others and Day's and Month's either side, ahead of a turn. */
     private func load(force: Bool = false) async {
         guard let mailbox else { return }
-        now = .now
+        // To the minute, so a load doesn't redraw every page for a clock that hasn't moved.
+        if !dates.calendar.isDate(now, equalTo: .now, toGranularity: .minute) { now = .now }
         let front = CalendarMode.phone.contains(mode) ? mode : .agenda
         await events.load(
             window(front), mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates, force: force
@@ -505,5 +268,36 @@ struct CalendarView: View {
             [-1, 1].map { dates.window(mode, anchor: dates.step(mode, anchor, by: $0)) }
         }
         await events.prefetch(others + neighbours, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates)
+    }
+}
+
+/** Agenda, Day, Month: the pager's own position lit, so it follows the finger without redrawing the screen. */
+private struct ModePicker: View {
+    @Environment(\.palette) private var palette
+    @Binding var page: CalendarMode?
+    let settled: CalendarMode
+    let select: (CalendarMode) -> Void
+
+    var body: some View {
+        let current = page ?? settled
+        HStack(spacing: 4) {
+            ForEach(CalendarMode.phone) { option in
+                Button {
+                    select(option)
+                } label: {
+                    Text(option.title)
+                        .font(.inter(.subheadline).weight(.medium))
+                        .foregroundStyle(current == option ? palette.text : palette.muted)
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(current == option ? palette.text.opacity(0.08) : .clear, in: .capsule)
+                        .contentShape(.capsule)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(current == option ? .isSelected : [])
+            }
+            Spacer()
+        }
+        .padding(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }
 }
