@@ -728,15 +728,6 @@ struct CalendarTests {
         #expect(CalendarMode.week.neighbour(1) == nil)
     }
 
-    @Test func aSidewaysSwipeTurnsThePage() {
-        #expect(CalendarMode.swipe(CGSize(width: -120, height: 10)) == 1)
-        #expect(CalendarMode.swipe(CGSize(width: 120, height: -10)) == -1)
-        // Too short, or more up and down than across: the list's scroll.
-        #expect(CalendarMode.swipe(CGSize(width: -40, height: 0)) == nil)
-        #expect(CalendarMode.swipe(CGSize(width: -100, height: 80)) == nil)
-        #expect(CalendarMode.swipe(CGSize(width: 0, height: 300)) == nil)
-    }
-
     @Test func theDemoFillsEveryView() {
         let calendar = zone("Europe/Berlin")
         let dates = calendarDates(calendar)

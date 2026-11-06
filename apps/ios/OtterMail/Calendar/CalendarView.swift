@@ -5,9 +5,10 @@ import SwiftUI
  * chosen from the bottom bar or the places bar (⌃⌄ › Calendar), in the
  * phone's pages, Agenda, Day and Month (the Mac and web apps' CALENDAR_MODES
  * less Week, with the agenda of the days ahead), turned by the picker or a
- * sideways swipe. It follows the account's Settings › Calendar
- * (`CalendarPreferences`). Read-only, as the sign-in asks only to read the
- * calendar; answering an invitation stays in the mail.
+ * sideways swipe that follows the finger, each page kept up between turns.
+ * It follows the account's Settings › Calendar (`CalendarPreferences`).
+ * Read-only, as the sign-in asks only to read the calendar; answering an
+ * invitation stays in the mail.
  */
 struct CalendarView: View {
     @Environment(MailStore.self) private var store
@@ -29,15 +30,20 @@ struct CalendarView: View {
     @State private var visibility = CalendarShown()
     /** Listing the calendars to show or hide, in the events' place. */
     @State private var listing = false
-    /** Where the next page comes in from: the side the swipe or the picker moves toward. */
-    @State private var edge: Edge = .trailing
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
     private var mailbox: Mailbox? { store.mailbox(for: scope) }
-    private var window: EventWindow { dates.window(mode, anchor: anchor) }
-    private var weekends: Bool { dates.showsWeekends(mode) }
-    private var days: [Date] { dates.visibleDays(mode, anchor, weekends: weekends) }
-    private var columns: Int { weekends ? 7 : 5 }
+    /** Every page's window, so turning one doesn't wait on a fetch. */
+    private var windows: [EventWindow] { CalendarMode.phone.map(window) }
+
+    /** The agenda is the days ahead from today; Day and Month share the anchor their chevrons move. */
+    private func window(_ mode: CalendarMode) -> EventWindow {
+        dates.window(mode, anchor: mode == .agenda ? now : anchor)
+    }
+
+    private func days(_ mode: CalendarMode) -> [Date] {
+        dates.visibleDays(mode, anchor, weekends: dates.showsWeekends(mode))
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -92,7 +98,20 @@ struct CalendarView: View {
                     pages(mailbox)
                 }
             }
-            .task(id: window) { await load() }
+            .task(id: windows) { await load() }
+            .onChange(of: mode) {
+                picked = nil
+                // The agenda is the days ahead and has no way to move: it starts today.
+                if mode == .agenda { anchor = .now }
+                // A page whose prefetch failed asks again once it's turned to.
+                if events.events(in: window(mode)) == nil { Task { await load() } }
+                #if DEBUG
+                let started = CFAbsoluteTimeGetCurrent()
+                DispatchQueue.main.async {
+                    print("calendar: \(mode.rawValue) drawn in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
+                }
+                #endif
+            }
             // A sign-in finishing (the button a mailbox without calendar access shows) is reason to look again.
             .onChange(of: session.busy) { before, current in
                 if before != nil, current == nil { Task { await load(force: true) } }
@@ -160,50 +179,40 @@ struct CalendarView: View {
         .contentMargins(.bottom, 24, for: .scrollContent)
     }
 
-    /** Agenda, Day and Month side by side: a sideways swipe anywhere turns to the next, as the picker does. */
+    /**
+     * Agenda, Day and Month side by side in a paged TabView, the pager owning
+     * sideways drags and each page's list its own scrolling, as UIKit's paging
+     * does. The pages stay mounted, so turning one draws what is already there.
+     */
     private func pages(_ mailbox: Mailbox) -> some View {
         VStack(spacing: 0) {
             modes
-            ZStack {
-                list(mailbox)
-                    .refreshable { await load(force: true) }
-                    .id(mode)
-                    .transition(reduceMotion ? AnyTransition.opacity : .push(from: edge))
+            TabView(selection: $mode) {
+                ForEach(CalendarMode.phone) { page in
+                    list(mailbox, mode: page)
+                        .refreshable { await load(force: true) }
+                        .tag(page)
+                }
             }
-            .clipped()
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .background(palette.canvas)
         }
-        // Alongside the list's own scrolling, which keeps every drag that is mostly up or down.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24).onEnded { drag in
-                if let by = CalendarMode.swipe(drag.translation), let next = mode.neighbour(by) { select(next) }
-            }
-        )
     }
 
     private func select(_ option: CalendarMode) {
-        guard option != mode else { return }
-        let order = CalendarMode.phone
-        edge = (order.firstIndex(of: option) ?? 0) > (order.firstIndex(of: mode) ?? 0) ? .trailing : .leading
-        // The page going out takes its transition from the render before the change, so the side lands first.
-        Task { @MainActor in
-            withAnimation(.snappy(duration: 0.3)) {
-                mode = option
-                picked = nil
-                // The agenda is the days ahead and has no way to move: it starts today.
-                if option == .agenda { anchor = .now }
-            }
-        }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { mode = option }
     }
 
-    private func list(_ mailbox: Mailbox) -> some View {
-        List {
-            if mode == .day { periodRow }
+    private func list(_ mailbox: Mailbox, mode: CalendarMode) -> some View {
+        let found = events.events(in: window(mode))
+        return List {
+            if mode == .day { periodRow(mode) }
             if mode == .week { weekStrip }
             if mode == .month { monthGrid }
             switch events.state {
             case .noAccess: noAccess(mailbox)
-            case .failed(let message): failed(message)
-            default: listed
+            case .failed(let message) where found == nil: failed(message)
+            default: listed(mode, found)
             }
         }
         .listStyle(.plain)
@@ -213,8 +222,8 @@ struct CalendarView: View {
         .contentMargins(.bottom, 24, for: .scrollContent)
     }
 
-    @ViewBuilder private var listed: some View {
-        let withEvents = shownDays.filter { !$0.events.isEmpty }
+    @ViewBuilder private func listed(_ mode: CalendarMode, _ found: [CalendarEvent]?) -> some View {
+        let withEvents = shownDays(mode, shown(found ?? [])).filter { !$0.events.isEmpty }
         ForEach(withEvents) { day in
             Section {
                 ForEach(day.events) { event in row(event, on: day.id) }
@@ -224,21 +233,21 @@ struct CalendarView: View {
             .textCase(nil)
         }
         if withEvents.isEmpty {
-            if events.state == .loading {
+            if found == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
             } else {
-                empty
+                empty(mode)
             }
         }
     }
 
-    private var empty: some View {
+    private func empty(_ mode: CalendarMode) -> some View {
         ContentUnavailableView(
-            emptyTitle,
+            emptyTitle(mode),
             systemImage: "calendar",
             description: Text(mode == .agenda ? "The months ahead are clear." : "")
         )
@@ -248,11 +257,11 @@ struct CalendarView: View {
         .padding(.top, 40)
     }
 
-    private var emptyTitle: String {
+    private func emptyTitle(_ mode: CalendarMode) -> String {
         switch mode {
         case .agenda: "Nothing coming up"
         case .week: "Nothing this week"
-        case .day: "Nothing on \(dates.heading(days.first ?? anchor, now: now))"
+        case .day: "Nothing on \(dates.heading(days(.day).first ?? anchor, now: now))"
         case .month: "Nothing on \(dates.heading(pickedDay, now: now))"
         }
     }
@@ -309,17 +318,18 @@ struct CalendarView: View {
         .padding(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }
 
-    private var periodRow: some View {
-        period(title)
+    private func periodRow(_ mode: CalendarMode) -> some View {
+        period(mode)
             .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
             .listRowSeparator(.hidden)
             .listRowBackground(palette.canvas)
     }
 
     private var weekStrip: some View {
-        let grouped = byDay
+        let days = self.days(.week)
+        let grouped = byDay(.week, days)
         return VStack(spacing: 8) {
-            period(title)
+            period(.week)
             HStack(spacing: 2) {
                 ForEach(days, id: \.self) { day in
                     let on = grouped[day] ?? []
@@ -339,9 +349,12 @@ struct CalendarView: View {
     }
 
     private var monthGrid: some View {
-        let grouped = byDay
+        let days = self.days(.month)
+        let columns = dates.showsWeekends(.month) ? 7 : 5
+        let grouped = byDay(.month, days)
+        let pickedDay = self.pickedDay
         return VStack(spacing: 8) {
-            period(title)
+            period(.month)
             HStack(spacing: 2) {
                 ForEach(days.prefix(columns), id: \.self) { day in
                     Text(dates.weekdayShort(day))
@@ -370,19 +383,19 @@ struct CalendarView: View {
         .listRowBackground(palette.canvas)
     }
 
-    private func period(_ title: String) -> some View {
+    private func period(_ mode: CalendarMode) -> some View {
         HStack(spacing: 0) {
-            Text(title)
+            Text(title(mode))
                 .font(.inter(.headline))
                 .foregroundStyle(palette.text)
             Spacer(minLength: 8)
-            stepper(-1, symbol: "chevron.left", title: "Previous")
-            stepper(1, symbol: "chevron.right", title: "Next")
+            stepper(mode, -1, symbol: "chevron.left", title: "Previous")
+            stepper(mode, 1, symbol: "chevron.right", title: "Next")
         }
         .padding(.horizontal, 8)
     }
 
-    private func stepper(_ by: Int, symbol: String, title: String) -> some View {
+    private func stepper(_ mode: CalendarMode, _ by: Int, symbol: String, title: String) -> some View {
         Button {
             anchor = dates.step(mode, anchor, by: by)
             picked = nil
@@ -423,41 +436,43 @@ struct CalendarView: View {
     }
 
     /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them. */
-    private var shown: [CalendarEvent] {
-        let visible = CalendarShown.visible(events.events, shown: visibility.shown, mailbox: mailbox?.email ?? "")
+    private func shown(_ found: [CalendarEvent]) -> [CalendarEvent] {
+        let visible = CalendarShown.visible(found, shown: visibility.shown, mailbox: mailbox?.email ?? "")
         return preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined }
     }
 
-    private var byDay: [Date: [CalendarEvent]] {
-        EventDays.byDay(shown, days: days, dates: dates)
+    private func byDay(_ mode: CalendarMode, _ days: [Date]) -> [Date: [CalendarEvent]] {
+        EventDays.byDay(shown(events.events(in: window(mode)) ?? []), days: days, dates: dates)
     }
 
-    private var shownDays: [EventDay] {
+    private func shownDays(_ mode: CalendarMode, _ shown: [CalendarEvent]) -> [EventDay] {
         switch mode {
         case .agenda:
-            EventDays.agenda(shown, from: dates.startOfDay(now), now: now, dates: dates)
+            return EventDays.agenda(shown, from: dates.startOfDay(now), now: now, dates: dates)
         case .day:
-            [EventDay(id: days.first ?? anchor, events: EventDays.events(shown, on: days.first ?? anchor, dates: dates))]
+            let day = days(.day).first ?? anchor
+            return [EventDay(id: day, events: EventDays.events(shown, on: day, dates: dates))]
         case .week:
-            EventDays.grouped(shown, days: days, dates: dates)
+            return EventDays.grouped(shown, days: days(.week), dates: dates)
         case .month:
-            [EventDay(id: pickedDay, events: EventDays.events(shown, on: pickedDay, dates: dates))]
+            return [EventDay(id: pickedDay, events: EventDays.events(shown, on: pickedDay, dates: dates))]
         }
     }
 
     /** The day the month's grid is listing: the one tapped, else today, else the month's first. */
     private var pickedDay: Date {
+        let window = self.window(.month)
         if let picked, picked >= window.from, picked < window.to { return picked }
         let today = dates.startOfDay(now)
         let month = dates.startOfMonth(anchor)
         let chosen = dates.calendar.isDate(today, equalTo: month, toGranularity: .month) ? today : month
         // With weekends hidden the grid has no weekend cell to list, so the next weekday leads.
-        return dates.stepDays(chosen, 0, weekends: weekends)
+        return dates.stepDays(chosen, 0, weekends: dates.showsWeekends(.month))
     }
 
     /** As CalendarTitle writes it: the day itself, else the month the week sits in. */
-    private var title: String {
-        let first = days.first ?? anchor
+    private func title(_ mode: CalendarMode) -> String {
+        let first = days(mode).first ?? anchor
         switch mode {
         case .day: return "\(dates.dayTitle(first)) · \(dates.weekdayLong(first))"
         case .week: return dates.monthTitle(dates.addDays(first, 3))
@@ -476,14 +491,19 @@ struct CalendarView: View {
         )
     }
 
+    /** The page in front first, then the others and Day's and Month's either side, ahead of a turn. */
     private func load(force: Bool = false) async {
         guard let mailbox else { return }
         now = .now
+        let front = CalendarMode.phone.contains(mode) ? mode : .agenda
         await events.load(
-            window, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates, force: force
+            window(front), mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates, force: force
         )
-        guard mode != .agenda, !Task.isCancelled else { return }
-        let neighbours = [-1, 1].map { dates.window(mode, anchor: dates.step(mode, anchor, by: $0)) }
-        await events.prefetch(neighbours, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates)
+        guard !Task.isCancelled else { return }
+        let others = CalendarMode.phone.filter { $0 != front }.map(window)
+        let neighbours = [CalendarMode.day, .month].flatMap { mode -> [EventWindow] in
+            [-1, 1].map { dates.window(mode, anchor: dates.step(mode, anchor, by: $0)) }
+        }
+        await events.prefetch(others + neighbours, mailbox: mailbox, demo: store.isDemo, google: session.google, dates: dates)
     }
 }

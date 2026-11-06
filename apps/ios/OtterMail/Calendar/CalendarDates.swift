@@ -15,12 +15,6 @@ nonisolated enum CalendarMode: String, CaseIterable, Identifiable {
         guard let index = Self.phone.firstIndex(of: self), Self.phone.indices.contains(index + by) else { return nil }
         return Self.phone[index + by]
     }
-
-    /** A drag that is mostly sideways and long enough turns the page: left to the next, right to the one before. */
-    static func swipe(_ translation: CGSize) -> Int? {
-        guard abs(translation.width) > 60, abs(translation.width) > abs(translation.height) * 2 else { return nil }
-        return translation.width < 0 ? 1 : -1
-    }
 }
 
 nonisolated struct EventWindow: Hashable {

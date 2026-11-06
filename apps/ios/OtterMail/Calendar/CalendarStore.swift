@@ -2,8 +2,7 @@ import Foundation
 import Observation
 
 /**
- * What the calendar screen renders from: one window of events at a time, kept
- * per window as the Mac and web apps' React Query does (`useCalendarEvents`):
+ * What the calendar screen renders from: events kept per window as the Mac and web apps' React Query does (`useCalendarEvents`):
  * a window shown before is shown again at once, and asked of Google again in
  * the background once it's older than `freshFor`. HomeView holds it, so it
  * outlives switching to Mail and back. Google Calendar for a Gmail mailbox,
@@ -27,9 +26,9 @@ final class CalendarStore {
     }
 
     private(set) var state: State = .ready
-    private(set) var events: [CalendarEvent] = []
     private(set) var calendars: [EventCalendar] = []
-    @ObservationIgnored private var cache: [EventWindow: [CalendarEvent]] = [:]
+    /** Observed, so every page the screen keeps up draws its own window as soon as it lands. */
+    private var cache: [EventWindow: [CalendarEvent]] = [:]
     @ObservationIgnored private var loadedAt: [EventWindow: Date] = [:]
     @ObservationIgnored private var email: String?
     @ObservationIgnored private var generation = 0
@@ -47,8 +46,7 @@ final class CalendarStore {
         generation += 1
         let mine = generation
         let kept = cache[window]
-        if let kept {
-            events = kept
+        if kept != nil {
             state = .ready
             if Self.isFresh(loadedAt[window]) { return }
         } else {
@@ -122,9 +120,9 @@ final class CalendarStore {
         let sorted = EventDays.sorted(found)
         cache[window] = sorted
         loadedAt[window] = .now
-        if shown {
-            events = sorted
-            state = .ready
-        }
+        if shown { state = .ready }
     }
+
+    /** A window's events, nil until they have been fetched. */
+    func events(in window: EventWindow) -> [CalendarEvent]? { cache[window] }
 }
