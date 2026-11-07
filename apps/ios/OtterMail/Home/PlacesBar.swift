@@ -15,11 +15,9 @@ struct PlacesBar: View {
     let showsAgent: Bool
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
-    let onSearch: () -> Void
     let onThreads: () -> Void
     let onCalendar: () -> Void
     let onTasks: () -> Void
-    let onSettings: () -> Void
     let onMenu: () -> Void
     /** A choice in the calendar's or tasks' panel that is the whole errand: the panel folds back into the bar. */
     let onDone: () -> Void
@@ -40,8 +38,7 @@ struct PlacesBar: View {
                             case .tasks:
                                 TaskListsPanel(onDone: onDone)
                             case .mail:
-                                PlacesPanel(place: place, section: section, onSelect: onPlace, onMailbox: onMailbox,
-                                            onSearch: onSearch, onSettings: onSettings)
+                                PlacesPanel(place: place, section: section, onSelect: onPlace, onMailbox: onMailbox)
                             }
                         }
                         .frame(maxHeight: 560)
@@ -160,6 +157,7 @@ struct PlacesBar: View {
     }
 }
 
+/** The mail's places: mailboxes, folders and labels. Search and Settings are in the toolbar (Search, ⋯). */
 struct PlacesPanel: View {
     @Environment(MailStore.self) private var store
     @Environment(\.palette) private var palette
@@ -168,8 +166,6 @@ struct PlacesPanel: View {
     let section: HomeSection
     let onSelect: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
-    let onSearch: () -> Void
-    let onSettings: () -> Void
 
     var body: some View {
         let mailbox = store.mailbox(for: place.scope)
@@ -195,8 +191,6 @@ struct PlacesPanel: View {
                 }
             }
             labels(mailbox)
-            row("Search", symbol: "magnifyingglass", action: onSearch)
-            row("Settings", symbol: "gearshape", action: onSettings)
             SyncStatusLine(scope: mailbox?.source ?? place.scope)
                 .padding(.horizontal, 12)
                 .padding(.top, 8)

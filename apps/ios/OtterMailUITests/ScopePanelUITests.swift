@@ -123,7 +123,23 @@ final class ScopePanelUITests: XCTestCase {
         // All again, every list's tasks in it.
         app.buttons["All"].tap()
         XCTAssertTrue(app.buttons["Tasks"].waitForExistence(timeout: 5))
-        XCTAssertTrue(labelled(app, content).waitForExistence(timeout: 5))
+        XCTAssertTrue(scrollToTask(app, content), "the new task isn't under All")
+    }
+
+    /**
+     * All lists every task the simulator has kept from earlier runs, so the one
+     * added here can sit below what the lazy list has drawn: swipes the list up
+     * a bounded number of times, asking only `exists`, until its row is made.
+     */
+    private func scrollToTask(_ app: XCUIApplication, _ content: String) -> Bool {
+        let row = labelled(app, content)
+        if row.waitForExistence(timeout: 3) { return true }
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<15 {
+            (list.exists ? list : app).swipeUp()
+            if row.waitForExistence(timeout: 1) { return true }
+        }
+        return false
     }
 
     /** A task's row reads as one element, its title first. */

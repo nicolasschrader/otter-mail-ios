@@ -126,6 +126,8 @@ nonisolated struct EventCalendar: Identifiable, Hashable {
     var shown = true
     /** The mailbox's address it's read from (core's `accountId`). */
     var account = ""
+    /** Takes new events and changes: Google's accessRole owner or writer (core's `writable`). */
+    var writable = false
 
     /** api.ts's calendarKey: every account's primary calendar is `primary`, so its identity is the pair. */
     var key: String { EventStyle.key(mailbox: account, calendar: id) }

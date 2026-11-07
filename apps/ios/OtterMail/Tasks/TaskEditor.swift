@@ -12,16 +12,18 @@ struct TaskEditor: View {
     @Environment(\.dismiss) private var dismiss
 
     let onEmail: (TaskEmail) -> Void
+    let onSaved: (MailTask) -> Void
 
     @State private var task: MailTask
     @State private var fallback: Date
     @State private var saving = false
     @State private var error: String?
 
-    init(task: MailTask, onEmail: @escaping (TaskEmail) -> Void) {
+    init(task: MailTask, onEmail: @escaping (TaskEmail) -> Void, onSaved: @escaping (MailTask) -> Void = { _ in }) {
         _task = State(initialValue: task)
         _fallback = State(initialValue: task.due ?? Self.nextHour())
         self.onEmail = onEmail
+        self.onSaved = onSaved
     }
 
     private var tasks: TaskStore { session.tasks }
@@ -29,108 +31,104 @@ struct TaskEditor: View {
     private var passed: Bool { (task.reminderAt ?? .distantFuture) < .now }
 
     var body: some View {
-        NavigationStack {
-            SettingsForm {
-                Section {
-                    TextField("Task", text: $task.content, axis: .vertical)
-                        .font(.inter(.body))
-                        .foregroundStyle(palette.text)
-                    TextField("Notes", text: $task.notes, axis: .vertical)
-                        .font(.inter(.subheadline))
-                        .foregroundStyle(palette.text)
-                        .frame(minHeight: 60, alignment: .topLeading)
-                }
+        SettingsForm {
+            Section {
+                TextField("Task", text: $task.content, axis: .vertical)
+                    .font(.inter(.body))
+                    .foregroundStyle(palette.text)
+                TextField("Notes", text: $task.notes, axis: .vertical)
+                    .font(.inter(.subheadline))
+                    .foregroundStyle(palette.text)
+                    .frame(minHeight: 60, alignment: .topLeading)
+            }
 
-                if !tasks.projects.isEmpty {
-                    Section {
-                        Picker(selection: $task.projectId) {
-                            ForEach(tasks.lists) { list in
-                                Text(list.name).tag(list.id == TaskProject.inbox.id ? nil : Optional(list.id))
-                            }
+            if !tasks.projects.isEmpty {
+                Section {
+                    Picker(selection: $task.projectId) {
+                        ForEach(tasks.lists) { list in
+                            Text(list.name).tag(list.id == TaskProject.inbox.id ? nil : Optional(list.id))
+                        }
+                    } label: {
+                        Label("List", systemImage: "list.bullet")
+                    }
+                }
+            }
+
+            Section {
+                Toggle(isOn: hasDue) { Label("Due date", systemImage: "calendar") }
+                if task.due != nil {
+                    DatePicker(
+                        selection: due,
+                        displayedComponents: task.hasTime ? [.date, .hourAndMinute] : [.date]
+                    ) {
+                        Label("Due", systemImage: "arrow.right.circle")
+                    }
+                    Toggle(isOn: hasTime) { Label("At a time", systemImage: "clock") }
+                }
+                if task.hasTime {
+                    Toggle(isOn: reminds) { Label("Remind me", systemImage: "bell") }
+                }
+                if task.reminder && tasks.remindersDenied {
+                    Button("Open iPhone Settings", systemImage: "bell.slash") {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
+                    }
+                }
+            } header: {
+                Text("When").sectionHeader()
+            } footer: {
+                Text(whenFooter).sectionFooter()
+            }
+
+            if let email = task.email {
+                Section {
+                    Button { onEmail(email) } label: {
+                        LabeledContent {
+                            Image(systemName: "chevron.right").font(.inter(.footnote)).foregroundStyle(palette.muted)
                         } label: {
-                            Label("List", systemImage: "list.bullet")
-                        }
-                    }
-                }
-
-                Section {
-                    Toggle(isOn: hasDue) { Label("Due date", systemImage: "calendar") }
-                    if task.due != nil {
-                        DatePicker(
-                            selection: due,
-                            displayedComponents: task.hasTime ? [.date, .hourAndMinute] : [.date]
-                        ) {
-                            Label("Due", systemImage: "arrow.right.circle")
-                        }
-                        Toggle(isOn: hasTime) { Label("At a time", systemImage: "clock") }
-                    }
-                    if task.hasTime {
-                        Toggle(isOn: reminds) { Label("Remind me", systemImage: "bell") }
-                    }
-                    if task.reminder && tasks.remindersDenied {
-                        Button("Open iPhone Settings", systemImage: "bell.slash") {
-                            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                            UIApplication.shared.open(url)
+                            Label(email.subject, systemImage: "envelope").lineLimit(2)
                         }
                     }
                 } header: {
-                    Text("When").sectionHeader()
+                    Text("From").sectionHeader()
                 } footer: {
-                    Text(whenFooter).sectionFooter()
+                    Text("The conversation this task came from, in \(email.mailbox).").sectionFooter()
                 }
+            }
 
-                if let email = task.email {
-                    Section {
-                        Button { onEmail(email) } label: {
-                            LabeledContent {
-                                Image(systemName: "chevron.right").font(.inter(.footnote)).foregroundStyle(palette.muted)
-                            } label: {
-                                Label(email.subject, systemImage: "envelope").lineLimit(2)
-                            }
-                        }
-                    } header: {
-                        Text("From").sectionHeader()
-                    } footer: {
-                        Text("The conversation this task came from, in \(email.mailbox).").sectionFooter()
-                    }
-                }
-
-                if existing {
-                    Section {
-                        Button("Delete task", systemImage: "trash", role: .destructive) {
-                            tasks.delete(task)
-                            dismiss()
-                        }
+            if existing {
+                Section {
+                    Button("Delete task", systemImage: "trash", role: .destructive) {
+                        tasks.delete(task)
+                        dismiss()
                     }
                 }
             }
-            .navigationTitle(existing ? "Task" : "New task")
-            .toolbarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", systemImage: "xmark") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(saving ? "Saving…" : "Save") { Task { await save() } }
-                        .fontWeight(.semibold)
-                        .disabled(saving || task.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+        }
+        .navigationTitle(existing ? "Task" : "New task")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(saving ? "Saving…" : "Save") { Task { await save() } }
+                    .fontWeight(.semibold)
+                    .disabled(saving || task.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .task { await tasks.checkReminders() }
-            .alert("Couldn't save the task", isPresented: .constant(error != nil)) {
-                Button("OK") { error = nil }
-            } message: {
-                Text(error ?? "")
-            }
+        }
+        .task { await tasks.checkReminders() }
+        .alert("Couldn't save the task", isPresented: .constant(error != nil)) {
+            Button("OK") { error = nil }
+        } message: {
+            Text(error ?? "")
         }
     }
 
-    /** The sheet closes only once the task is on disk; otherwise it stays, with the changes. */
+    /** The editor goes back to the list only once the task is on disk; otherwise it stays, with the changes. */
     private func save() async {
         saving = true
         defer { saving = false }
         do {
             try await tasks.save(task)
+            onSaved(task)
             dismiss()
         } catch {
             self.error = error.localizedDescription

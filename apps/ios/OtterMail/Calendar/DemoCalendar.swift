@@ -4,14 +4,15 @@ import Foundation
  * The demo mailbox's calendar, as DemoMail.swift is its mail: pretend events
  * placed around today, so every view has something in it. The week's rhythm
  * repeats through the window; the rest is anchored to today. Nothing here
- * reaches Google.
+ * reaches Google. Acme's team calendar is read-only, as a calendar shared
+ * with you is; the others take new events and changes (`DemoEventWriter`).
  */
 nonisolated enum DemoCalendar {
-    static let personal = EventCalendar(id: "demo-personal", name: "Robin Otter", color: "#0ea5e9", primary: true)
-    static let work = EventCalendar(id: "demo-work", name: "Otterware", color: "#f97316")
+    static let personal = EventCalendar(id: "demo-personal", name: "Robin Otter", color: "#0ea5e9", primary: true, writable: true)
+    static let work = EventCalendar(id: "demo-work", name: "Otterware", color: "#f97316", writable: true)
     static let calendars = [personal, work]
     /** The demo's second Gmail mailbox (Work, Sam at Acme): its own calendars, so there is one mailbox to scope to. */
-    static let samPark = EventCalendar(id: "demo-sam", name: "Sam Park", color: "#f97316", primary: true)
+    static let samPark = EventCalendar(id: "demo-sam", name: "Sam Park", color: "#f97316", primary: true, writable: true)
     static let acme = EventCalendar(id: "demo-acme", name: "Acme team", color: "#8e8cf0")
     static let acmeCalendars = [samPark, acme]
 

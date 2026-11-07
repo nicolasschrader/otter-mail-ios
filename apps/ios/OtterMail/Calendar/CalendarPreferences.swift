@@ -20,6 +20,8 @@ nonisolated struct CalendarPreferences: Equatable {
     var timeFormat: TimeFormat = .auto
     /** A calendar's chosen color by `calendarKey` (api.ts: `<mailbox>|<calendar>`). */
     var colors: [String: String] = [:]
+    /** Where new events go, by `calendarKey`, picked in the Mac and web apps' calendar list; empty for the primary one. */
+    var defaultCalendar = ""
 
     static let keys = [
         "calendar:week-start",
@@ -27,6 +29,7 @@ nonisolated struct CalendarPreferences: Equatable {
         "calendar:show-declined",
         "calendar:time-format",
         "calendar:colors",
+        "calendar:default-calendar",
     ]
 
     init() {}
@@ -37,6 +40,7 @@ nonisolated struct CalendarPreferences: Equatable {
         timeFormat = ui["calendar:time-format"].flatMap(TimeFormat.init) ?? .auto
         showWeekends = ui["calendar:show-weekends"] != "false"
         showDeclined = ui["calendar:show-declined"] != "false"
+        defaultCalendar = ui["calendar:default-calendar"] ?? ""
         if let data = ui["calendar:colors"]?.data(using: .utf8),
            let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
             colors = record.compactMapValues { $0 as? String }

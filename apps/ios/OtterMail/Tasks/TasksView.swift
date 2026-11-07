@@ -5,7 +5,8 @@ import SwiftUI
  * bottom bar as the calendar is, its ⌃⌄ picking the list (`TaskListsPanel`):
  * what's open by when it's due, then what's done under a heading that folds
  * away. Swipe a row to finish it or to throw it away, tap it to change
- * it, tap the conversation under it to go back to the mail it came from.
+ * it (in place, the bar still under it), tap the conversation under it to go
+ * back to the mail it came from.
  */
 struct TasksView: View {
     @Environment(Session.self) private var session
@@ -20,6 +21,8 @@ struct TasksView: View {
     var onTitle: () -> Void = {}
 
     @State private var editing: MailTask?
+    @State private var settingsShown = false
+    @State private var reveal: Reveal?
     @State private var showDone = false
     @State private var now = Date.now
 
@@ -34,24 +37,32 @@ struct TasksView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(sections) { section in
-                    Section {
-                        if section.id != .done || showDone {
-                            ForEach(section.tasks) { row($0) }
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(sections) { section in
+                        Section {
+                            if section.id != .done || showDone {
+                                ForEach(section.tasks) { row($0).id($0.id.uuidString) }
+                            }
+                        } header: {
+                            header(section)
                         }
-                    } header: {
-                        header(section)
+                        .textCase(nil)
                     }
-                    .textCase(nil)
+                    if sections.isEmpty { empty }
                 }
-                if sections.isEmpty { empty }
+                .listStyle(.plain)
+                .listSectionSeparator(.hidden, edges: .top)
+                .scrollContentBackground(.hidden)
+                .background(palette.canvas)
+                .contentMargins(.bottom, 24, for: .scrollContent)
+                // A task saved is brought into view: a new one can sort below what the list shows.
+                .task(id: reveal) {
+                    guard let reveal else { return }
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation(animation) { proxy.scrollTo(reveal.id, anchor: .center) }
+                }
             }
-            .listStyle(.plain)
-            .listSectionSeparator(.hidden, edges: .top)
-            .scrollContentBackground(.hidden)
-            .background(palette.canvas)
-            .contentMargins(.bottom, 24, for: .scrollContent)
             .navigationTitle("Tasks")
             .toolbarTitleDisplayMode(.inline)
             .toolbar(removing: .title)
@@ -67,10 +78,22 @@ struct TasksView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add task", systemImage: "plus") { editing = newTask }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("More", systemImage: "ellipsis") {
+                        if tasks.visible.contains(where: \.done) {
+                            Button(showDone ? "Hide done" : "Show done", systemImage: showDone ? "eye.slash" : "eye") {
+                                withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showDone.toggle() }
+                            }
+                        }
+                        Button("Settings", systemImage: "gearshape") { settingsShown = true }
+                    }
+                }
             }
-            .sheet(item: $editing) { task in
-                TaskEditor(task: task, onEmail: open)
+            // In place, so the bar stays under them, as the calendar's editor does.
+            .navigationDestination(item: $editing) { task in
+                TaskEditor(task: task, onEmail: open) { saved in reveal = Reveal(id: saved.id.uuidString) }
             }
+            .navigationDestination(isPresented: $settingsShown) { SettingsView(inPlace: true) }
             .task {
                 now = .now
                 await tasks.checkReminders()

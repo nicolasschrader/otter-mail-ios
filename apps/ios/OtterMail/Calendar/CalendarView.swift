@@ -8,7 +8,9 @@ import SwiftUI
  * less Week, with the agenda of the days ahead), turned by the picker or a
  * sideways swipe that follows the finger, each page kept up between turns.
  * It follows the account's Settings › Calendar (`CalendarPreferences`).
- * Read-only here; invitations are answered in Catch up (`CatchUpView`).
+ * The toolbar's + makes an event and tapping one of yours changes it
+ * (`EventEditor`), pushed here so the bar stays; invitations are answered in
+ * Catch up (`CatchUpView`).
  */
 struct CalendarView: View {
     @Environment(MailStore.self) private var store
@@ -21,7 +23,7 @@ struct CalendarView: View {
     let events: CalendarStore
     /** Held by HomeView too, as the bar's ⌃⌄ panel shows, hides and scopes the calendars. */
     let visibility: CalendarShown
-    /** Listing the calendars to show or hide, in the events' place (the toolbar's Calendars). */
+    /** Listing the calendars to show or hide, in the events' place; the bar's ⌃⌄ panel does it day to day. */
     @Binding var listing: Bool
     var onTitle: () -> Void = {}
 
@@ -31,11 +33,30 @@ struct CalendarView: View {
     @State private var anchor = Date.now
     @State private var picked: Date?
     @State private var now = Date.now
-    @State private var path: [CalendarEvent] = []
+    @State private var path = NavigationPath()
+    @State private var reveal: Reveal?
 
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
 
     private var calendars: [EventCalendar] { sources.flatMap { events.lists[$0.email] ?? [] } }
+
+    /** The calendars a new event can go on: the shown ones that take events, as calendar-view.tsx's `visible`. */
+    private var writable: [EventCalendar] {
+        let shown = visibility.scoped(calendars)
+        let open = calendars.filter { $0.writable && CalendarShown.isShown(shown, $0) }
+        return open.isEmpty ? calendars.filter(\.writable) : open
+    }
+
+    /** A new event on the day in front: the Day page's, the day picked in Month, else today. */
+    private var newEvent: EventDraft? {
+        guard let calendar = defaultCalendar(of: writable, chosen: preferences.calendar.defaultCalendar) else { return nil }
+        let day = switch mode {
+        case .day: anchor
+        case .month: picked ?? anchor
+        default: now
+        }
+        return EventDraft.new(on: calendar, day: day, now: .now, dates: dates)
+    }
 
     /** The mailbox scoped to, else every calendar unless some are turned off: then how many of them show. */
     private var shownTitle: String {
@@ -85,18 +106,57 @@ struct CalendarView: View {
                         }
                     }
                     .sharedBackgroundVisibility(.hidden)
-                    // One item alone, so a long title never folds it into a ⋯ menu; Today is in the pages' own header.
-                    if !listing, !sources.isEmpty {
+                    // Mail's pair: + on its own, then ⋯; Today is in the pages' own header, the calendars in the bar's ⌃⌄.
+                    if !listing {
+                        if let newEvent {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("New event", systemImage: "plus") { path.append(newEvent) }
+                            }
+                        }
                         ToolbarItem(placement: .topBarTrailing) {
-                            Button("Calendars", systemImage: "calendar") { listing = true }
-                                .labelStyle(.iconOnly)
+                            Menu("More", systemImage: "ellipsis") {
+                                if !sources.isEmpty {
+                                    Button("Go to today", systemImage: "calendar.badge.clock") {
+                                        anchor = .now
+                                        picked = nil
+                                    }
+                                    Button("Refresh", systemImage: "arrow.clockwise") {
+                                        Task { await load(force: true) }
+                                    }
+                                }
+                                Button("Settings", systemImage: "gearshape") { path.append(SettingsPage()) }
+                            }
                         }
                     }
                 }
-                .navigationDestination(for: CalendarEvent.self) { event in
-                    EventView(event: event, dates: dates, color: color(event.calendar))
+                .navigationDestination(for: CalendarEvent.self) { tapped in
+                    // The copy in the cache, so a change saved since shows; an event of yours opens to be changed.
+                    let event = events.current(tapped) ?? tapped
+                    if event.isEditable {
+                        EventEditor(
+                            events: events, draft: EventDraft(editing: event), event: event, calendars: writable,
+                            dates: dates, color: color, onSaved: show
+                        )
+                    } else {
+                        EventView(event: event, dates: dates, color: color(event.calendar))
+                    }
+                }
+                .navigationDestination(for: SettingsPage.self) { _ in SettingsView(inPlace: true) }
+                .navigationDestination(for: EventDraft.self) { draft in
+                    EventEditor(events: events, draft: draft, calendars: writable, dates: dates, color: color, onSaved: show)
                 }
         }
+    }
+
+    /** An event saved lands where it can be seen: its day in Day and Month, its row scrolled to in the agenda. */
+    private func show(_ saved: CalendarEvent) {
+        if mode == .agenda {
+            reveal = Reveal(id: saved.id)
+        } else {
+            anchor = saved.start
+            picked = mode == .month ? dates.startOfDay(saved.start) : nil
+        }
+        Task { await load() }
     }
 
     @ViewBuilder private var content: some View {
@@ -220,7 +280,11 @@ struct CalendarView: View {
                             .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("calendar-page-\(option.rawValue)")
                             .accessibilityHidden(option != mode)
-                            .containerRelativeFrame([.horizontal, .vertical])
+                            // As wide as the pager; as tall as the space it's offered. Not `.vertical` here: measured
+                            // against the pager, which is sized by its pages, a safe-area change mid-transition (the
+                            // editor's keyboard going down) left the pages a keyboard taller than the screen.
+                            .containerRelativeFrame(.horizontal)
+                            .frame(maxHeight: .infinity)
                             .id(option)
                     }
                 }
@@ -248,6 +312,7 @@ struct CalendarView: View {
             picked: picked,
             now: now,
             shown: visibility.scoped(calendars),
+            reveal: mode == .agenda ? reveal : nil,
             onStep: { by in
                 anchor = dates.step(mode, anchor, by: by)
                 picked = nil

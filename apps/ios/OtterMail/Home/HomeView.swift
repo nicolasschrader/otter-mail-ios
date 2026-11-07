@@ -1,4 +1,6 @@
+import Combine
 import SwiftUI
+import UIKit
 
 struct Place: Hashable {
     var scope = ""
@@ -23,7 +25,10 @@ struct HomeView: View {
     @State private var menuOpen = false
     @State private var selecting = false
     @State private var draft: Draft?
+    /** The agent's and search's Settings, in a sheet over them. */
     @State private var settingsOpen = false
+    /** Mail's and Catch up's ⋯ Settings, pushed in their navigation with the bar (Calendar and Tasks push their own). */
+    @State private var settingsInPlace = false
     @State private var agentOpen = false
     @State private var searchOpen = false
     @State private var section: HomeSection = .mail
@@ -34,6 +39,7 @@ struct HomeView: View {
     @State private var openingTask: UUID?
     @State private var query = ""
     @State private var searchPath: [String] = []
+    @State private var keyboardUp = false
 
     private var showsAgent: Bool { session.agent.isOn || session.user != nil }
 
@@ -70,6 +76,12 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $searchOpen) { search }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keyboardUp = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardUp = false
+            }
     }
 
     @ViewBuilder private var content: some View {
@@ -77,8 +89,10 @@ struct HomeView: View {
         case .threads:
             NavigationStack {
                 withPlaces(CatchUpView(
-                    calendar: calendar, state: catchUp, draft: $draft, onTitle: { setMenu(open: !menuOpen) }, onDone: { show(.mail) }
+                    calendar: calendar, state: catchUp, draft: $draft, onTitle: { setMenu(open: !menuOpen) }, onDone: { show(.mail) },
+                    onSettings: openSettings
                 ))
+                .navigationDestination(isPresented: $settingsInPlace) { settingsPage }
             }
         case .mail:
             NavigationStack(path: $path) {
@@ -89,7 +103,7 @@ struct HomeView: View {
                     selecting: $selecting,
                     onTitle: { setMenu(open: true) },
                     onCompose: { compose() },
-                    onSettings: { settingsOpen = true },
+                    onSettings: openSettings,
                     onSearch: { setMenu(open: false); searchOpen = true },
                     onCatchUp: { show(.threads) },
                     onResume: { draft = $0 }
@@ -102,6 +116,7 @@ struct HomeView: View {
                         reader.navigationTransition(.zoom(sourceID: id, in: messageTransition))
                     }
                 }
+                .navigationDestination(isPresented: $settingsInPlace) { settingsPage }
             }
         case .calendar:
             withPlaces(CalendarView(
@@ -112,6 +127,11 @@ struct HomeView: View {
                 opening: openingTask, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }
             ))
         }
+    }
+
+    /** Here the bar is on the section's first page, so the page pushed over it brings its own. */
+    private var settingsPage: some View {
+        withPlaces(SettingsView(inPlace: true))
     }
 
     private func withPlaces(_ view: some View) -> some View {
@@ -140,7 +160,10 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                         .id(action.id)
                     }
-                    if !selecting {
+                    // Gone while typing, as a tab bar sits behind the keyboard: riding up on it, the bar covered the
+                    // editors' fields. Not while its panel is open: the keyboard is then for the panel's own alerts
+                    // (a task list's name, a mailbox's password), which go with it.
+                    if !selecting && (!keyboardUp || menuOpen) {
                         PlacesBar(
                             place: place,
                             section: section,
@@ -150,11 +173,9 @@ struct HomeView: View {
                             showsAgent: showsAgent,
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
-                            onSearch: { setMenu(open: false); searchOpen = true },
                             onThreads: { show(.threads) },
                             onCalendar: { show(.calendar) },
                             onTasks: { show(.tasks) },
-                            onSettings: { setMenu(open: false); settingsOpen = true },
                             onMenu: { setMenu(open: !menuOpen) },
                             onDone: { setMenu(open: false) },
                             onAgent: { agentOpen = true }
@@ -194,9 +215,15 @@ struct HomeView: View {
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
     }
 
+    private func openSettings() {
+        setMenu(open: false)
+        settingsInPlace = true
+    }
+
     private func select(_ next: Place) {
         place = next
         path = []
+        settingsInPlace = false
         section = .mail
         setMenu(open: false)
     }
@@ -205,6 +232,7 @@ struct HomeView: View {
         setMenu(open: false)
         selecting = false
         calendarListing = false
+        settingsInPlace = false
         section = next
     }
 
@@ -238,6 +266,7 @@ struct HomeView: View {
             setMenu(open: false)
             agentOpen = false
             searchOpen = false
+            settingsInPlace = false
             section = .mail
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
@@ -260,6 +289,7 @@ struct HomeView: View {
 
     /** The conversation a task came from, opened as a notification's is. */
     private func openTaskEmail(_ email: TaskEmail) {
+        settingsInPlace = false
         section = .mail
         if let thread = store.thread(email.thread) {
             let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox

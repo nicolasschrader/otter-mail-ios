@@ -39,6 +39,10 @@ final class CatchUpUITests: XCTestCase {
 
         switchAway(app)
         XCTAssertFalse(app.staticTexts[subject].exists, "unsubscribed mail came back")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "unsubscribe-after-return"
+        shot.lifetime = .keepAlways
+        add(shot)
         // Through every card left: it isn't further down either.
         for _ in 0..<40 {
             if app.buttons["Later"].exists { app.buttons["Later"].tap(); continue }
@@ -71,7 +75,7 @@ final class CatchUpUITests: XCTestCase {
 
     private func switchAway(_ app: XCUIApplication) {
         app.buttons["Calendar"].tap()
-        XCTAssertTrue(app.navigationBars.buttons["Calendars"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Agenda"].waitForExistence(timeout: 5))
         app.buttons["Mail"].tap()
         XCTAssertTrue(app.buttons["All places"].waitForExistence(timeout: 5))
         app.buttons["Threads"].tap()

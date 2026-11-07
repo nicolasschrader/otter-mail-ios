@@ -172,6 +172,7 @@ struct CatchUpView: View {
     @Binding var draft: Draft?
     let onTitle: () -> Void
     let onDone: () -> Void
+    var onSettings: () -> Void = {}
 
     @State private var answering: Set<String> = []
     @State private var invitesPending = true
@@ -237,6 +238,11 @@ struct CatchUpView: View {
                 .accessibilityHint("Shows what Catch up covers")
             }
             .sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu("More", systemImage: "ellipsis") {
+                    Button("Settings", systemImage: "gearshape", action: onSettings)
+                }
+            }
         }
         .toolbarTitleDisplayMode(.inline)
         .task(id: sources.map(\.email)) { await loadInvites() }

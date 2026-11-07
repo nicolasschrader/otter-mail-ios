@@ -126,7 +126,14 @@ struct ThreadView: View {
         .toolbarVisibility(.hidden, for: .tabBar)
         .sheet(item: $newTask) { task in
             // Already in the conversation it links to, so its link stays on the task's own screen.
-            TaskEditor(task: task, onEmail: { _ in newTask = nil })
+            NavigationStack {
+                TaskEditor(task: task, onEmail: { _ in newTask = nil })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Close", systemImage: "xmark") { newTask = nil }
+                        }
+                    }
+            }
         }
         .sheet(isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
             NavigationStack {

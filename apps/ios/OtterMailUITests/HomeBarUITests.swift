@@ -20,14 +20,14 @@ final class HomeBarUITests: XCTestCase {
         XCTAssertTrue(app.buttons["All places"].exists, "Mail's ⌃⌄ missing")
     }
 
-    /** The toolbar's Calendars still lists them in place; the bar's ⌃⌄ opens the panel instead (ScopePanelUITests). */
-    func testCalendarToolbarListsTheCalendars() {
+    /** The calendars are shown and hidden from the bar's ⌃⌄ panel; the toolbar has no Calendars button any more. */
+    func testCalendarsAreListedFromTheBarsScope() {
         let app = XCUIApplication()
         app.buttons["Calendar"].tap()
-        let calendars = app.navigationBars.buttons["Calendars"]
-        XCTAssertTrue(calendars.waitForExistence(timeout: 5))
-        calendars.tap()
-        XCTAssertTrue(app.buttons["Back to Calendar"].waitForExistence(timeout: 5), "calendar list didn't open in place")
+        XCTAssertTrue(app.navigationBars.buttons["New event"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.navigationBars.buttons["Calendars"].exists, "the old Calendars button is back")
+        app.buttons["places-scope"].tap()
+        XCTAssertTrue(app.buttons["All calendars"].waitForExistence(timeout: 5), "the calendars' panel didn't open")
     }
 
     /** Every section keeps the same bar: the four tabs and ⌃⌄, named for what it scopes. */

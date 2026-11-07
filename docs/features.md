@@ -315,7 +315,7 @@ holidays), grouped by mailbox as Notion Calendar does. The default calendar wear
 color, the others their color in Google or Outlook. IMAP mailboxes have none.
 
 The iPhone reads every Google mailbox's calendars in one, as the Mac and web do (the bar's
-Calendar), its calendar button listing them by mailbox to show or hide, and the bar's ⌃⌄ opening the
+Calendar), the bar's ⌃⌄ opening the
 mail's places panel for them: All calendars, each mailbox (which scopes the calendar to it) with its
 calendars under it to switch, and holding one for Show only this calendar and its color (synced as on
 the Mac and web), in the same modes: a day's hours (the all-day row, events by their times, side
@@ -324,9 +324,12 @@ day by day, and the days ahead as an agenda, Day and Month with ‹ › and Toda
 and an event's own screen (where it is,
 the room booked, its meeting's Join, who's coming and their answers, and its time where it was made
 when that clock differs). An event over several days says where it starts and ends on each of them,
-and which of its days this is. It changes no events (invitations are answered in Catch up), and
-leaves out the calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
-its own.
+and which of its days this is. The toolbar's + makes an event (title, All-day, start and end, the
+calendar, where, notes; on the default calendar first) and tapping one of yours on a calendar that
+takes changes opens it in the same editor, with Delete; both open in place, the bar still under them.
+Invitations from others keep their own screen and are answered in Catch up. It leaves out the
+calendars Google has unchecked. It follows Settings → Calendar from the account without a page of
+its own; Settings is in each section's ⋯.
 
 | Feature                                                                                                                                                                           | Mac | Web | iPhone |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- | ------ |
@@ -334,14 +337,14 @@ its own.
 | Show or hide each calendar with its eye (Google's unchecked ones start hidden); click one for its coming events in a drawer; right-click: color, make default, show only this one | ✓   | ✓   | ✓ (⌃⌄ panel: show/hide, color, show only; no drawer or default) |
 | One mailbox's calendars only (⌃⌄ panel; All calendars turns every one on)                                                                                                         | —   | —   | ✓      |
 | Followed and read-only calendars: looked at, not changed (no drag, read-only card)                                                                                                | ✓   | ✓   | ✓      |
-| New events on any calendar that takes them (picked in the card; the default first: click a calendar's square to make it the default)                                              | ✓   | ✓   | —      |
-| Event panel: title, time, place, notes edit in place; guests                                                                                                                      | ✓   | ✓   | —      |
+| New events on any calendar that takes them (picked in the card; the default first: click a calendar's square to make it the default)                                              | ✓   | ✓   | ✓ (toolbar +; the Mac's default followed) |
+| Event panel: title, time, place, notes edit in place; guests                                                                                                                      | ✓   | ✓   | ✓ (editor with Save; guests shown) |
 | Yes / No / Maybe on invitations, with a note; repeating ones ask: this event or all events                                                                                        | ✓   | ✓   | —      |
 | Online meetings: Google Meet, Teams, Zoom, Webex shown with Join and copy link (also links found in an invitation's text)                                                         | ✓   | ✓   | ✓      |
 | Add a meeting to an event or new event: Gmail Google Meet, Outlook Teams (work and school); Meet comes off                                                                        | ✓   | ✓   | —      |
 | Draw or double-click a slot to create; drag to move; drag edge to resize                                                                                                          | ✓   | ✓   | —      |
 | New events repeat: every day, every weekday, weekly, monthly, yearly (from their start, no end)                                                                                   | ✓   | ✓   | —      |
-| Delete an event (Delete key or the panel)                                                                                                                                         | ✓   | ✓   | —      |
+| Delete an event (Delete key or the panel)                                                                                                                                         | ✓   | ✓   | ✓ (the editor) |
 | Scroll sideways day by day; ‹ › and Today glide; any day can lead the week                                                                                                        | ✓   | ✓   | —      |
 | Teammates' calendars over yours (⌘P to add, Esc to clear): Outlook with titles they share, Gmail busy times                                                                       | ✓   | ✓   | —      |
 | Keys: T today, D / W / M view, J / K or ← → to step                                                                                                                               | ✓   | ✓   | —      |
