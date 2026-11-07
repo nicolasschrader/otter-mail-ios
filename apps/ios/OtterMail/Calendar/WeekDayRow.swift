@@ -13,6 +13,7 @@ struct WeekDayRow: View {
     let dates: CalendarDates
     let color: (EventCalendar) -> Color
     let onPick: () -> Void
+    let onOpen: (CalendarEvent) -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -42,8 +43,9 @@ struct WeekDayRow: View {
                         .foregroundStyle(palette.muted.opacity(0.7))
                         .frame(height: 26, alignment: .leading)
                 }
+                // Buttons, not NavigationLinks: the week is one list row, and a row's links all push on any tap in it.
                 ForEach(events) { event in
-                    NavigationLink(value: event) { line(event) }
+                    Button { onOpen(event) } label: { line(event) }
                         .buttonStyle(.plain)
                 }
             }

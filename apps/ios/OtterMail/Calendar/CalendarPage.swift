@@ -33,6 +33,8 @@ struct CalendarPage: View, Equatable {
     var onStep: (Int) -> Void = { _ in }
     var onToday: () -> Void = {}
     var onPick: (Date) -> Void = { _ in }
+    /** Pushes an event from the month's week, whose rows can't hold NavigationLinks (`WeekDayRow`). */
+    var onOpen: (CalendarEvent) -> Void = { _ in }
     var onRetry: () -> Void = {}
     var onRefresh: () async -> Void = {}
 
@@ -230,7 +232,8 @@ struct CalendarPage: View, Equatable {
                     today: dates.sameDay(day, now),
                     dates: dates,
                     color: color,
-                    onPick: { onPick(day) }
+                    onPick: { onPick(day) },
+                    onOpen: onOpen
                 )
             }
         }

@@ -322,6 +322,7 @@ struct CalendarView: View {
                 picked = nil
             },
             onPick: { picked = $0 },
+            onOpen: { path.append($0) },
             onRetry: { Task { await load(force: true) } },
             onRefresh: { await load(force: true) }
         )
