@@ -90,6 +90,17 @@ nonisolated enum TimeGrid {
     }
 
     /**
+     * How many lines of title a block of that height holds above its times
+     * (3pt in at the top and foot, 1 between), as Apple's Calendar fills a
+     * block from its top; nil under that, when it's one line: the title, and
+     * its start beside it if they fit.
+     */
+    static func titleLines(height: Double, line: Double) -> Int? {
+        let lines = Int((height - 7 - line) / line)
+        return lines < 1 ? nil : lines
+    }
+
+    /**
      * The hour the grid opens at: two before now on today (TimeGrid's
      * openingHour), else the hour before the day's first event, else 8.
      */

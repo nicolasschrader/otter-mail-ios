@@ -56,7 +56,7 @@ struct DayGrid: View {
             VStack(spacing: 2) {
                 ForEach(allDay) { event in
                     NavigationLink(value: event) {
-                        EventBlock(event: event, color: color(event.calendar), dates: dates, short: true)
+                        EventBlock(event: event, color: color(event.calendar), dates: dates, height: 22)
                             .frame(height: 22)
                     }
                     .buttonStyle(.plain)
@@ -94,7 +94,7 @@ struct DayGrid: View {
                     let top = span.lowerBound / 60 * height
                     let tall = max((span.upperBound - span.lowerBound) / 60 * height, 18)
                     NavigationLink(value: event) {
-                        EventBlock(event: event, color: color(event.calendar), dates: dates, short: tall < 36, outlined: placement.cols > 1)
+                        EventBlock(event: event, color: color(event.calendar), dates: dates, height: tall - 2, outlined: placement.cols > 1)
                     }
                     .buttonStyle(.plain)
                     .frame(width: max(width * TimeGrid.width(placement) - 3, 0), height: tall - 2)
@@ -135,29 +135,35 @@ struct DayGrid: View {
 /**
  * An event in the grid, as TimedEvent draws one: tinted in its calendar's
  * color with a bar down its side, dashed while it's unanswered, faded and
- * struck through when declined.
+ * struck through when declined. Its text sits at its top left, however tall.
  */
-private struct EventBlock: View {
+struct EventBlock: View {
     @Environment(\.palette) private var palette
+    /** Caption2's line in Inter (11pt, 1.21 high), at the reader's text size. */
+    @ScaledMetric(relativeTo: .caption2) private var line: CGFloat = 13.4
     let event: CalendarEvent
     let color: Color
     let dates: CalendarDates
-    var short = false
+    /** The block's height, which says how much of its text it holds (`TimeGrid.titleLines`). */
+    let height: CGFloat
     /** Edged in the canvas, so blocks laid over each other part. */
     var outlined = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 5)
-        HStack(spacing: 0) {
+        // The bar runs the block's height, so the row's alignment is where the text sits:
+        // the top for a timed block, however tall; the middle of an all-day pill.
+        let pill = TimeGrid.inAllDayRow(event)
+        HStack(alignment: pill ? .center : .top, spacing: 0) {
             if tone == .solid {
                 color.frame(width: 3)
             }
             content
                 .padding(.horizontal, 6)
-                .padding(.vertical, short ? 0 : 3)
+                .padding(.top, pill ? 0 : lines == nil ? 2 : 3)
             Spacer(minLength: 0)
         }
-        .frame(maxHeight: .infinity, alignment: short ? .center : .top)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(color.opacity(0.2).mix(with: palette.canvas, by: 0.15), in: shape)
         .clipShape(shape)
         .overlay {
@@ -175,25 +181,30 @@ private struct EventBlock: View {
     }
 
     @ViewBuilder private var content: some View {
-        if short {
-            HStack(spacing: 6) {
-                title.lineLimit(1)
-                if !TimeGrid.inAllDayRow(event) {
-                    Text(dates.timeLabel(event.start)).foregroundStyle(tint).monospacedDigit()
-                }
-            }
-            .font(.inter(.caption2))
-        } else {
+        if let lines {
             VStack(alignment: .leading, spacing: 1) {
-                title.lineLimit(2)
+                title.lineLimit(lines)
                 Text(dates.rangeLabel(event.start, event.end))
                     .foregroundStyle(tint)
                     .monospacedDigit()
                     .lineLimit(1)
             }
             .font(.inter(.caption2))
+        } else if TimeGrid.inAllDayRow(event) {
+            title.lineLimit(1).font(.inter(.caption2))
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    title.lineLimit(1)
+                    Text(dates.timeLabel(event.start)).foregroundStyle(tint).monospacedDigit()
+                }
+                title.lineLimit(1)
+            }
+            .font(.inter(.caption2))
         }
     }
+
+    private var lines: Int? { TimeGrid.titleLines(height: height, line: line) }
 
     private var title: some View {
         Text(event.title)

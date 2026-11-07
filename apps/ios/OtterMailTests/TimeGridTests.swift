@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import Otter_Mail
 
@@ -123,6 +124,54 @@ struct TimeGridTests {
         #expect(TimeGrid.openingHour([], on: at(5, 0), now: now, dates: dates) == 8)
         let overnight = event("train", at(4, 22), at(5, 7))
         #expect(TimeGrid.openingHour([overnight], on: at(5, 0), now: now, dates: dates) == 0)
+    }
+
+    /** The grid's heights (48pt an hour, less 2) at Inter caption2's 13.4pt line. */
+    @Test func aBlockHoldsWhatItsHeightFits() {
+        #expect(TimeGrid.titleLines(height: 16, line: 13.4) == nil)
+        #expect(TimeGrid.titleLines(height: 22, line: 13.4) == nil)
+        #expect(TimeGrid.titleLines(height: 34, line: 13.4) == 1)
+        #expect(TimeGrid.titleLines(height: 46, line: 13.4) == 1)
+        #expect(TimeGrid.titleLines(height: 70, line: 13.4) == 3)
+        #expect(TimeGrid.titleLines(height: 46, line: 20) == nil, "a larger text size makes an hour one line")
+    }
+
+    /**
+     * A tall block's title and times sit at its top left, not its middle:
+     * the full-height bar beside them once centered them in the block.
+     */
+    @MainActor @Test func aTallBlocksTextSitsAtItsTop() throws {
+        let train = event("Night train to Lisbon", at(13, 0), at(13, 7, 15))
+        let block = EventBlock(event: train, color: .blue, dates: dates, height: 300)
+            .frame(width: 220, height: 300)
+            .background(EnvironmentValues().palette.canvas)
+        let renderer = ImageRenderer(content: block)
+        renderer.scale = 1
+        let image = try #require(renderer.cgImage)
+        let rows = inkedRows(image)
+        let first = try #require(rows.first, "the block drew no text")
+        let last = try #require(rows.last)
+        #expect(first < 10, "the title doesn't start at the top")
+        #expect(last < 50, "the text reaches \(last)pt down a 300pt block")
+    }
+
+    /** The rows of a block's picture with text in them: past its bar and corners, unlike its fill. */
+    private func inkedRows(_ image: CGImage) -> [Int] {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let context = CGContext(
+            data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        func pixel(_ x: Int, _ y: Int) -> [Int] {
+            let i = (y * width + x) * 4
+            return (0..<3).map { Int(pixels[i + $0]) }
+        }
+        let fill = pixel(width - 12, height - 12)
+        return (0..<height).filter { y in
+            (8..<(width - 8)).contains { x in zip(pixel(x, y), fill).map { abs($0 - $1) }.reduce(0, +) > 90 }
+        }
     }
 
     @Test func theMonthShowsThePickedDaysWeek() {

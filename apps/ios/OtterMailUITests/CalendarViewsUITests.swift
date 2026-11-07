@@ -48,6 +48,47 @@ final class CalendarViewsUITests: XCTestCase {
         XCTAssertTrue(lunch.waitForExistence(timeout: 3))
     }
 
+    /**
+     * A tall block beside a short one (`day-grid-top`): the demo's standup is
+     * 15 minutes; the night train's morning is 7¼ hours, 13 days on. Where that
+     * morning falls on a weekend, without a standup, a Tuesday's hour-long
+     * design review stands in for it.
+     */
+    func testDayPinsTextToTheTopOfTallBlocks() throws {
+        let app = XCUIApplication()
+        app.buttons["Day"].tap()
+        let page = self.page(app, "day")
+        let grid = page.descendants(matching: .any)["day-grid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 5), "the day's grid is missing")
+        let blocks = grid.buttons.matching(identifier: "day-grid-event")
+        func block(_ title: String) -> XCUIElement {
+            blocks.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        }
+        let standup = block("Standup")
+        let train = block("Night train to Lisbon")
+        let review = block("Design review")
+
+        var fallback: Int?
+        var ahead = 0
+        while ahead < 14 {
+            if standup.waitForExistence(timeout: 2) {
+                if train.exists, train.frame.height > 4 * 48 { break }
+                if fallback == nil, review.exists { fallback = ahead }
+            }
+            page.buttons["Next"].tap()
+            ahead += 1
+        }
+        if ahead == 14, let fallback {
+            for _ in fallback..<ahead { page.buttons["Previous"].tap() }
+        }
+        XCTAssertTrue(standup.waitForExistence(timeout: 3), "no day ahead has the standup")
+        let tall = train.exists ? train : review
+        XCTAssertTrue(tall.exists, "no tall block beside the standup")
+        XCTAssertGreaterThan(tall.frame.height, standup.frame.height * 2, "the tall block isn't tall")
+        XCTAssertTrue(grid.frame.intersects(tall.frame) && grid.frame.contains(standup.frame), "the blocks aren't in view together")
+        attach(app, "day-grid-top")
+    }
+
     func testMonthListsThePickedDaysWeek() throws {
         let app = XCUIApplication()
         app.buttons["Month"].tap()
