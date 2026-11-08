@@ -139,7 +139,8 @@ final class TaskStore {
     func createProject(_ name: String) async throws -> TaskProject? {
         guard let name = TaskProject.named(name) else { return nil }
         let made = TaskProject(id: UUID().uuidString, name: name)
-        guard try await commitProjects({ $0 + [made] }) else { return nil }
+        // Asked again after the write, the lists may be the file a reopen read back, which already has it.
+        guard try await commitProjects({ projects in projects.contains { $0.id == made.id } ? projects : projects + [made] }) else { return nil }
         select(made.id)
         return made
     }

@@ -389,6 +389,8 @@ nonisolated struct GrokJob: Codable, Identifiable, Equatable, Sendable {
     var status: Status = .sending
     /** The service's id, once it has registered the job. */
     var jobId: String? = nil
+    /** A fresh idempotency key, once the service's first answer (and its only token) never reached this iPhone. */
+    var registrationKey: String? = nil
     /** The webhook has accepted it. */
     var delivered = false
     /** Why sending stopped, ours to retry; the context waits for it, and goes once delivered. */
@@ -690,10 +692,16 @@ final class GrokJobs {
         }
         do {
             if job.jobId == nil {
-                let registered = try await transport.register(GrokRegistration(
-                    idempotencyKey: id.uuidString.lowercased(), type: job.type, sourceKey: job.sourceKey,
-                    instruction: job.instruction, context: context
-                ))
+                var registered = try await transport.register(registration(job, context: context))
+                if registered.callback == nil, Keychain.get(Self.tokenKey(id)) == nil {
+                    // The app closed before the first answer arrived, and a replay carries no token: the
+                    // service's job can't be handed on, so this one registers again under a key of its own.
+                    guard var current = self.job(id) else { return }
+                    current.registrationKey = "\(id.uuidString.lowercased())-\(UUID().uuidString.prefix(8).lowercased())"
+                    put(current)
+                    job = current
+                    registered = try await transport.register(registration(job, context: context))
+                }
                 if let callback = registered.callback {
                     Keychain.set(Self.tokenKey(id), "\(callback.url)\n\(callback.token)", thisDeviceOnly: true)
                 }
@@ -707,23 +715,41 @@ final class GrokJobs {
             }
             guard let jobId = job.jobId else { return }
             guard let kept = Keychain.get(Self.tokenKey(id)), let newline = kept.firstIndex(of: "\n") else {
-                fail(id, "The job service has this job, but its callback token isn't on this iPhone any more. Delete it and give it to Grok again.")
+                // The token now stays until the job finishes; earlier builds dropped it as the webhook took the
+                // job, so an id without one was delivered just before the app closed. The service says how it went.
+                let remote = try await transport.status(jobId)
+                guard remote.id == jobId else { throw GrokFailure(message: "The job service answered for another job.") }
+                guard let current = self.job(id) else { return }
+                put(Self.delivered(current).advanced(by: remote))
                 return
             }
             let callback = GrokWebhookPayload.Callback(url: String(kept[..<newline]), token: String(kept[kept.index(after: newline)...]))
             try await transport.deliver(GrokWebhookPayload(
                 jobId: jobId, type: job.type, instruction: job.instruction, context: context, callback: callback
             ))
-            Keychain.set(Self.tokenKey(id), nil)
-            guard var current = self.job(id) else { return }
-            current.delivered = true
-            current.status = .sent
-            current.context = nil
-            current.updated = .now
-            put(current)
+            // The token stays until the job finishes: closed before this is on disk, Retry delivers again (the webhook
+            // has the same Idempotency-Key), and polling never needs it.
+            guard let current = self.job(id) else { return }
+            put(Self.delivered(current))
         } catch {
             fail(id, error.localizedDescription)
         }
+    }
+
+    private func registration(_ job: GrokJob, context: GrokContext) -> GrokRegistration {
+        GrokRegistration(
+            idempotencyKey: job.registrationKey ?? job.id.uuidString.lowercased(), type: job.type, sourceKey: job.sourceKey,
+            instruction: job.instruction, context: context
+        )
+    }
+
+    private static func delivered(_ job: GrokJob) -> GrokJob {
+        var job = job
+        job.delivered = true
+        job.status = .sent
+        job.context = nil
+        job.updated = .now
+        return job
     }
 
     /**
@@ -752,6 +778,7 @@ final class GrokJobs {
         guard let jobId = job.jobId, let remote = try? await transport.status(jobId), remote.id == jobId,
               let current = self.job(job.id) else { return }
         let next = current.advanced(by: remote)
+        if next.status.isFinished { Keychain.set(Self.tokenKey(job.id), nil) }
         if next != current { put(next) }
     }
 

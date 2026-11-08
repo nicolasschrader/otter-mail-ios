@@ -133,6 +133,11 @@ struct TaskLinkTests {
         #expect(task.events.count == 1)
     }
 
+    @Test func keepsWhatWasTypedWhileTheNewTaskWasSaved() {
+        #expect(LinkedTasks.remaining("Call Sam", after: "Call Sam") == "")
+        #expect(LinkedTasks.remaining("Book the table", after: "Call Sam") == "Book the table")
+    }
+
     @Test func unlinkingKeepsTheTaskAndItsOtherLinks() {
         let call = TaskEvent(event("call"), scope: .occurrence)
         var task = MailTask(content: "Keep", emails: [email("t1"), email("t2")], events: [call])

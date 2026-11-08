@@ -422,6 +422,27 @@ struct TaskTests {
         #expect(a.first?.done == true)
     }
 
+    /** Opened again while a new list is written, the account reads it back from the file, and has it once. */
+    @Test func makesOneListWhenTheSameAccountOpensDuringItsWrite() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        store.open("a")
+        await store.settled()
+
+        let creating = Task { try await store.createProject("Errands") }
+        await Task.yield()
+        store.close()
+        store.open("a")
+        let made = try #require(try await creating.value)
+        await store.settled()
+
+        #expect(store.projects.map(\.id) == [made.id])
+        try await store.renameProject(made.id, to: "Chores")
+        #expect(try files.loadProjects("a")?.map(\.name) == ["Chores"])
+    }
+
     @Test func readsAFileMissingTheFieldsItDoesntHaveYet() throws {
         let id = UUID()
         let json = Data(#"[{"id":"\#(id.uuidString)","content":"Older build"}]"#.utf8)

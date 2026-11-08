@@ -61,6 +61,56 @@ struct GrokTests {
         #expect(files.load("demo").first { $0.id == sending.id }?.canRetry == true)
     }
 
+    /** Closed before the service's first answer arrived: the replay has no token, so Retry registers under a key of its own and hands that on. */
+    @Test func registersAgainWhenTheFirstAnswerNeverArrived() async {
+        let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = GrokJobFiles(folder: folder)
+        var sending = job(.sending, delivered: false)
+        sending.jobId = nil
+        sending.context = GrokContext.of(.task(MailTask(content: "Reply")))
+        files.save([sending], scope: "demo")
+        let service = LostAnswer(known: sending.id.uuidString.lowercased())
+
+        let jobs = GrokJobs(files: files, transport: service)
+        jobs.open("demo", demo: true)
+        await jobs.retry(jobs.job(sending.id)!)
+
+        let sent = jobs.job(sending.id)
+        #expect(sent?.delivered == true)
+        #expect(sent?.problem == nil)
+        #expect(sent?.jobId == "new")
+        #expect(await service.delivered == ["new"])
+        #expect(await service.keys.count == 2)
+        // The token stays until the job finishes, then goes.
+        #expect(Keychain.get(GrokJobs.tokenKey(sending.id)) != nil)
+        await jobs.check(sent!)
+        #expect(jobs.job(sending.id)?.status == .done)
+        #expect(Keychain.get(GrokJobs.tokenKey(sending.id)) == nil)
+    }
+
+    /** An earlier build dropped the token as the webhook took the job, then closed before it noted so: the job is fetched, not stuck. */
+    @Test func fetchesAJobDeliveredJustBeforeTheAppClosed() async {
+        let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = GrokJobFiles(folder: folder)
+        var sending = job(.sending, delivered: false)
+        sending.context = GrokContext.of(.task(MailTask(content: "Reply")))
+        files.save([sending], scope: "demo")
+        let service = LostAnswer(known: "")
+
+        let jobs = GrokJobs(files: files, transport: service)
+        jobs.open("demo", demo: true)
+        await jobs.retry(jobs.job(sending.id)!)
+
+        let fetched = jobs.job(sending.id)
+        #expect(fetched?.delivered == true)
+        #expect(fetched?.status == .done)
+        #expect(fetched?.result == "Answer")
+        #expect(await service.keys.isEmpty)
+        #expect(await service.delivered.isEmpty)
+    }
+
     /** A job given from the primary calendar before it was `primary` keeps its key, and is still found from the event. */
     @Test func findsAJobKeyedByThePrimaryCalendarsAddress() {
         let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -99,5 +149,32 @@ struct GrokTests {
         #expect(context.task?.emails.map(\.thread) == ["t1"])
         #expect(context.task?.list == "Inbox")
         #expect(context.preview().contains("\"thread\" : \"t1\""))
+    }
+}
+
+/** A job service that already has `known` (its answer, and the token, lost on the way): that key replays without one. */
+private actor LostAnswer: GrokTransport {
+    let known: String
+    private(set) var keys: [String] = []
+    private(set) var delivered: [String] = []
+
+    init(known: String) { self.known = known }
+
+    func register(_ registration: GrokRegistration) async throws -> GrokRegistered {
+        keys.append(registration.idempotencyKey)
+        if registration.idempotencyKey == known {
+            return GrokRegistered(job: GrokRemoteJob(id: "old", status: "registered"), callback: nil, replayed: true)
+        }
+        return GrokRegistered(
+            job: GrokRemoteJob(id: "new", status: "registered"),
+            callback: .init(url: "http://127.0.0.1:8789/jobs/new/result", token: "token"),
+            replayed: false
+        )
+    }
+
+    func deliver(_ payload: GrokWebhookPayload) async throws { delivered.append(payload.jobId) }
+
+    func status(_ jobId: String) async throws -> GrokRemoteJob {
+        GrokRemoteJob(id: jobId, status: "done", result: "Answer")
     }
 }

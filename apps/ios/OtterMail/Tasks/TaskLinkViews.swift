@@ -464,6 +464,8 @@ struct LinkedTasks: View {
     @State private var query = ""
     @State private var scope: TaskEvent.Scope = .occurrence
     @State private var error: String?
+    /** A new task is being written: another submit waits for it rather than making a second. */
+    @State private var submitting = false
     @FocusState private var searchFocused: Bool
 
     private var tasks: TaskStore { session.tasks }
@@ -568,6 +570,7 @@ struct LinkedTasks: View {
                 .onSubmit { Task { await add() } }
                 .accessibilityIdentifier("linked-task-add")
             Button("Add") { Task { await add() } }
+                .disabled(submitting)
                 .font(.inter(.subheadline).weight(.medium))
                 .foregroundStyle(palette.action)
                 .buttonStyle(.borderless)
@@ -645,16 +648,25 @@ struct LinkedTasks: View {
 
     /** A new task, already linked: what was typed, or the event's title or the conversation's subject. */
     private func add() async {
+        guard !submitting else { return }
+        submitting = true
+        defer { submitting = false }
+        let submitted = adding
         var task = newTask
-        let typed = adding.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = submitted.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty { task.content = typed }
         do {
             try await tasks.save(task)
-            adding = ""
+            adding = Self.remaining(adding, after: submitted)
             error = nil
         } catch {
             self.error = "Couldn't add the task. \(error.localizedDescription)"
         }
+    }
+
+    /** The field once a task is added: cleared of what was sent, not of what was typed during the save. */
+    static func remaining(_ field: String, after submitted: String) -> String {
+        field == submitted ? "" : field
     }
 
     /** The link is made from the scope as it was tapped, not as the picker stands once it's written. */
