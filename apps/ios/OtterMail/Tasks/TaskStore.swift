@@ -90,6 +90,19 @@ final class TaskStore {
         self.scope = scope
         unreadable = false
         failure = nil
+        // The same account again before what it left queued is written: the file is behind what it showed.
+        if let left = ended.filter({ $0.value.scope == scope && !$0.value.unreadable }).max(by: { $0.key < $1.key })?.value {
+            tasks = left.tasks
+            projects = left.projects
+        } else {
+            load(scope, seed: seed, seedProjects: seedProjects)
+        }
+        let chosen = defaults.string(forKey: Self.selectedKey(scope))
+        selected = lists.contains { $0.id == chosen } ? chosen : nil
+        reschedule()
+    }
+
+    private func load(_ scope: String, seed: [MailTask], seedProjects: [TaskProject]) {
         do {
             if let known = try files.load(scope) {
                 tasks = known
@@ -110,9 +123,6 @@ final class TaskStore {
             failure = Failure.unreadable.localizedDescription
             ErrorReports.capture(error, scope: "tasks")
         }
-        let chosen = defaults.string(forKey: Self.selectedKey(scope))
-        selected = lists.contains { $0.id == chosen } ? chosen : nil
-        reschedule()
     }
 
     nonisolated static func selectedKey(_ scope: String) -> String { "tasks:project:\(scope)" }
@@ -312,8 +322,8 @@ final class TaskStore {
      * One change to the tasks at a time: each is made to the list the one before
      * it left, written, then published, and only for the session it was asked in:
      * a change from before a sign-out or a switch of account is dropped. One the
-     * switch catches while it's being written isn't shown, but what that session
-     * left queued writes it again (`ended`). The edit runs
+     * switch catches while it's being written is shown only if its account is open
+     * again, and what that session left queued writes it again (`ended`). The edit runs
      * again on the list as it stands then, so a done or a deletion made during
      * the write isn't undone. Returns whether the change was kept.
      */
@@ -325,9 +335,13 @@ final class TaskStore {
         guard session == self.session, let scope, let keeping = edit(tasks) else { return false }
         try await write(keeping, scope: scope)
         guard session == self.session else {
-            // Written to its account, so the writes that session left queued keep it too.
-            if let shown = ended[session] { ended[session]?.tasks = edit(shown.tasks) ?? shown.tasks }
-            return false
+            // Written to its account, so the writes queued for that account since keep it too, and so does it if it's open again.
+            for (key, shown) in ended where key >= session && shown.scope == scope {
+                ended[key]?.tasks = edit(shown.tasks) ?? shown.tasks
+            }
+            guard self.scope == scope, !unreadable else { return false }
+            tasks = edit(tasks) ?? tasks
+            return true
         }
         tasks = edit(tasks) ?? tasks
         return true
@@ -342,8 +356,12 @@ final class TaskStore {
         guard session == self.session, let scope, let keeping = edit(projects) else { return false }
         try await writeProjects(keeping, scope: scope)
         guard session == self.session else {
-            if let shown = ended[session] { ended[session]?.projects = edit(shown.projects) ?? shown.projects }
-            return false
+            for (key, shown) in ended where key >= session && shown.scope == scope {
+                ended[key]?.projects = edit(shown.projects) ?? shown.projects
+            }
+            guard self.scope == scope, !unreadable else { return false }
+            projects = edit(projects) ?? projects
+            return true
         }
         projects = edit(projects) ?? projects
         return true

@@ -393,6 +393,35 @@ struct TaskTests {
         #expect(a.first?.done == true)
     }
 
+    /** Opened again before what it left queued is written, the account shows those changes, and its next save keeps them. */
+    @Test func keepsWhatItLeftQueuedWhenTheSameAccountOpensAgain() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let finished = task("A's finished")
+        let dropped = task("A's dropped")
+        store.open("a", seed: [finished, dropped])
+        await store.settled()
+
+        let writing = Task { try await store.save(self.task("A's saved")) }
+        await Task.yield()
+        store.setDone(true, finished)
+        store.delete(dropped)
+        store.close()
+        store.open("a")
+        #expect(store.tasks.map(\.content) == ["A's finished"])
+        #expect(store.task(finished.id)?.done == true)
+        try await writing.value
+        await store.settled()
+
+        #expect(store.tasks.map(\.content) == ["A's finished", "A's saved"])
+        try await store.save(task("A's next"))
+        let a = try #require(try files.load("a"))
+        #expect(a.map(\.content) == ["A's finished", "A's saved", "A's next"])
+        #expect(a.first?.done == true)
+    }
+
     @Test func readsAFileMissingTheFieldsItDoesntHaveYet() throws {
         let id = UUID()
         let json = Data(#"[{"id":"\#(id.uuidString)","content":"Older build"}]"#.utf8)
