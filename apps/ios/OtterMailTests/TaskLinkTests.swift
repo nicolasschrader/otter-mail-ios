@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import Otter_Mail
 
 /**
@@ -218,6 +219,94 @@ struct TaskLinkTests {
         let labels = TaskLinkLabels(store: reopened, calendar: CalendarStore(), dates: CalendarDates())
         #expect(labels.email(email("t1")).unavailable == true)
     }
+
+    /** Gmail's history ran out: the cache starts over from the inbox, and the conversations it left out are still there. */
+    @MainActor @Test func keepsAConversationOnlyDroppedFromTheCacheAvailable() async throws {
+        let suite = "TaskLinkTests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mailbox = Mailbox(email: "robin@otter.example", name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let message = Message(id: "m-t1", from: Person(name: "Ann", email: "ann@example.com"), to: [], cc: [], date: start,
+                              text: "", html: nil, attachments: [], unread: false, starred: false, draft: false, headers: [:])
+        let archived = MailThread(id: "t1", mailbox: mailbox.email, subject: "Dinner?", labels: [], messages: [message])
+        let store = MailStore(preferences: Preferences(defaults: defaults), mailboxes: [mailbox], threads: [archived], defaults: defaults)
+        let folder = URL.temporaryDirectory.appending(path: "TaskLinkTests-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let sync = MailSync(store: store, google: GoogleAuth(), cache: MailCache(folder: folder), providers: [mailbox.email: StartOverProvider()])
+
+        await sync.sync(mailbox.email)
+        #expect(store.thread("t1") == nil)
+        let labels = TaskLinkLabels(store: store, calendar: CalendarStore(), dates: CalendarDates())
+        #expect(labels.email(email("t1")).unavailable == false)
+        let reopened = MailStore(preferences: Preferences(defaults: defaults), mailboxes: [mailbox], defaults: defaults)
+        #expect(TaskLinkLabels(store: reopened, calendar: CalendarStore(), dates: CalendarDates()).email(email("t1")).unavailable == false)
+    }
+
+    @MainActor @Test func makesOneTaskWhenAddIsSubmittedAgainDuringTheSave() async {
+        let folder = URL.temporaryDirectory.appending(path: "TaskLinkTests-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tasks = TaskStore(files: TaskFiles(folder: folder), reminders: NoReminders())
+        tasks.open("robin")
+        await tasks.settled()
+        let submission = Submission()
+        let gate = Gate()
+        let first = Task {
+            await submission.run {
+                await gate.wait()
+                try? await tasks.save(MailTask(content: "Reply", email: self.email("t1")))
+            }
+        }
+        while !gate.reached { await Task.yield() }
+        #expect(submission.running)
+        await submission.run { try? await tasks.save(MailTask(content: "Reply", email: self.email("t1"))) }
+        gate.open()
+        await first.value
+
+        #expect(tasks.tasks.map(\.content) == ["Reply"])
+        #expect(!submission.running)
+    }
+}
+
+@MainActor
+private final class Gate {
+    private var held: CheckedContinuation<Void, Never>?
+    var reached: Bool { held != nil }
+    func wait() async { await withCheckedContinuation { held = $0 } }
+    func open() {
+        held?.resume()
+        held = nil
+    }
+}
+
+private nonisolated struct NoReminders: TaskReminding {
+    func status() async -> UNAuthorizationStatus { .denied }
+    func ask() async {}
+    func pending() async -> [String] { [] }
+    func delivered() async -> [String] { [] }
+    func remove(pending: [String], delivered: [String]) async {}
+    func add(_ task: MailTask, scope: String) async {}
+}
+
+/** Gmail once its history has run out: what was cached is dropped, and nothing comes back but an empty inbox. */
+@MainActor
+private final class StartOverProvider: MailProvider {
+    var capabilities: MailCapabilities { .gmail }
+    var takesTurns: Bool { false }
+    var hasArchive: Bool { false }
+
+    func sync(_ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta(dropped: Set(known.map(\.id))) }
+    func loadMore(_ folder: Folder, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func search(_ query: String, known: [MailThread]) async throws -> (ids: [String], threads: [MailThread]) { ([], []) }
+    func labels() async throws -> [MailLabel] { [] }
+    func signature() async throws -> String? { nil }
+    func setSignature(_ html: String) async throws -> String { html }
+    func apply(_ change: MailStore.Change, to thread: MailThread, _ state: inout MailboxState) async throws -> MailDelta { MailDelta() }
+    func refresh(_ thread: MailThread, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func send(_ message: Outgoing, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func saveDraft(_ message: Outgoing, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func deleteDraft(_ messageID: String, _ state: inout MailboxState) async throws {}
+    func attachment(_ attachment: Otter_Mail.Attachment, of message: Message) async throws -> Data { Data() }
+    func watch(pushTopic: String?, _ state: inout MailboxState, onChange: @escaping () -> Void) async -> Task<Void, Never>? { nil }
 }
 
 /** A task as builds from before several links read it. */

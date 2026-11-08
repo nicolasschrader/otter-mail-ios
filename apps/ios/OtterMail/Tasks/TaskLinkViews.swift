@@ -446,6 +446,18 @@ enum TaskSource {
  * one is found and linked in place. For an event of a series, both are for
  * this occurrence or every one, as the picker above them says.
  */
+/** A new task is being written: another submit meanwhile is dropped rather than making a second. */
+@MainActor @Observable final class Submission {
+    private(set) var running = false
+
+    func run(_ body: @MainActor () async -> Void) async {
+        guard !running else { return }
+        running = true
+        defer { running = false }
+        await body()
+    }
+}
+
 struct LinkedTasks: View {
     @Environment(Session.self) private var session
     @Environment(Preferences.self) private var preferences
@@ -464,8 +476,7 @@ struct LinkedTasks: View {
     @State private var query = ""
     @State private var scope: TaskEvent.Scope = .occurrence
     @State private var error: String?
-    /** A new task is being written: another submit waits for it rather than making a second. */
-    @State private var submitting = false
+    @State private var submission = Submission()
     @FocusState private var searchFocused: Bool
 
     private var tasks: TaskStore { session.tasks }
@@ -570,7 +581,7 @@ struct LinkedTasks: View {
                 .onSubmit { Task { await add() } }
                 .accessibilityIdentifier("linked-task-add")
             Button("Add") { Task { await add() } }
-                .disabled(submitting)
+                .disabled(submission.running)
                 .font(.inter(.subheadline).weight(.medium))
                 .foregroundStyle(palette.action)
                 .buttonStyle(.borderless)
@@ -648,19 +659,18 @@ struct LinkedTasks: View {
 
     /** A new task, already linked: what was typed, or the event's title or the conversation's subject. */
     private func add() async {
-        guard !submitting else { return }
-        submitting = true
-        defer { submitting = false }
-        let submitted = adding
-        var task = newTask
-        let typed = submitted.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty { task.content = typed }
-        do {
-            try await tasks.save(task)
-            adding = Self.remaining(adding, after: submitted)
-            error = nil
-        } catch {
-            self.error = "Couldn't add the task. \(error.localizedDescription)"
+        await submission.run {
+            let submitted = adding
+            var task = newTask
+            let typed = submitted.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !typed.isEmpty { task.content = typed }
+            do {
+                try await tasks.save(task)
+                adding = Self.remaining(adding, after: submitted)
+                error = nil
+            } catch {
+                self.error = "Couldn't add the task. \(error.localizedDescription)"
+            }
         }
     }
 

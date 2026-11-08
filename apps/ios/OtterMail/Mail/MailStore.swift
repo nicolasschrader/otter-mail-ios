@@ -455,10 +455,11 @@ final class MailStore {
         if changed { threads = updated }
     }
 
-    func remove(threadIDs: Set<String>) {
+    /** `gone`: the provider said they are deleted, not only out of the cache, so a task's link to one is out of reach. */
+    func remove(threadIDs: Set<String>, gone: Bool = true) {
         guard !threadIDs.isEmpty else { return }
         threads.removeAll { threadIDs.contains($0.id) }
-        removedThreads.formUnion(threadIDs)
+        if gone { removedThreads.formUnion(threadIDs) }
     }
 
     /** Drops a message shown before Gmail had it, and its thread if nothing else is left in it. */
