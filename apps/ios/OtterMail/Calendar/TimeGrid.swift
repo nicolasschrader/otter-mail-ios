@@ -84,7 +84,8 @@ nonisolated enum TimeGrid {
      * midnight, so on the days the clocks change 09:00 is still at the 9 the
      * hour lines and the now line are drawn at. One across the clocks going
      * back covers the repeated hour by the clock twice, so it's drawn over all
-     * of it: 02:45+02:00 to 02:15+01:00 in Berlin is 02:00–03:00.
+     * of it: 02:45+02:00 to 02:15+01:00 in Berlin is 02:00–03:00, and one
+     * ending as they go back, 01:00+02:00 to 02:00+01:00, is 01:00–03:00.
      */
     static func minutes(_ event: CalendarEvent, on day: Date, dates: CalendarDates) -> ClosedRange<Double> {
         let dayStart = dates.startOfDay(day)
@@ -92,7 +93,7 @@ nonisolated enum TimeGrid {
         var from = clock(event.start, from: dayStart, to: dayEnd, dates: dates)
         var to = max(clock(event.end, from: dayStart, to: dayEnd, dates: dates), from)
         let zone = dates.calendar.timeZone
-        if let turn = zone.nextDaylightSavingTimeTransition(after: max(event.start, dayStart)), turn < min(event.end, dayEnd) {
+        if let turn = zone.nextDaylightSavingTimeTransition(after: max(event.start, dayStart)), turn <= event.end, turn < dayEnd {
             let repeated = zone.secondsFromGMT(for: turn.addingTimeInterval(-1)) - zone.secondsFromGMT(for: turn)
             if repeated > 0 {
                 let after = clock(turn, from: dayStart, to: dayEnd, dates: dates)

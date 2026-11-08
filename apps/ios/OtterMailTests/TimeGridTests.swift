@@ -139,6 +139,16 @@ struct TimeGridTests {
         #expect(placed([early, across], on: day) == ["early": [0, 1], "across": [0, 1]])
     }
 
+    /** 01:00+02:00 to 02:00+01:00 ends just as the clocks go back, so it covers the first 02:00–03:00 too. */
+    @Test func anEventEndingAsTheClocksGoBackCoversTheRepeatedHour() {
+        let day = at(25, 0, month: 10)
+        let turn = day.addingTimeInterval(3 * 3600)
+        let toTurn = event("toTurn", turn.addingTimeInterval(-2 * 3600), turn)
+        #expect(TimeGrid.minutes(toTurn, on: day, dates: dates) == 60...180)
+        let summer = event("summer", turn.addingTimeInterval(-30 * 60), turn.addingTimeInterval(-10 * 60))
+        #expect(placed([toTurn, summer], on: day) == ["toTurn": [0, 2], "summer": [1, 2]])
+    }
+
     @Test func allDayAndDayLongEventsGoInTheAllDayRow() {
         let birthday = event("birthday", at(4, 0), at(5, 0), allDay: true)
         let marathon = event("marathon", at(4, 6), at(5, 6))
