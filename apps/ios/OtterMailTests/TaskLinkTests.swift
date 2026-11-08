@@ -190,6 +190,22 @@ struct TaskLinkTests {
         #expect(kept.end == start.addingTimeInterval(900))
         #expect(kept.calendar.id == "work")
     }
+
+    @MainActor @Test func readsAConversationDeletedFromItsMailboxAsNotAvailable() {
+        let mailbox = Mailbox(email: "robin@otter.example", name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let message = Message(id: "m-t1", from: Person(name: "Ann", email: "ann@example.com"), to: [], cc: [], date: start,
+                              text: "", html: nil, attachments: [], unread: false, starred: false, draft: false, headers: [:])
+        let thread = MailThread(id: "t1", mailbox: mailbox.email, subject: "Dinner?", labels: ["INBOX"], messages: [message])
+        let store = MailStore(preferences: Preferences(), mailboxes: [mailbox], threads: [thread])
+        let labels = TaskLinkLabels(store: store, calendar: CalendarStore(), dates: CalendarDates())
+
+        #expect(labels.email(email("t1")).unavailable == false)
+        #expect(labels.email(email("t2")).unavailable == false)
+        store.remove(threadIDs: ["t1"])
+        #expect(labels.email(email("t1")).unavailable == true)
+        store.upsert(threads: [thread])
+        #expect(labels.email(email("t1")).unavailable == false)
+    }
 }
 
 /** A task as builds from before several links read it. */

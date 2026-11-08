@@ -46,6 +46,8 @@ final class CalendarStore {
     @ObservationIgnored private var demoAnswers: [String: CalendarEvent.Response] = [:]
     /** The demo's events made, changed and deleted, for the same reason. */
     @ObservationIgnored private var demoEdits = DemoEdits()
+    /** Task links Google answered for with nothing, by `TaskEvent.key`. */
+    private var gone: Set<String> = []
 
     /** How far ahead Catch up looks for invitations. */
     nonisolated static let inviteDays = 60
@@ -385,6 +387,21 @@ final class CalendarStore {
         Self.nearest(cache.values.flatMap { $0.filter(link.matches) }, now: now)
     }
 
+    /**
+     * Whether a task's link is known to be gone: Google said so when it was opened, or the
+     * occurrence's day was loaded for its account without it.
+     */
+    func isGone(_ link: TaskEvent, now: Date = .now) -> Bool {
+        guard find(link, now: now) == nil else { return false }
+        if gone.contains(link.key) { return true }
+        guard link.scope == .occurrence else { return false }
+        return [link.start, link.originalStart ?? link.start].allSatisfy { day in
+            parts.contains { window, byAccount in
+                window.from <= day && day < window.to && byAccount.keys.contains { $0.lowercased() == link.account }
+            }
+        }
+    }
+
     /** The first not over yet, else the last there was. */
     nonisolated static func nearest(_ events: [CalendarEvent], now: Date) -> CalendarEvent? {
         events.filter { $0.end > now }.min { $0.start < $1.start } ?? events.max { $0.start < $1.start }
@@ -398,6 +415,16 @@ final class CalendarStore {
      * Nothing is written, and the task keeps its link whatever the answer.
      */
     func resolve(_ link: TaskEvent, sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async -> Reach {
+        let reach = await reach(link, sources: sources, demo: demo, google: google, dates: dates)
+        switch reach {
+        case .found: gone.remove(link.key)
+        case .gone: gone.insert(link.key)
+        case .unavailable: break
+        }
+        return reach
+    }
+
+    private func reach(_ link: TaskEvent, sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async -> Reach {
         if let found = find(link) { return .found(found) }
         guard link.provider == "google", let mailbox = sources.first(where: { $0.email.lowercased() == link.account }) else {
             return .unavailable

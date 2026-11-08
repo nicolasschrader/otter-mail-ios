@@ -320,6 +320,27 @@ struct TaskTests {
         #expect(try files.load("demo")?.first?.emails.map(\.thread) == ["t1", "t2"])
     }
 
+    @Test func doesntPutBackATaskDeletedWhileItsSaveWasWritten() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let reply = task("Reply to Robin")
+        store.open("demo", seed: [reply])
+        await store.settled()
+
+        var edited = reply
+        edited.content = "Reply to Robin today"
+        let saving = Task { try await store.save(edited) }
+        await Task.yield()
+        store.delete(reply)
+        try await saving.value
+        await store.settled()
+
+        #expect(store.tasks.isEmpty)
+        #expect(try files.load("demo")?.isEmpty == true)
+    }
+
     /** A change that would come out differently asked twice (the scope picker moved during the write) is asked once. */
     @Test func showsTheLinkItWrote() async throws {
         let folder = folder()

@@ -111,6 +111,29 @@ struct GrokTests {
         #expect(await service.delivered.isEmpty)
     }
 
+    /** Registered but its token gone before the webhook had it: not counted as delivered, it registers again and is handed on. */
+    @Test func doesntCountAJobWithoutItsTokenAsDelivered() async {
+        let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = GrokJobFiles(folder: folder)
+        var sending = job(.sending, delivered: false)
+        sending.context = GrokContext.of(.task(MailTask(content: "Reply")))
+        files.save([sending], scope: "demo")
+        let service = LostAnswer(known: "", reported: "registered")
+
+        let jobs = GrokJobs(files: files, transport: service)
+        jobs.open("demo", demo: true)
+        await jobs.retry(jobs.job(sending.id)!)
+
+        let sent = jobs.job(sending.id)
+        #expect(sent?.delivered == true)
+        #expect(sent?.jobId == "new")
+        #expect(await service.delivered == ["new"])
+        #expect(await service.keys.count == 1)
+        #expect(await service.keys.first != sending.id.uuidString.lowercased())
+        Keychain.set(GrokJobs.tokenKey(sending.id), nil)
+    }
+
     /** A job given from the primary calendar before it was `primary` keeps its key, and is still found from the event. */
     @Test func findsAJobKeyedByThePrimaryCalendarsAddress() {
         let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -155,10 +178,15 @@ struct GrokTests {
 /** A job service that already has `known` (its answer, and the token, lost on the way): that key replays without one. */
 private actor LostAnswer: GrokTransport {
     let known: String
+    /** What the service says of a job it has registered: `done`, or still `registered` if the webhook never had it. */
+    let reported: String
     private(set) var keys: [String] = []
     private(set) var delivered: [String] = []
 
-    init(known: String) { self.known = known }
+    init(known: String, reported: String = "done") {
+        self.known = known
+        self.reported = reported
+    }
 
     func register(_ registration: GrokRegistration) async throws -> GrokRegistered {
         keys.append(registration.idempotencyKey)
@@ -175,6 +203,6 @@ private actor LostAnswer: GrokTransport {
     func deliver(_ payload: GrokWebhookPayload) async throws { delivered.append(payload.jobId) }
 
     func status(_ jobId: String) async throws -> GrokRemoteJob {
-        GrokRemoteJob(id: jobId, status: "done", result: "Answer")
+        reported == "done" ? GrokRemoteJob(id: jobId, status: "done", result: "Answer") : GrokRemoteJob(id: jobId, status: reported)
     }
 }

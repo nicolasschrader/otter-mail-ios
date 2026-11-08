@@ -691,13 +691,29 @@ final class GrokJobs {
             return
         }
         do {
+            if let jobId = job.jobId, Keychain.get(Self.tokenKey(id)) == nil {
+                // Earlier builds dropped the token as the webhook took the job, so the bot reporting means it was
+                // delivered just before the app closed. Still only registered, it was never handed on and can't be
+                // without its token: it registers again under a key of its own.
+                let remote = try await transport.status(jobId)
+                guard remote.id == jobId else { throw GrokFailure(message: "The job service answered for another job.") }
+                guard var current = self.job(id) else { return }
+                if let reported = GrokJob.Status(remote: remote.status), reported.rank > GrokJob.Status.sent.rank {
+                    put(Self.delivered(current).advanced(by: remote))
+                    return
+                }
+                current.jobId = nil
+                current.registrationKey = Self.freshKey(id)
+                put(current)
+                job = current
+            }
             if job.jobId == nil {
                 var registered = try await transport.register(registration(job, context: context))
                 if registered.callback == nil, Keychain.get(Self.tokenKey(id)) == nil {
                     // The app closed before the first answer arrived, and a replay carries no token: the
                     // service's job can't be handed on, so this one registers again under a key of its own.
                     guard var current = self.job(id) else { return }
-                    current.registrationKey = "\(id.uuidString.lowercased())-\(UUID().uuidString.prefix(8).lowercased())"
+                    current.registrationKey = Self.freshKey(id)
                     put(current)
                     job = current
                     registered = try await transport.register(registration(job, context: context))
@@ -715,13 +731,7 @@ final class GrokJobs {
             }
             guard let jobId = job.jobId else { return }
             guard let kept = Keychain.get(Self.tokenKey(id)), let newline = kept.firstIndex(of: "\n") else {
-                // The token now stays until the job finishes; earlier builds dropped it as the webhook took the
-                // job, so an id without one was delivered just before the app closed. The service says how it went.
-                let remote = try await transport.status(jobId)
-                guard remote.id == jobId else { throw GrokFailure(message: "The job service answered for another job.") }
-                guard let current = self.job(id) else { return }
-                put(Self.delivered(current).advanced(by: remote))
-                return
+                throw GrokFailure(message: "The job service gave no callback token for this job. Retry to register it again.")
             }
             let callback = GrokWebhookPayload.Callback(url: String(kept[..<newline]), token: String(kept[kept.index(after: newline)...]))
             try await transport.deliver(GrokWebhookPayload(
@@ -741,6 +751,10 @@ final class GrokJobs {
             idempotencyKey: job.registrationKey ?? job.id.uuidString.lowercased(), type: job.type, sourceKey: job.sourceKey,
             instruction: job.instruction, context: context
         )
+    }
+
+    private static func freshKey(_ id: UUID) -> String {
+        "\(id.uuidString.lowercased())-\(UUID().uuidString.prefix(8).lowercased())"
     }
 
     private static func delivered(_ job: GrokJob) -> GrokJob {

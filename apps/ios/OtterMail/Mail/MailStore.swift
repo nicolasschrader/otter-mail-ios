@@ -25,6 +25,8 @@ final class MailStore {
     }
     let preferences: Preferences
     private(set) var recoveredDrafts: [RecoveredDraft] = []
+    /** Conversations deleted, or reported gone by their provider, since the app opened: a task's link to one is out of reach. */
+    private(set) var removedThreads: Set<String> = []
     @ObservationIgnored private var recoveryDirectory: URL?
     private(set) var undoAction: PendingAction?
     @ObservationIgnored private var undoTask: Task<Void, Never>?
@@ -435,6 +437,7 @@ final class MailStore {
             if let pending = undoAction, pending.threads.contains(where: { $0.id == thread.id }) {
                 stage(&thread, trash: pending.trash)
             }
+            if removedThreads.contains(thread.id) { removedThreads.remove(thread.id) }
             if let i = index[thread.id] {
                 if updated[i] != thread { updated[i] = thread; changed = true }
             } else {
@@ -449,6 +452,7 @@ final class MailStore {
     func remove(threadIDs: Set<String>) {
         guard !threadIDs.isEmpty else { return }
         threads.removeAll { threadIDs.contains($0.id) }
+        removedThreads.formUnion(threadIDs)
     }
 
     /** Drops a message shown before Gmail had it, and its thread if nothing else is left in it. */
@@ -605,6 +609,7 @@ final class MailStore {
         commitPendingAction()
         guard let thread = thread(id) else { return }
         threads.removeAll { $0.id == id }
+        removedThreads.insert(id)
         sync?.apply(.delete, to: thread)
     }
 

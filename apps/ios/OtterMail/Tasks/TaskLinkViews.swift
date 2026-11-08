@@ -13,7 +13,7 @@ extension EnvironmentValues {
 /**
  * One link of a task's, as a row: a conversation or an event, under the name
  * it has now when it's loaded, else the one kept with the link. One that can't
- * be reached (its mailbox gone or signed out) still reads, muted, and keeps
+ * be reached (deleted, its mailbox gone or signed out) still reads, muted, and keeps
  * its place until it's unlinked: the task loses nothing.
  */
 struct TaskLinkRow: View {
@@ -98,7 +98,7 @@ struct TaskLinkLabels {
             return (subject.isEmpty ? email.subject : subject, email.mailbox, false)
         }
         let known = store.mailboxes.contains { $0.email.lowercased() == email.mailbox.lowercased() } || store.alias(email.mailbox) != nil
-        return (email.subject, email.mailbox, !known)
+        return (email.subject, email.mailbox, !known || store.removedThreads.contains(email.thread))
     }
 
     func event(_ link: TaskEvent, now: Date = .now) -> (title: String, detail: String, unavailable: Bool) {
@@ -109,7 +109,7 @@ struct TaskLinkLabels {
         var detail = allDay ? day : "\(day) · \(dates.timeLabel(start))"
         if link.scope == .series { detail = "Whole series · next \(detail)" }
         let reachable = CalendarStore.sources(store.shownMailboxes).contains { $0.email.lowercased() == link.account }
-        return (live?.title ?? link.title, detail, live == nil && !reachable)
+        return (live?.title ?? link.title, detail, live == nil && (!reachable || calendar.isGone(link, now: now)))
     }
 }
 

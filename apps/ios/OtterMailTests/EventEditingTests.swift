@@ -273,6 +273,31 @@ struct EventEditingTests {
         #expect(found(made, in: window, of: store) == nil)
     }
 
+    /** A task's event deleted is gone once its day is loaded without it, not merely out of reach. */
+    @MainActor @Test func aTasksDeletedEventIsGone() async throws {
+        let store = CalendarStore()
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let window = dates.window(.day, anchor: .now)
+        await store.load(window, sources: [mailbox], demo: true, google: GoogleAuth(), dates: dates)
+        let calendar = try #require((store.lists[robin] ?? []).first { $0.writable })
+        let writer = store.writer(for: robin, demo: true, google: GoogleAuth())
+        let start = dates.calendar.date(bySettingHour: 18, minute: 0, second: 0, of: .now)!
+        let made = try await store.create(
+            EventDraft(calendar: calendar, title: "Demo dinner", start: start, end: start.addingTimeInterval(3600)),
+            with: writer, demo: true, dates: dates
+        )
+        let link = TaskEvent(made, scope: .occurrence)
+        let elsewhere = TaskEvent(
+            CalendarEvent(eventId: "later", calendar: calendar, title: "Later", start: dates.addDays(start, 30), end: dates.addDays(start, 30)),
+            scope: .occurrence
+        )
+        #expect(!store.isGone(link))
+
+        try await store.delete(made, with: writer, demo: true)
+        #expect(store.isGone(link))
+        #expect(!store.isGone(elsewhere))
+    }
+
     /** The window's copy of an event, looked up outside the macros so they wrap no closure. */
     @MainActor private func found(_ event: CalendarEvent, in window: EventWindow, of store: CalendarStore) -> CalendarEvent? {
         let events = store.events(in: window) ?? []
