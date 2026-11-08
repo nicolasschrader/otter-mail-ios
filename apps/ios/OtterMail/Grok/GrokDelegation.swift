@@ -121,6 +121,19 @@ nonisolated enum GrokSource: Identifiable, Hashable {
         }
     }
 
+    /**
+     * A job's key as `key` makes it now. Jobs given before the primary calendar
+     * was `primary` keep the address in theirs, the key the job service knows them
+     * by, so they're matched through this rather than rewritten.
+     */
+    static func current(_ sourceKey: String) -> String {
+        guard sourceKey.hasPrefix("event:") else { return sourceKey }
+        var parts = sourceKey.dropFirst("event:".count).split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 4 else { return sourceKey }
+        parts[2] = TaskEvent.calendarId(parts[2], account: parts[1], provider: parts[0])
+        return "event:" + parts.joined(separator: "|")
+    }
+
     var type: String {
         switch self {
         case .task: "task"
@@ -626,10 +639,10 @@ final class GrokJobs {
     }
 
     func jobs(for sourceKey: String) -> [GrokJob] {
-        jobs.filter { $0.sourceKey == sourceKey }.sorted { $0.created > $1.created }
+        jobs.filter { GrokSource.current($0.sourceKey) == sourceKey }.sorted { $0.created > $1.created }
     }
 
-    func hasJobs(for sourceKey: String) -> Bool { jobs.contains { $0.sourceKey == sourceKey } }
+    func hasJobs(for sourceKey: String) -> Bool { jobs.contains { GrokSource.current($0.sourceKey) == sourceKey } }
 
     func job(_ id: UUID) -> GrokJob? { jobs.first { $0.id == id } }
 

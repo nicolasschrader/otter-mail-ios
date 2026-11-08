@@ -366,6 +366,33 @@ struct TaskTests {
         #expect(try files.load("a")?.contains { $0.content == "A's third" } == false)
     }
 
+    /** Done and deleted while a save is being written are shown at once, and land in A's file even once B is open. */
+    @Test func keepsWhatAShowedWhenTheAccountChangesBeforeItsWritten() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let finished = task("A's finished")
+        let dropped = task("A's dropped")
+        store.open("a", seed: [finished, dropped])
+        await store.settled()
+
+        let writing = Task { try await store.save(self.task("A's saved")) }
+        await Task.yield()
+        store.setDone(true, finished)
+        store.delete(dropped)
+        store.close()
+        store.open("b", seed: [task("B's own")])
+        try await writing.value
+        await store.settled()
+
+        #expect(store.tasks.map(\.content) == ["B's own"])
+        #expect(try files.load("b")?.map(\.content) == ["B's own"])
+        let a = try #require(try files.load("a"))
+        #expect(a.map(\.content) == ["A's finished", "A's saved"])
+        #expect(a.first?.done == true)
+    }
+
     @Test func readsAFileMissingTheFieldsItDoesntHaveYet() throws {
         let id = UUID()
         let json = Data(#"[{"id":"\#(id.uuidString)","content":"Older build"}]"#.utf8)

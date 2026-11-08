@@ -126,6 +126,19 @@ struct TimeGridTests {
         #expect(placed([first, second], on: day) == ["first": [0, 2], "second": [1, 2]])
     }
 
+    /** 02:45+02:00 to 02:15+01:00 is half an hour across the clocks going back: it covers 02:45–03:00 and 02:00–02:15. */
+    @Test func anEventAcrossTheClocksGoingBackCoversTheRepeatedHour() {
+        let day = at(25, 0, month: 10)
+        let turn = day.addingTimeInterval(3 * 3600)
+        let across = event("across", turn.addingTimeInterval(-15 * 60), turn.addingTimeInterval(15 * 60))
+        #expect(TimeGrid.minutes(across, on: day, dates: dates) == (2 * 60)...(3 * 60))
+        let early = event("early", turn.addingTimeInterval(-3600 - 30 * 60), turn.addingTimeInterval(-3600))
+        let winter = event("winter", turn, turn.addingTimeInterval(10 * 60))
+        #expect(TimeGrid.minutes(early, on: day, dates: dates) == 90...120)
+        #expect(placed([across, winter], on: day) == ["across": [0, 2], "winter": [1, 2]])
+        #expect(placed([early, across], on: day) == ["early": [0, 1], "across": [0, 1]])
+    }
+
     @Test func allDayAndDayLongEventsGoInTheAllDayRow() {
         let birthday = event("birthday", at(4, 0), at(5, 0), allDay: true)
         let marathon = event("marathon", at(4, 6), at(5, 6))

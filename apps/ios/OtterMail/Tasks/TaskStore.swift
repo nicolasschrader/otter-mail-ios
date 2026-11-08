@@ -47,6 +47,22 @@ final class TaskStore {
     /** The file couldn't be read: it keeps whatever it holds until the next sign-in. */
     @ObservationIgnored private var unreadable = false
 
+    /** What a session showed, for the writes it left queued. */
+    private struct Shown {
+        var scope: String
+        var tasks: [MailTask]
+        var projects: [TaskProject]
+        var unreadable: Bool
+    }
+
+    /** The background writes queued in each session, by session. */
+    @ObservationIgnored private var queuedWrites: [Int: Int] = [:]
+    /**
+     * A session that ended with writes still queued: what it showed, so they write
+     * that to its own account's file, not the next account's list or nothing.
+     */
+    @ObservationIgnored private var ended: [Int: Shown] = [:]
+
     @ObservationIgnored private let defaults: UserDefaults
 
     init(files: TaskFiles = .live, reminders: any TaskReminding = LiveReminders(), defaults: UserDefaults = .standard) {
@@ -70,7 +86,7 @@ final class TaskStore {
     }
 
     func open(_ scope: String, seed: [MailTask] = [], seedProjects: [TaskProject] = []) {
-        session += 1
+        leave()
         self.scope = scope
         unreadable = false
         failure = nil
@@ -132,7 +148,7 @@ final class TaskStore {
     /** Signing out: this account's reminders go, its tasks wait on disk for the next sign-in. */
     func close() {
         let closing = scope
-        session += 1
+        leave()
         tasks = []
         projects = []
         selected = nil
@@ -295,8 +311,9 @@ final class TaskStore {
     /**
      * One change to the tasks at a time: each is made to the list the one before
      * it left, written, then published, and only for the session it was asked in:
-     * a change from before a sign-out or a switch of account is dropped, and so
-     * is its result if the switch happens while it's being written. The edit runs
+     * a change from before a sign-out or a switch of account is dropped. One the
+     * switch catches while it's being written isn't shown, but what that session
+     * left queued writes it again (`ended`). The edit runs
      * again on the list as it stands then, so a done or a deletion made during
      * the write isn't undone. Returns whether the change was kept.
      */
@@ -307,7 +324,11 @@ final class TaskStore {
         defer { unlock() }
         guard session == self.session, let scope, let keeping = edit(tasks) else { return false }
         try await write(keeping, scope: scope)
-        guard session == self.session else { return false }
+        guard session == self.session else {
+            // Written to its account, so the writes that session left queued keep it too.
+            if let shown = ended[session] { ended[session]?.tasks = edit(shown.tasks) ?? shown.tasks }
+            return false
+        }
         tasks = edit(tasks) ?? tasks
         return true
     }
@@ -320,7 +341,10 @@ final class TaskStore {
         defer { unlock() }
         guard session == self.session, let scope, let keeping = edit(projects) else { return false }
         try await writeProjects(keeping, scope: scope)
-        guard session == self.session else { return false }
+        guard session == self.session else {
+            if let shown = ended[session] { ended[session]?.projects = edit(shown.projects) ?? shown.projects }
+            return false
+        }
         projects = edit(projects) ?? projects
         return true
     }
@@ -343,31 +367,58 @@ final class TaskStore {
     }
 
     /** Writes in the background, for the changes the list makes; a failure shows there. */
-    private func persist() {
+    private func persist() { flush(projects: false) }
+
+    private func persistProjects() { flush(projects: true) }
+
+    /**
+     * A change already on screen, written on its turn: what the session shows
+     * then, or, once it has ended, what it showed last, to its own account's file.
+     */
+    private func flush(projects: Bool) {
         let session = self.session
+        queuedWrites[session, default: 0] += 1
         Task {
+            await lock()
+            defer {
+                unlock()
+                written(session)
+            }
+            guard let shown = session == self.session ? showing : ended[session] else { return }
             do {
-                try await commit { $0 }
+                guard !shown.unreadable else { throw Failure.unreadable }
+                if projects {
+                    try await files.saveProjects(shown.projects, scope: shown.scope)
+                } else {
+                    try await files.save(shown.tasks, scope: shown.scope)
+                }
             } catch {
-                if session == self.session { failure = error.localizedDescription }
+                if session == self.session {
+                    failure = error.localizedDescription
+                } else if !shown.unreadable {
+                    ErrorReports.capture(error, scope: "tasks")
+                }
             }
         }
     }
+
+    private func written(_ session: Int) {
+        let left = (queuedWrites[session] ?? 1) - 1
+        queuedWrites[session] = left > 0 ? left : nil
+        if left <= 0 { ended[session] = nil }
+    }
+
+    /** Ends the session: what it shows is kept for the writes it has queued. */
+    private func leave() {
+        if queuedWrites[session] != nil { ended[session] = showing }
+        session += 1
+    }
+
+    private var showing: Shown? { scope.map { Shown(scope: $0, tasks: tasks, projects: projects, unreadable: unreadable) } }
 
     private func write(_ tasks: [MailTask], scope: String) async throws {
         guard !unreadable else { throw Failure.unreadable }
         try await files.save(tasks, scope: scope)
-    }
-
-    private func persistProjects() {
-        let session = self.session
-        Task {
-            do {
-                try await commitProjects { $0 }
-            } catch {
-                if session == self.session { failure = error.localizedDescription }
-            }
-        }
     }
 
     private func writeProjects(_ projects: [TaskProject], scope: String) async throws {

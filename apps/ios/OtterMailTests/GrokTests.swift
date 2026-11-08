@@ -61,6 +61,29 @@ struct GrokTests {
         #expect(files.load("demo").first { $0.id == sending.id }?.canRetry == true)
     }
 
+    /** A job given from the primary calendar before it was `primary` keeps its key, and is still found from the event. */
+    @Test func findsAJobKeyedByThePrimaryCalendarsAddress() {
+        let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = GrokJobFiles(folder: folder)
+        var old = job(.sent)
+        old.sourceKey = "event:google|robin@otter.example|Robin@otter.example|standup"
+        var other = job(.sent)
+        other.sourceKey = "event:google|robin@otter.example|team@group.calendar.google.com|standup"
+        files.save([old, other], scope: "demo")
+
+        let jobs = GrokJobs(files: files, transport: DemoGrokTransport())
+        jobs.open("demo", demo: true)
+
+        let calendar = EventCalendar(id: "primary", name: "Robin", primary: true, account: "robin@otter.example")
+        let standup = CalendarEvent(eventId: "standup", calendar: calendar, title: "Standup", start: .now, end: .now.addingTimeInterval(900))
+        let key = GrokSource.event(standup).key
+        #expect(key == "event:google|robin@otter.example|primary|standup")
+        #expect(jobs.jobs(for: key).map(\.id) == [old.id])
+        #expect(jobs.hasJobs(for: key))
+        #expect(jobs.job(old.id)?.sourceKey == old.sourceKey, "the job service knows it by the key it was given")
+    }
+
     @Test func acceptsOnlyPathSafeJobIds() {
         #expect(GrokJob.isJobId("0b5c3f1e-4a2d-4c7e-9a10-6f1d2e3c4b5a"))
         #expect(!GrokJob.isJobId("../etc"))
