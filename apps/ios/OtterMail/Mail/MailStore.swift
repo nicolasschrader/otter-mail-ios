@@ -25,8 +25,12 @@ final class MailStore {
     }
     let preferences: Preferences
     private(set) var recoveredDrafts: [RecoveredDraft] = []
-    /** Conversations deleted, or reported gone by their provider, since the app opened: a task's link to one is out of reach. */
-    private(set) var removedThreads: Set<String> = []
+    /** Conversations deleted, or reported gone by their provider: a task's link to one is out of reach, after a restart too. */
+    private(set) var removedThreads: Set<String> {
+        didSet { if removedThreads != oldValue { removedDefaults.set(removedThreads.sorted(), forKey: Self.removedKey) } }
+    }
+    @ObservationIgnored private let removedDefaults: UserDefaults
+    private static let removedKey = "mail.removedThreads"
     @ObservationIgnored private var recoveryDirectory: URL?
     private(set) var undoAction: PendingAction?
     @ObservationIgnored private var undoTask: Task<Void, Never>?
@@ -39,10 +43,12 @@ final class MailStore {
     }
     @ObservationIgnored var sync: MailSync?
 
-    init(preferences: Preferences, mailboxes: [Mailbox] = [], threads: [MailThread] = []) {
+    init(preferences: Preferences, mailboxes: [Mailbox] = [], threads: [MailThread] = [], defaults: UserDefaults = .standard) {
         self.preferences = preferences
         self.mailboxes = mailboxes
         self.threads = threads
+        removedDefaults = defaults
+        removedThreads = Set(defaults.stringArray(forKey: Self.removedKey) ?? [])
     }
 
     static func demo(preferences: Preferences) -> MailStore {

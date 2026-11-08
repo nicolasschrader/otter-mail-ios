@@ -298,6 +298,29 @@ struct EventEditingTests {
         #expect(!store.isGone(elsewhere))
     }
 
+    /** A task's event moved to a day not loaded is missing from its old day, and still not gone: it keeps its id. */
+    @MainActor @Test func aTasksMovedEventIsntGone() async throws {
+        let store = CalendarStore()
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let window = dates.window(.day, anchor: .now)
+        await store.load(window, sources: [mailbox], demo: true, google: GoogleAuth(), dates: dates)
+        let calendar = try #require((store.lists[robin] ?? []).first { $0.writable })
+        let writer = RecordingWriter(dates: dates)
+        let start = dates.calendar.date(bySettingHour: 18, minute: 0, second: 0, of: .now)!
+        let made = try await store.create(
+            EventDraft(calendar: calendar, title: "Demo dinner", start: start, end: start.addingTimeInterval(3600)),
+            with: writer, dates: dates
+        )
+        let link = TaskEvent(made, scope: .occurrence)
+
+        var moved = EventDraft(editing: made)
+        moved.move(to: dates.addDays(start, 30))
+        try await store.update(made, to: moved, with: writer, dates: dates)
+
+        #expect(store.find(link) == nil)
+        #expect(!store.isGone(link))
+    }
+
     /** The window's copy of an event, looked up outside the macros so they wrap no closure. */
     @MainActor private func found(_ event: CalendarEvent, in window: EventWindow, of store: CalendarStore) -> CalendarEvent? {
         let events = store.events(in: window) ?? []

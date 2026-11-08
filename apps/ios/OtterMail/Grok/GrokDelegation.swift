@@ -693,19 +693,16 @@ final class GrokJobs {
         do {
             if let jobId = job.jobId, Keychain.get(Self.tokenKey(id)) == nil {
                 // Earlier builds dropped the token as the webhook took the job, so the bot reporting means it was
-                // delivered just before the app closed. Still only registered, it was never handed on and can't be
-                // without its token: it registers again under a key of its own.
+                // delivered just before the app closed. Still only registered, the bot may have it all the same and
+                // not have answered yet: it is never registered or sent again, only asked after.
                 let remote = try await transport.status(jobId)
                 guard remote.id == jobId else { throw GrokFailure(message: "The job service answered for another job.") }
-                guard var current = self.job(id) else { return }
-                if let reported = GrokJob.Status(remote: remote.status), reported.rank > GrokJob.Status.sent.rank {
-                    put(Self.delivered(current).advanced(by: remote))
-                    return
+                guard let current = self.job(id) else { return }
+                guard let reported = GrokJob.Status(remote: remote.status), reported.rank > GrokJob.Status.sent.rank else {
+                    throw GrokFailure(message: "The bot may already have this job. Retry to check on it, or delete it and give it to Grok again.")
                 }
-                current.jobId = nil
-                current.registrationKey = Self.freshKey(id)
-                put(current)
-                job = current
+                put(Self.delivered(current).advanced(by: remote))
+                return
             }
             if job.jobId == nil {
                 var registered = try await transport.register(registration(job, context: context))
@@ -720,6 +717,10 @@ final class GrokJobs {
                 }
                 if let callback = registered.callback {
                     Keychain.set(Self.tokenKey(id), "\(callback.url)\n\(callback.token)", thisDeviceOnly: true)
+                }
+                // Kept only with its token, so a job with an id and no token is one that may have been handed on.
+                guard Keychain.get(Self.tokenKey(id)) != nil else {
+                    throw GrokFailure(message: "The job service gave no callback token for this job. Retry to register it again.")
                 }
                 guard GrokJob.isJobId(registered.job.id) else {
                     throw GrokFailure(message: "The job service answered with an id Otter Mail doesn't accept.")

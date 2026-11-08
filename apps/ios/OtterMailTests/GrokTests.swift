@@ -111,8 +111,8 @@ struct GrokTests {
         #expect(await service.delivered.isEmpty)
     }
 
-    /** Registered but its token gone before the webhook had it: not counted as delivered, it registers again and is handed on. */
-    @Test func doesntCountAJobWithoutItsTokenAsDelivered() async {
+    /** Registered, its token gone and the service still saying registered: the bot may have it, so it's neither counted as delivered nor sent again. */
+    @Test func neverSendsAgainAJobThatMayAlreadyBeWithTheBot() async {
         let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: folder) }
         let files = GrokJobFiles(folder: folder)
@@ -125,13 +125,13 @@ struct GrokTests {
         jobs.open("demo", demo: true)
         await jobs.retry(jobs.job(sending.id)!)
 
-        let sent = jobs.job(sending.id)
-        #expect(sent?.delivered == true)
-        #expect(sent?.jobId == "new")
-        #expect(await service.delivered == ["new"])
-        #expect(await service.keys.count == 1)
-        #expect(await service.keys.first != sending.id.uuidString.lowercased())
-        Keychain.set(GrokJobs.tokenKey(sending.id), nil)
+        let waiting = jobs.job(sending.id)
+        #expect(waiting?.delivered == false)
+        #expect(waiting?.jobId == "j1")
+        #expect(waiting?.canRetry == true)
+        await jobs.retry(waiting!)
+        #expect(await service.keys.isEmpty)
+        #expect(await service.delivered.isEmpty)
     }
 
     /** A job given from the primary calendar before it was `primary` keeps its key, and is still found from the event. */

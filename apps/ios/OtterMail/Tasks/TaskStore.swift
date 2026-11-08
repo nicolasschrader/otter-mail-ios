@@ -210,15 +210,13 @@ final class TaskStore {
     func save(_ task: MailTask) async throws {
         let task = Self.trimmed(task)
         guard !task.content.isEmpty else { return }
-        // Asked again after the write, a task that was there before it and is gone now was deleted meanwhile: it stays gone.
-        var adding: Bool?
+        // Decided when Save is pressed: a task shown then and gone by its turn was deleted meanwhile, and stays gone.
+        let adding = !contains(task.id)
         let kept = try await commit { tasks in
             var tasks = tasks
-            let index = tasks.firstIndex(where: { $0.id == task.id })
-            if adding == nil { adding = index == nil }
-            if let index {
+            if let index = tasks.firstIndex(where: { $0.id == task.id }) {
                 tasks[index] = task
-            } else if adding == true {
+            } else if adding {
                 tasks.append(task)
             } else {
                 return nil

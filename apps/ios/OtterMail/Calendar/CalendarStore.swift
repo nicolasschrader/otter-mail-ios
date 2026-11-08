@@ -46,7 +46,7 @@ final class CalendarStore {
     @ObservationIgnored private var demoAnswers: [String: CalendarEvent.Response] = [:]
     /** The demo's events made, changed and deleted, for the same reason. */
     @ObservationIgnored private var demoEdits = DemoEdits()
-    /** Task links Google answered for with nothing, by `TaskEvent.key`. */
+    /** Task links Google answered for with nothing, or whose event was deleted here, by `TaskEvent.key`. */
     private var gone: Set<String> = []
 
     /** How far ahead Catch up looks for invitations. */
@@ -150,6 +150,7 @@ final class CalendarStore {
     func delete(_ event: CalendarEvent, with writer: EventWriter, demo: Bool = false) async throws {
         try await writer.delete(event, notify: event.hasGuests && event.isMine)
         if demo { demoEdits.deleted.insert(event.id) }
+        gone.insert(TaskEvent(event, scope: .occurrence).key)
         replace(event, with: nil)
     }
 
@@ -388,18 +389,11 @@ final class CalendarStore {
     }
 
     /**
-     * Whether a task's link is known to be gone: Google said so when it was opened, or the
-     * occurrence's day was loaded for its account without it.
+     * Whether a task's link is known to be gone, by its event's id: deleted here, or Google said so
+     * when it was opened. Missing from the day it was on proves nothing: it may have moved.
      */
     func isGone(_ link: TaskEvent, now: Date = .now) -> Bool {
-        guard find(link, now: now) == nil else { return false }
-        if gone.contains(link.key) { return true }
-        guard link.scope == .occurrence else { return false }
-        return [link.start, link.originalStart ?? link.start].allSatisfy { day in
-            parts.contains { window, byAccount in
-                window.from <= day && day < window.to && byAccount.keys.contains { $0.lowercased() == link.account }
-            }
-        }
+        find(link, now: now) == nil && gone.contains(link.key)
     }
 
     /** The first not over yet, else the last there was. */

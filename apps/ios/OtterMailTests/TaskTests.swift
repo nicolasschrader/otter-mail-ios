@@ -341,6 +341,31 @@ struct TaskTests {
         #expect(try files.load("demo")?.isEmpty == true)
     }
 
+    @Test func doesntPutBackATaskDeletedWhileItsSaveWaitedItsTurn() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let reply = task("Reply to Robin")
+        store.open("demo", seed: [reply])
+        await store.settled()
+
+        var edited = reply
+        edited.content = "Reply to Robin today"
+        // The save waits behind another write, and the task is deleted before its turn comes.
+        let other = Task { try await store.save(self.task("Buy the tickets")) }
+        let saving = Task { try await store.save(edited) }
+        await Task.yield()
+        await Task.yield()
+        store.delete(reply)
+        try await other.value
+        try await saving.value
+        await store.settled()
+
+        #expect(store.tasks.map(\.content) == ["Buy the tickets"])
+        #expect(try files.load("demo")?.map(\.content) == ["Buy the tickets"])
+    }
+
     /** A change that would come out differently asked twice (the scope picker moved during the write) is asked once. */
     @Test func showsTheLinkItWrote() async throws {
         let folder = folder()

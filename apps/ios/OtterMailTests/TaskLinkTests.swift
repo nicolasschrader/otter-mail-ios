@@ -206,6 +206,18 @@ struct TaskLinkTests {
         store.upsert(threads: [thread])
         #expect(labels.email(email("t1")).unavailable == false)
     }
+
+    @MainActor @Test func stillReadsADeletedConversationAsNotAvailableAfterARestart() throws {
+        let suite = "TaskLinkTests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mailbox = Mailbox(email: "robin@otter.example", name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        MailStore(preferences: Preferences(defaults: defaults), mailboxes: [mailbox], defaults: defaults).remove(threadIDs: ["t1"])
+
+        let reopened = MailStore(preferences: Preferences(defaults: defaults), mailboxes: [mailbox], defaults: defaults)
+        let labels = TaskLinkLabels(store: reopened, calendar: CalendarStore(), dates: CalendarDates())
+        #expect(labels.email(email("t1")).unavailable == true)
+    }
 }
 
 /** A task as builds from before several links read it. */
