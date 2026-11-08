@@ -1,9 +1,35 @@
 import SwiftUI
 
-extension TaskTarget {
-    /** A task's links as its detail lists them: the conversations, then the events, each opening what it links to. */
-    nonisolated static func all(of task: MailTask) -> [TaskTarget] {
-        task.emails.map(TaskTarget.email) + task.events.map(TaskTarget.event)
+/** A row of a task's detail under Linked: what it shows, and what a tap opens (nothing for a conversation out of reach). */
+struct TaskDetailLink: Identifiable {
+    let target: TaskTarget
+    let symbol: String
+    let title: String
+    let detail: String
+    let unavailable: Bool
+    let open: (() -> Void)?
+
+    var id: TaskTarget { target }
+
+    /** The conversations, then the events. */
+    static func all(of task: MailTask, labels: TaskLinkLabels, onOpen: @escaping (TaskTarget) -> Void) -> [TaskDetailLink] {
+        let emails = task.emails.map { email in
+            let label = labels.email(email)
+            let target = TaskTarget.email(email)
+            return TaskDetailLink(
+                target: target, symbol: "envelope", title: label.title, detail: label.detail, unavailable: label.unavailable,
+                open: label.unavailable ? nil : { onOpen(target) }
+            )
+        }
+        let events = task.events.map { link in
+            let label = labels.event(link)
+            let target = TaskTarget.event(link)
+            return TaskDetailLink(
+                target: target, symbol: link.scope == .series ? "repeat" : "calendar", title: label.title, detail: label.detail,
+                unavailable: label.unavailable, open: { onOpen(target) }
+            )
+        }
+        return emails + events
     }
 }
 
@@ -109,22 +135,8 @@ struct TaskDetail: View {
                 .font(.inter(.footnote).weight(.medium))
                 .foregroundStyle(palette.muted)
                 .padding(.bottom, 4)
-            ForEach(TaskTarget.all(of: task), id: \.self) { target in
-                switch target {
-                case .email(let email):
-                    let label = labels.email(email)
-                    TaskLinkRow(
-                        symbol: "envelope", title: label.title, detail: label.detail, unavailable: label.unavailable,
-                        onOpen: label.unavailable ? nil : { onOpen(target) }
-                    )
-                case .event(let link):
-                    let label = labels.event(link)
-                    TaskLinkRow(
-                        symbol: link.scope == .series ? "repeat" : "calendar", title: label.title, detail: label.detail,
-                        unavailable: label.unavailable,
-                        onOpen: { onOpen(target) }
-                    )
-                }
+            ForEach(TaskDetailLink.all(of: task, labels: labels, onOpen: onOpen)) { link in
+                TaskLinkRow(symbol: link.symbol, title: link.title, detail: link.detail, unavailable: link.unavailable, onOpen: link.open)
             }
         }
         .padding(.horizontal, 16)

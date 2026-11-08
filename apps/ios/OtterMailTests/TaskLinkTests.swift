@@ -183,13 +183,34 @@ struct TaskLinkTests {
         #expect(linked.matches(moved))
     }
 
-    @Test func opensEveryLinkOfTheTaskDetailAtWhatItLinksTo() {
-        let first = email("t1")
-        let second = email("t2", mailbox: "alias@otter.example")
+    /** A tap on a link of a task's detail goes through Tasks: a conversation to Mail, an event to the calendar. */
+    @MainActor @Test func opensEachLinkOfTheTaskDetailWhereItLeads() throws {
+        let suite = "TaskLinkTests-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let mailbox = Mailbox(email: "robin@otter.example", name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let store = MailStore(preferences: Preferences(defaults: defaults), mailboxes: [mailbox], defaults: defaults)
+        let labels = TaskLinkLabels(store: store, calendar: CalendarStore(), dates: CalendarDates())
+        let conversation = email("t1")
+        let gone = email("t2", mailbox: "gone@otter.example")
         let series = TaskEvent(event("standup_1", series: "standup", originalStart: start), scope: .series)
-        let task = MailTask(content: "Prepare", emails: [first, second], events: [series])
-        #expect(TaskTarget.all(of: task) == [.email(first), .email(second), .event(series)])
-        #expect(TaskTarget.all(of: MailTask(content: "Alone")).isEmpty)
+        let task = MailTask(content: "Prepare", emails: [conversation, gone], events: [series])
+
+        var mail: [TaskEmail] = []
+        var calendar: [TaskTarget] = []
+        let links = TaskDetailLink.all(of: task, labels: labels) { target in
+            TasksView.route(target, onEmail: { mail.append($0) }, openTarget: { calendar.append($0) })
+        }
+        #expect(links.map(\.target) == [.email(conversation), .email(gone), .event(series)])
+        #expect(links[1].open == nil)
+
+        links[0].open?()
+        #expect(mail == [conversation])
+        #expect(calendar.isEmpty)
+
+        links[2].open?()
+        #expect(mail == [conversation])
+        #expect(calendar == [.event(series)])
     }
 
     @Test func keepsWhatTheEventSaidForWhenItsGone() {

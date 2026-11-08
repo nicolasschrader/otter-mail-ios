@@ -226,22 +226,21 @@ struct TasksView: View {
         withAnimation(animation) { tasks.setDone(!task.done, task) }
     }
 
-    private func open(_ email: TaskEmail) {
-        editing = nil
-        viewing = nil
-        onEmail(email)
-    }
+    private func open(_ email: TaskEmail) { open(.email(email)) }
 
-    private func open(_ event: TaskEvent) {
-        editing = nil
-        viewing = nil
-        openTarget(.event(event))
-    }
+    private func open(_ event: TaskEvent) { open(.event(event)) }
 
     private func open(_ target: TaskTarget) {
+        editing = nil
+        viewing = nil
+        Self.route(target, onEmail: onEmail, openTarget: openTarget)
+    }
+
+    /** A conversation goes back to Mail as the list's do (`onEmail`), an event to the calendar (`openTaskTarget`). */
+    static func route(_ target: TaskTarget, onEmail: (TaskEmail) -> Void, openTarget: (TaskTarget) -> Void) {
         switch target {
-        case .email(let email): open(email)
-        case .event(let event): open(event)
+        case .email(let email): onEmail(email)
+        case .event: openTarget(target)
         }
     }
 }
