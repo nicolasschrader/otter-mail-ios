@@ -55,9 +55,9 @@ struct ThreadView: View {
                         .padding(.horizontal, MessageView.inset)
                 }
 
-                // Only the tasks linked: a conversation adds and links them from More.
-                if !session.tasks.linked(thread: thread.id, mailboxes: [shown(mailbox).email, thread.mailbox]).isEmpty {
-                    LinkedTasks(source: .thread(thread, mailbox: shown(mailbox).email))
+                // Shown once a task is linked, or while More's Link to a task looks for one.
+                if linkingTask || !session.tasks.linked(thread: thread.id, mailboxes: [shown(mailbox).email, thread.mailbox]).isEmpty {
+                    LinkedTasks(source: .thread(thread, mailbox: shown(mailbox).email), linking: $linkingTask)
                         .padding(.bottom, 20)
                         .padding(.horizontal, MessageView.inset)
                 }
@@ -162,17 +162,6 @@ struct ThreadView: View {
                             Button("Close", systemImage: "xmark") { newTask = nil }
                         }
                     }
-            }
-        }
-        .sheet(isPresented: $linkingTask) {
-            NavigationStack {
-                TaskPicker(linked: Set(session.tasks.linked(thread: thread.id, mailboxes: [shown(mailbox).email, thread.mailbox]).map(\.id))) { task, _ in
-                    let email = TaskEmail(thread, mailbox: shown(mailbox).email)
-                    Task {
-                        do { try await session.tasks.update(task.id) { TaskLinks.linking($0, email: email) } }
-                        catch { notice = Notice(text: "Couldn't link the task. \(error.localizedDescription)") }
-                    }
-                }
             }
         }
         .sheet(item: $delegating) { source in

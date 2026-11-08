@@ -246,7 +246,8 @@ nonisolated struct GrokContext: Codable, Equatable, Sendable {
         case .thread(let thread, let mailbox):
             let label = { (person: Person) in person.name.isEmpty ? person.email : "\(person.name) <\(person.email)>" }
             var messages = thread.sent.map { message in
-                let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let plain = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let text = plain.isEmpty ? HTMLText.plain(message.html ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : plain
                 return Mail.Message(
                     from: label(message.from), to: message.to.map(label), cc: message.cc.map(label), date: message.date,
                     text: String(text.prefix(messageLimit)), truncated: text.count > messageLimit

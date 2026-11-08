@@ -29,7 +29,7 @@ struct CalendarView: View {
     @Binding var opening: TaskEvent?
     var onTitle: () -> Void = {}
 
-    @State private var mode: CalendarMode = CalendarMode(rawValue: UserDefaults.standard.string(forKey: "otter:shot-mode") ?? "") ?? .agenda
+    @State private var mode: CalendarMode = .agenda
     /** Where the pager is, under the finger; `mode` is the page it last came to rest on. */
     @State private var page: CalendarMode?
     @State private var anchor = Date.now
@@ -216,9 +216,6 @@ struct CalendarView: View {
                     print("calendar: \(mode.rawValue) drawn in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000))ms")
                 }
                 #endif
-            }
-            .onAppear {
-                if UserDefaults.standard.string(forKey: "otter:shot") == "calendars" { listing = true }
             }
             // A sign-in finishing (the button a mailbox without calendar access shows) is reason to look again.
             .onChange(of: session.busy) { before, current in

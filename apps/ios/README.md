@@ -194,6 +194,28 @@ add limited server grants (or an encrypted IMAP password), while mail content st
     which wait, what they're called, and which notifications are a task's — are
     `OtterMailTests/TaskTests.swift`, along with the store's scheduling against the stand-in center:
     a deletion and a sign-out while a notification job is suspended, and a file that can't be read.
+  - `TaskLinks.swift`, `TaskLinkViews.swift`: a task links any number of conversations (`emails`)
+    and calendar events (`events`, `TaskEvent`: provider, account, calendar, event id, and for an
+    event of a series whether it's that occurrence or the whole series, with what the event was
+    called and when). A file from before links were a list has the one `email`: it reads as the
+    first link, and `email` is still written as the first, so an older build keeps reading where a
+    task came from; a link a build can't read is left out, never the task. Links are made and
+    removed in place — the editor's Linked section searches mail and events right there, an
+    event's and a conversation's Tasks card adds a task already linked or finds one to link, and a
+    series' link switches between the occurrence and the series with a segmented control — never
+    in a sheet. A list row shows its links as chips. A link whose mailbox or calendar is gone reads
+    "Not available" and stays until it's unlinked; an event no longer in the calendar opens as
+    the task kept it, with a notice. Nothing is changed in the mail, the calendar or Google Tasks,
+    and tasks are never deleted for a link. Migration and matching are `OtterMailTests/TaskLinkTests.swift`.
+- `Grok/`: Give to Grok, on a task, a conversation (More) or an event. The sheet takes an
+  instruction and shows, in full, the JSON the bot receives (a conversation's every message, as
+  text); only Send sends. The job is registered with the user's own job service
+  (`tools/grok-jobs`, which hands back a callback token for that job alone), then posted to the
+  webhook with the sender header from Settings › Grok bot. Status cards (sent, running, done,
+  error) poll the service while they're on screen; the bot's answer is plain text, copyable,
+  never acted on. The webhook URL, sender key, service URL and app token are in the Keychain, this
+  device only, and Settings shows only their hosts; nothing is logged. The demo has a stand-in
+  that sends nothing. `OtterMailTests/GrokTests.swift`.
 - `Mail/`: the model and `MailStore`, which screens render from. `DemoMail.swift` loads the demo.
 - Alias mailboxes (`NotificationShared/AliasMailbox.swift`, `MailStore.aliases`): an IMAP
   mailbox's address with a mailbox of its own, made on the Mac and the web (the account's

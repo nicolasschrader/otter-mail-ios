@@ -263,40 +263,12 @@ struct TaskRow: View {
                 Button(action: onOpen) { lines }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .combine)
-                if showsLinks, let email = task.email {
-                    link("envelope", email.subject) { onEmail(email) }
-                        .accessibilityLabel("From \(email.subject)")
-                        .accessibilityHint("Opens the conversation")
-                }
-                if showsLinks, let event = task.events.first {
-                    link(event.scope == .series ? "repeat" : "calendar", event.title) { onEvent(event) }
-                        .accessibilityLabel("For \(event.title)")
-                        .accessibilityHint("Opens the event")
-                }
-                if showsLinks, more > 0 {
-                    Text(more == 1 ? "1 more link" : "\(more) more links")
-                        .font(.inter(.caption))
-                        .foregroundStyle(palette.muted.opacity(0.8))
+                if showsLinks, !task.emails.isEmpty || !task.events.isEmpty {
+                    TaskLinkChips(task: task, onEmail: onEmail, onEvent: onEvent)
                 }
             }
         }
         .contentShape(.rect)
-    }
-
-    /** The links past the first conversation and the first event, which the editor lists. */
-    private var more: Int { max(task.emails.count - 1, 0) + max(task.events.count - 1, 0) }
-
-    private func link(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: symbol)
-                Text(title).lineLimit(1)
-            }
-            .font(.inter(.footnote))
-            .foregroundStyle(palette.muted)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
     }
 
     private var lines: some View {

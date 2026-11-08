@@ -86,14 +86,6 @@ struct HomeView: View {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardUp = false
             }
-            .onAppear {
-                switch UserDefaults.standard.string(forKey: "otter:shot") {
-                case "calendar", "calendars": section = .calendar
-                case "tasks": section = .tasks
-                case "catchup": section = .mail; catchingUp = true
-                default: break
-                }
-            }
     }
 
     @ViewBuilder private var content: some View {

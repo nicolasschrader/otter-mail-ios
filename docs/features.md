@@ -371,6 +371,9 @@ the Todoist integration above, which is a Todoist account's tasks.
 | Sorted by due: overdue, today, upcoming, no date; done folds away | —   | —   | ✓                      |
 | Optional due date, a time, and a reminder at that time            | —   | —   | ✓ (local notification) |
 | Add a task from a conversation, with a link back to it            | —   | —   | ✓                      |
+| Link a task to many conversations and events (occurrence/series)  | —   | —   | ✓                      |
+| An event's and a conversation's linked tasks; add or link there   | —   | —   | ✓                      |
+| Give a task, conversation or event to a Grok bot (own webhook)    | —   | —   | ✓                      |
 | Task lists: All, Inbox, new and renamed lists; a task's list      | —   | —   | ✓                      |
 | Stored on the device, per Otter account (demo apart); no sync     | —   | —   | ✓                      |
 

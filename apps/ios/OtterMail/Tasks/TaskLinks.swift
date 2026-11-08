@@ -17,7 +17,7 @@ nonisolated struct TaskEvent: Hashable, Codable, Sendable {
         var title: String {
             switch self {
             case .occurrence: "This event"
-            case .series: "All events in the series"
+            case .series: "Whole series"
             }
         }
     }
