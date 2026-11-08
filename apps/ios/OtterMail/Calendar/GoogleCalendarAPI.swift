@@ -197,8 +197,9 @@ nonisolated enum GoogleEvents {
         let calendars = (page.items ?? [])
             .filter { $0.hidden != true }
             .map { item in
+                // Core's listCalendars: the primary one is `primary` (Google takes it in its paths too), keying its color alike on every device.
                 EventCalendar(
-                    id: item.id,
+                    id: item.primary == true ? "primary" : item.id,
                     name: [item.summaryOverride, item.summary].compactMap { $0 }.first { !$0.isEmpty } ?? item.id,
                     color: item.backgroundColor,
                     primary: item.primary == true,

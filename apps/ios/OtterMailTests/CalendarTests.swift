@@ -289,6 +289,15 @@ struct CalendarTests {
     }
 
     /** dates.test.ts "shows a week's five weekdays, from any day it leads with". */
+    /** Google's dates are Gregorian, as `EventTimes.day` reads them, on a phone set to the Buddhist calendar too. */
+    @Test func writesDaysInTheGregorianCalendarWhicheverThePhoneShows() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = TimeZone(identifier: "Asia/Bangkok")!
+        let dates = calendarDates(buddhist)
+        let may4 = EventTimes(calendar: buddhist).day("2026-05-04")!
+        #expect(dates.dayKey(may4) == "2026-05-04")
+    }
+
     @Test func showsAWeeksFiveWeekdaysFromAnyDayItLeadsWith() {
         let dates = calendarDates(zone("Europe/Berlin"))
         let days = dates.visibleDays(.week, day(2026, 11, 4, in: dates.calendar), free: true, weekends: false)
@@ -544,16 +553,31 @@ struct CalendarTests {
         let page = try GoogleEvents.calendars(Data(json.utf8), account: me)
         #expect(page.next == nil)
         #expect(page.calendars.allSatisfy { $0.account == me })
-        #expect(page.calendars[0].key == "robin@otter.example|robin@otter.example")
+        // Core's listCalendars: the primary one is `primary`, so a color chosen on the Mac keys the same.
+        #expect(page.calendars[0].key == "robin@otter.example|primary")
         // Google's own order, without the ones hidden there.
-        #expect(page.calendars.map(\.id) == ["robin@otter.example", "work@otter.example", "birthdays"])
+        #expect(page.calendars.map(\.id) == ["primary", "work@otter.example", "birthdays"])
         #expect(page.calendars[0].primary)
         #expect(page.calendars[0].color == "#9fe1e7")
         // Its name in Google Calendar wins, and one turned off there isn't fetched.
         #expect(page.calendars[1].name == "Otterware")
         #expect(page.calendars.map(\.shown) == [true, false, true])
         // The screen gets them primary first, then by name.
-        #expect(GoogleEvents.sorted(page.calendars).map(\.id) == ["robin@otter.example", "birthdays", "work@otter.example"])
+        #expect(GoogleEvents.sorted(page.calendars).map(\.id) == ["primary", "birthdays", "work@otter.example"])
+    }
+
+    /** Links and hidden calendars kept under the primary calendar's address before it was `primary` still find it. */
+    @Test func readsThePrimaryCalendarsOlderAddressAsPrimary() throws {
+        let link = try JSONDecoder().decode(TaskEvent.self, from: Data(#"""
+        {"account":"Robin@otter.example","calendarId":"robin@otter.example","eventId":"evt-1","title":"Standup","start":0}
+        """#.utf8))
+        #expect(link.calendarId == "primary")
+        #expect(link.matches(CalendarEvent(eventId: "evt-1", calendar: mine, title: "Standup", start: .now, end: .now)))
+        let other = TaskEvent(account: me, calendarId: "work@otter.example", eventId: "e", title: "T", start: .now)
+        #expect(other.calendarId == "work@otter.example")
+
+        let shown = CalendarShown.read(#"{"robin@otter.example|robin@otter.example": false, "robin@otter.example|work": true}"#)
+        #expect(shown == ["robin@otter.example|primary": false, "robin@otter.example|work": true])
     }
 
     @Test func carriesGooglesNextPage() throws {

@@ -25,7 +25,14 @@ final class CalendarShown {
         guard let data = json?.data(using: .utf8),
               let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return [:] }
-        return record.compactMapValues { $0 as? Bool }
+        // A primary calendar was kept under its address (`me|me`) before it was `primary`, as core lists it.
+        let flags: [String: Bool] = record.compactMapValues { $0 as? Bool }
+        return flags.reduce(into: [String: Bool]()) { shown, entry in
+            let parts = entry.key.split(separator: "|", maxSplits: 1).map(String.init)
+            let key = parts.count == 2 && parts[0].lowercased() == parts[1].lowercased()
+                ? EventStyle.key(mailbox: parts[0], calendar: "primary") : entry.key
+            if shown[key] == nil || key == entry.key { shown[key] = entry.value }
+        }
     }
 
     nonisolated static func isShown(_ shown: [String: Bool], key: String, hiddenByDefault: Bool) -> Bool {

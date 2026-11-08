@@ -299,6 +299,52 @@ struct TaskTests {
         #expect(store.tasks.isEmpty)
     }
 
+    @Test func keepsBothOfTwoQuickLinks() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let reply = task("Reply to Robin")
+        store.open("demo", seed: [reply])
+        await store.settled()
+
+        let one = TaskEmail(mailbox: "robin@otter.example", thread: "t1", subject: "One")
+        let two = TaskEmail(mailbox: "robin@otter.example", thread: "t2", subject: "Two")
+        // The second is asked for while the first is still being written.
+        let first = Task { try await store.update(reply.id) { TaskLinks.linking($0, email: one) } }
+        let second = Task { try await store.update(reply.id) { TaskLinks.linking($0, email: two) } }
+        try await first.value
+        try await second.value
+
+        #expect(store.task(reply.id)?.emails.map(\.thread) == ["t1", "t2"])
+        #expect(try files.load("demo")?.first?.emails.map(\.thread) == ["t1", "t2"])
+    }
+
+    @Test func dropsASaveFromTheAccountSignedOutOfWhileItWasWritten() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        store.open("a", seed: [task("A's first")])
+        await store.settled()
+
+        let writing = Task { try await store.save(self.task("A's second")) }
+        let queued = Task { try await store.save(self.task("A's third")) }
+        // The first is on its way to disk and the second waits behind it when the account changes.
+        await Task.yield()
+        store.close()
+        store.open("b", seed: [task("B's own")])
+        try await writing.value
+        try await queued.value
+        await store.settled()
+
+        #expect(store.scope == "b")
+        #expect(store.tasks.map(\.content) == ["B's own"])
+        #expect(try files.load("b")?.map(\.content) == ["B's own"])
+        // A's file has what was on its way to it, and nothing that was asked after A had gone.
+        #expect(try files.load("a")?.contains { $0.content == "A's third" } == false)
+    }
+
     @Test func readsAFileMissingTheFieldsItDoesntHaveYet() throws {
         let id = UUID()
         let json = Data(#"[{"id":"\#(id.uuidString)","content":"Older build"}]"#.utf8)

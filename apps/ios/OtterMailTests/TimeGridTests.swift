@@ -105,6 +105,15 @@ struct TimeGridTests {
         #expect(TimeGrid.minutes(whole, on: day, dates: dates).upperBound == 1440)
     }
 
+    /** On the days the clocks change in Berlin, 09:00 is still at the grid's 9. */
+    @Test func placesEventsByTheClockOnTheDaysItChanges() {
+        let forward = event("forward", at(29, 9, month: 3), at(29, 10, month: 3))
+        #expect(TimeGrid.minutes(forward, on: at(29, 0, month: 3), dates: dates) == (9 * 60)...(10 * 60))
+        let back = event("back", at(25, 9, month: 10), at(25, 10, month: 10))
+        #expect(TimeGrid.minutes(back, on: at(25, 0, month: 10), dates: dates) == (9 * 60)...(10 * 60))
+        #expect(TimeGrid.openingHour([back], on: at(25, 0, month: 10), now: at(4, 12), dates: dates) == 8)
+    }
+
     @Test func allDayAndDayLongEventsGoInTheAllDayRow() {
         let birthday = event("birthday", at(4, 0), at(5, 0), allDay: true)
         let marathon = event("marathon", at(4, 6), at(5, 6))

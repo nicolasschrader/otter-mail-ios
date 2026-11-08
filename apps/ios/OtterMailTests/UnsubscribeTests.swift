@@ -126,6 +126,13 @@ struct UnsubscribeTests {
         #expect(email.body == "stop mail")
     }
 
+    /** As URLSearchParams reads it: an encoded "+" is a plus, and the rest decodes as before. */
+    @Test func encodedPlusInMailtoStaysAPlus() throws {
+        let email = try Unsubscribe.email(URL(string: "mailto:leave@list.test?subject=token%2Bvalue&body=a+b%20c%26d")!)
+        #expect(email.subject == "token+value")
+        #expect(email.body == "a b c&d")
+    }
+
     @Test func refusedOneClickOpensThePageWhenThereIsNoMailto() async throws {
         let unsubscribe = try #require(Unsubscribe(headers("<https://bad.test/u>", oneClick: true)))
         var opened: URL?

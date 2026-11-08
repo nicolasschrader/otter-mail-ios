@@ -44,7 +44,7 @@ nonisolated struct TaskEvent: Hashable, Codable, Sendable {
     ) {
         self.provider = provider
         self.account = account.lowercased()
-        self.calendarId = calendarId
+        self.calendarId = Self.calendarId(calendarId, account: account, provider: provider)
         self.eventId = eventId
         self.seriesId = seriesId
         self.originalStart = originalStart
@@ -84,6 +84,14 @@ nonisolated struct TaskEvent: Hashable, Codable, Sendable {
             end: try container.decodeIfPresent(Date.self, forKey: .end),
             allDay: try container.decodeIfPresent(Bool.self, forKey: .allDay) ?? false
         )
+    }
+
+    /**
+     * Google's primary calendar is listed as `primary` (core's listCalendars);
+     * links made before that name it by its id, which is the account's address.
+     */
+    static func calendarId(_ id: String, account: String, provider: String) -> String {
+        provider == "google" && id.lowercased() == account.lowercased() ? "primary" : id
     }
 
     var recurring: Bool { seriesId != nil }

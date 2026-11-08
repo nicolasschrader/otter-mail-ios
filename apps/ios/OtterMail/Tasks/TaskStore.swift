@@ -39,6 +39,11 @@ final class TaskStore {
     /** The reminder work in flight, so a newer job queues behind it rather than racing it. */
     @ObservationIgnored private var queued: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    /** Bumped by every open and close, so a write from the session before can't land in this one. */
+    @ObservationIgnored private var session = 0
+    /** A change is being written; the ones after it wait their turn here. */
+    @ObservationIgnored private var writing = false
+    @ObservationIgnored private var waiters: [CheckedContinuation<Void, Never>] = []
     /** The file couldn't be read: it keeps whatever it holds until the next sign-in. */
     @ObservationIgnored private var unreadable = false
 
@@ -65,6 +70,7 @@ final class TaskStore {
     }
 
     func open(_ scope: String, seed: [MailTask] = [], seedProjects: [TaskProject] = []) {
+        session += 1
         self.scope = scope
         unreadable = false
         failure = nil
@@ -105,28 +111,28 @@ final class TaskStore {
     /** A new list, kept on disk before it's shown, and then the one shown. */
     @discardableResult
     func createProject(_ name: String) async throws -> TaskProject? {
-        guard let scope, let name = TaskProject.named(name) else { return nil }
+        guard let name = TaskProject.named(name) else { return nil }
         let made = TaskProject(id: UUID().uuidString, name: name)
-        let keeping = projects + [made]
-        try await writeProjects(keeping, scope: scope)
-        projects = keeping
+        guard try await commitProjects({ $0 + [made] }) else { return nil }
         select(made.id)
         return made
     }
 
     /** A list made here takes a new name; the Inbox keeps its own. */
     func renameProject(_ id: String, to name: String) async throws {
-        guard let scope, let name = TaskProject.named(name),
-              let index = projects.firstIndex(where: { $0.id == id }) else { return }
-        var keeping = projects
-        keeping[index].name = name
-        try await writeProjects(keeping, scope: scope)
-        projects = keeping
+        guard let name = TaskProject.named(name) else { return }
+        try await commitProjects { projects in
+            guard let index = projects.firstIndex(where: { $0.id == id }) else { return nil }
+            var projects = projects
+            projects[index].name = name
+            return projects
+        }
     }
 
     /** Signing out: this account's reminders go, its tasks wait on disk for the next sign-in. */
     func close() {
         let closing = scope
+        session += 1
         tasks = []
         projects = []
         selected = nil
@@ -151,28 +157,47 @@ final class TaskStore {
 
     func linked(thread: String, mailboxes: [String]) -> [MailTask] { TaskLinks.linked(tasks, thread: thread, mailboxes: mailboxes) }
 
-    /** A task's links changed from the event or conversation they point at, kept as Save keeps it: on disk first. */
+    /**
+     * A task's links changed from the event or conversation they point at, kept as Save keeps it: on disk first.
+     * The change is made to the task as the save before it left it, so two quick links both stay.
+     */
     func update(_ id: UUID, _ change: (MailTask) -> MailTask) async throws {
-        guard let task = task(id) else { return }
-        try await save(change(task))
+        var saved: MailTask?
+        try await commit { tasks in
+            guard let index = tasks.firstIndex(where: { $0.id == id }) else { return nil }
+            var tasks = tasks
+            tasks[index] = Self.trimmed(change(tasks[index]))
+            guard !tasks[index].content.isEmpty else { return nil }
+            saved = tasks[index]
+            return tasks
+        }
+        if let saved { await remind(saved) }
     }
 
     /** Keeps a task, and only confirms it once the file is written (the editor waits on this). */
     func save(_ task: MailTask) async throws {
-        guard let scope else { return }
+        let task = Self.trimmed(task)
+        guard !task.content.isEmpty else { return }
+        let kept = try await commit { tasks in
+            var tasks = tasks
+            if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+                tasks[index] = task
+            } else {
+                tasks.append(task)
+            }
+            return tasks
+        }
+        if kept { await remind(task) }
+    }
+
+    private static func trimmed(_ task: MailTask) -> MailTask {
         var task = task
         task.content = task.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !task.content.isEmpty else { return }
-        var keeping = tasks
-        if let index = keeping.firstIndex(where: { $0.id == task.id }) {
-            keeping[index] = task
-        } else {
-            keeping.append(task)
-        }
-        // On disk first: a write that throws leaves the list as it was, and the editor says why.
-        try await write(keeping, scope: scope)
-        tasks = keeping
-        // Nothing is asked of the user for a reminder that has already passed.
+        return task
+    }
+
+    /** Nothing is asked of the user for a reminder that has already passed. */
+    private func remind(_ task: MailTask) async {
         if let at = task.reminderAt, at > .now {
             await askForReminders()
         } else {
@@ -225,6 +250,8 @@ final class TaskStore {
 
     /** The reminder work queued so far, which the tests wait on. */
     func settled() async {
+        await lock()
+        unlock()
         await queued?.value
     }
 
@@ -260,12 +287,65 @@ final class TaskStore {
         }
     }
 
+    /**
+     * One change to the tasks at a time: each is made to the list the one before
+     * it left, written, then published, and only for the session it was asked in:
+     * a change from before a sign-out or a switch of account is dropped, and so
+     * is its result if the switch happens while it's being written. The edit runs
+     * again on the list as it stands then, so a done or a deletion made during
+     * the write isn't undone. Returns whether the change was kept.
+     */
+    @discardableResult
+    private func commit(_ edit: ([MailTask]) -> [MailTask]?) async throws -> Bool {
+        let session = self.session
+        await lock()
+        defer { unlock() }
+        guard session == self.session, let scope, let keeping = edit(tasks) else { return false }
+        try await write(keeping, scope: scope)
+        guard session == self.session else { return false }
+        tasks = edit(tasks) ?? tasks
+        return true
+    }
+
+    /** The same for the lists, on the same turn as the tasks' writes. */
+    @discardableResult
+    private func commitProjects(_ edit: ([TaskProject]) -> [TaskProject]?) async throws -> Bool {
+        let session = self.session
+        await lock()
+        defer { unlock() }
+        guard session == self.session, let scope, let keeping = edit(projects) else { return false }
+        try await writeProjects(keeping, scope: scope)
+        guard session == self.session else { return false }
+        projects = edit(projects) ?? projects
+        return true
+    }
+
+    private func lock() async {
+        guard writing else {
+            writing = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /** The next change in line takes the turn as it is, so none slips in between. */
+    private func unlock() {
+        if waiters.isEmpty {
+            writing = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
     /** Writes in the background, for the changes the list makes; a failure shows there. */
     private func persist() {
-        guard let scope else { return }
-        let keeping = tasks
+        let session = self.session
         Task {
-            do { try await write(keeping, scope: scope) } catch { failure = error.localizedDescription }
+            do {
+                try await commit { $0 }
+            } catch {
+                if session == self.session { failure = error.localizedDescription }
+            }
         }
     }
 
@@ -275,10 +355,13 @@ final class TaskStore {
     }
 
     private func persistProjects() {
-        guard let scope else { return }
-        let keeping = projects
+        let session = self.session
         Task {
-            do { try await writeProjects(keeping, scope: scope) } catch { failure = error.localizedDescription }
+            do {
+                try await commitProjects { $0 }
+            } catch {
+                if session == self.session { failure = error.localizedDescription }
+            }
         }
     }
 

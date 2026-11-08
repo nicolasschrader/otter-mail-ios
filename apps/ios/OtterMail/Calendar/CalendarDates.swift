@@ -83,9 +83,14 @@ nonisolated struct CalendarDates {
 
     func sameDay(_ a: Date, _ b: Date) -> Bool { calendar.isDate(a, inSameDayAs: b) }
 
-    /** YYYY-MM-DD where the phone is: all-day events' dates, and a day's own name. */
+    /**
+     * YYYY-MM-DD where the phone is: all-day events' dates, and a day's own name.
+     * Always Gregorian, as Google reads it (`EventTimes.day`), whichever calendar the phone shows.
+     */
     func dayKey(_ date: Date) -> String {
-        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 

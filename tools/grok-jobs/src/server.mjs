@@ -165,39 +165,42 @@ export async function createJobService(options) {
 
     const instructionSha256 = sha256(instruction);
     const contextSha256 = sha256(context);
-    const known = store.byIdempotencyKey(idempotencyKey);
-    if (known) {
-      const matches =
-        known.type === body.type &&
-        known.sourceKey === sourceKey &&
-        known.instructionSha256 === instructionSha256 &&
-        known.contextSha256 === contextSha256;
-      if (!matches) throw new HttpError(409, "This idempotencyKey was used for another job.");
-      // The token went out with the first answer and isn't kept: a replay has none.
-      return [200, { job: publicJob(known), replayed: true }];
-    }
+    // The key's check, the room and the insert as one step: two identical posts make one job.
+    return store.exclusive(async () => {
+      const known = store.byIdempotencyKey(idempotencyKey);
+      if (known) {
+        const matches =
+          known.type === body.type &&
+          known.sourceKey === sourceKey &&
+          known.instructionSha256 === instructionSha256 &&
+          known.contextSha256 === contextSha256;
+        if (!matches) throw new HttpError(409, "This idempotencyKey was used for another job.");
+        // The token went out with the first answer and isn't kept: a replay has none.
+        return [200, { job: publicJob(known), replayed: true }];
+      }
 
-    await makeRoom();
-    const token = randomBytes(32).toString("base64url");
-    const at = now().toISOString();
-    /** @type {import("./store.mjs").Job} */
-    const job = {
-      id: randomUUID(),
-      idempotencyKey,
-      type: body.type,
-      sourceKey,
-      instructionSha256,
-      contextSha256,
-      contextBytes,
-      callbackSha256: sha256(token),
-      status: "registered",
-      result: null,
-      error: null,
-      createdAt: at,
-      updatedAt: at,
-    };
-    await store.put(job);
-    return [201, { job: publicJob(job), callback: { url: callbackUrl(job.id), token }, replayed: false }];
+      await makeRoom();
+      const token = randomBytes(32).toString("base64url");
+      const at = now().toISOString();
+      /** @type {import("./store.mjs").Job} */
+      const job = {
+        id: randomUUID(),
+        idempotencyKey,
+        type: body.type,
+        sourceKey,
+        instructionSha256,
+        contextSha256,
+        contextBytes,
+        callbackSha256: sha256(token),
+        status: "registered",
+        result: null,
+        error: null,
+        createdAt: at,
+        updatedAt: at,
+      };
+      await store.put(job);
+      return [201, { job: publicJob(job), callback: { url: callbackUrl(job.id), token }, replayed: false }];
+    });
   }
 
   /** @param {import("node:http").IncomingMessage} request @param {URL} url */
@@ -240,15 +243,20 @@ export async function createJobService(options) {
     const result = body.status === "done" && body.result !== undefined ? text(body.result, LIMITS.result, "result", 0) : null;
     const error = body.status === "error" && body.error !== undefined ? text(body.error, LIMITS.error, "error", 0) : null;
 
-    if (job.status === "done" || job.status === "error") {
-      if (job.status === body.status && job.result === result && job.error === error) {
-        return [200, { job: publicJob(job), idempotent: true }];
+    // The job as it is now, not as it was before the body arrived: a slow running can't undo a done.
+    return store.exclusive(async () => {
+      const current = store.get(id);
+      if (!current) throw new HttpError(401, "Unauthorized.");
+      if (current.status === "done" || current.status === "error") {
+        if (current.status === body.status && current.result === result && current.error === error) {
+          return [200, { job: publicJob(current), idempotent: true }];
+        }
+        throw new HttpError(409, `The job is already ${current.status}.`);
       }
-      throw new HttpError(409, `The job is already ${job.status}.`);
-    }
-    const next = { ...job, status: body.status, result, error, updatedAt: now().toISOString() };
-    await store.put(next);
-    return [200, { job: publicJob(next) }];
+      const next = { ...current, status: body.status, result, error, updatedAt: now().toISOString() };
+      await store.put(next);
+      return [200, { job: publicJob(next) }];
+    });
   }
 
   /** @param {import("node:http").IncomingMessage} request */
@@ -327,7 +335,9 @@ export async function createJobService(options) {
       return new Promise((resolve) => {
         server.closeAllConnections?.();
         server.close(() => resolve(undefined));
-      }).then(() => store.writing);
+      })
+        .then(() => store.queue)
+        .then(() => store.writing);
     },
   };
 }

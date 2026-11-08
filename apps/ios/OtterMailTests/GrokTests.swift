@@ -43,6 +43,24 @@ struct GrokTests {
         #expect(job(.sending, delivered: false).advanced(by: GrokRemoteJob(id: "j1", status: "done")).status == .sending)
     }
 
+    @Test func offersRetryForAJobTheAppClosedOnWhileSending() {
+        let folder = URL.temporaryDirectory.appending(path: "grok-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = GrokJobFiles(folder: folder)
+        let sending = job(.sending, delivered: false)
+        let sent = job(.sent)
+        files.save([sending, sent], scope: "demo")
+
+        let jobs = GrokJobs(files: files, transport: DemoGrokTransport())
+        jobs.open("demo", demo: true)
+
+        #expect(jobs.job(sending.id)?.canRetry == true)
+        #expect(jobs.job(sending.id)?.status == .sending)
+        #expect(jobs.job(sent.id) == sent)
+        // Kept so, for the next time the app opens.
+        #expect(files.load("demo").first { $0.id == sending.id }?.canRetry == true)
+    }
+
     @Test func acceptsOnlyPathSafeJobIds() {
         #expect(GrokJob.isJobId("0b5c3f1e-4a2d-4c7e-9a10-6f1d2e3c4b5a"))
         #expect(!GrokJob.isJobId("../etc"))

@@ -76,17 +76,24 @@ nonisolated enum TimeGrid {
     }
 
     /**
-     * The minutes from the day's midnight it covers on that day, clipped to
-     * the day: an event across midnight shows its part on each.
+     * The minutes it covers on that day by the clock, clipped to the day: an
+     * event across midnight shows its part on each. Clock time, not time since
+     * midnight, so on the days the clocks change 09:00 is still at the 9 the
+     * hour lines and the now line are drawn at.
      */
     static func minutes(_ event: CalendarEvent, on day: Date, dates: CalendarDates) -> ClosedRange<Double> {
         let dayStart = dates.startOfDay(day)
         let dayEnd = dates.addDays(dayStart, 1)
-        let length = min(dayEnd.timeIntervalSince(dayStart) / 60, 24 * 60)
-        let start = max(event.start, dayStart).timeIntervalSince(dayStart) / 60
-        let end = min(event.end, dayEnd).timeIntervalSince(dayStart) / 60
-        let from = min(max(start, 0), length)
-        return from...min(max(end, from), length)
+        let from = clock(event.start, from: dayStart, to: dayEnd, dates: dates)
+        return from...max(clock(event.end, from: dayStart, to: dayEnd, dates: dates), from)
+    }
+
+    /** Minutes past the day's 00:00 on the clock, 0 before the day and 24 hours after it. */
+    private static func clock(_ date: Date, from dayStart: Date, to dayEnd: Date, dates: CalendarDates) -> Double {
+        if date <= dayStart { return 0 }
+        if date >= dayEnd { return 24 * 60 }
+        let parts = dates.calendar.dateComponents([.hour, .minute, .second], from: date)
+        return Double(parts.hour ?? 0) * 60 + Double(parts.minute ?? 0) + Double(parts.second ?? 0) / 60
     }
 
     /**
@@ -108,6 +115,6 @@ nonisolated enum TimeGrid {
         if dates.sameDay(day, now) { return max(0, dates.calendar.component(.hour, from: now) - 2) }
         let dayStart = dates.startOfDay(day)
         guard let first = timed.map({ max($0.start, dayStart) }).min() else { return 8 }
-        return max(0, Int(first.timeIntervalSince(dayStart) / 3600) - 1)
+        return max(0, (first > dayStart ? dates.calendar.component(.hour, from: first) : 0) - 1)
     }
 }

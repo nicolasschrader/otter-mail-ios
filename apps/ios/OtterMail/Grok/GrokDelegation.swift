@@ -404,6 +404,20 @@ nonisolated struct GrokJob: Codable, Identifiable, Equatable, Sendable {
         (1...100).contains(id.count) && id.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "-" || $0 == "_" }
     }
     var canRetry: Bool { problem != nil && !delivered }
+
+    nonisolated static let interruptedProblem = "Otter Mail closed before this job was sent. Retry to carry on."
+
+    /**
+     * A job read back from disk that was still on its way when the app last
+     * closed: nothing is sending it now, so it waits for Retry, which carries
+     * on under the same idempotency key rather than starting a second job.
+     */
+    func interrupted() -> GrokJob {
+        guard !delivered, problem == nil else { return self }
+        var job = self
+        job.problem = Self.interruptedProblem
+        return job
+    }
 }
 
 /** The way out to the job service and the webhook: the live one, or the demo's stand-in, which reaches nothing. */
@@ -590,7 +604,8 @@ final class GrokJobs {
     func open(_ scope: String, demo: Bool) {
         self.scope = scope
         self.demo = demo
-        jobs = files.load(scope)
+        jobs = files.load(scope).map { inFlight.contains($0.id) ? $0 : $0.interrupted() }
+        if jobs.contains(where: { $0.problem == GrokJob.interruptedProblem }) { persist() }
         reloadConfig()
     }
 

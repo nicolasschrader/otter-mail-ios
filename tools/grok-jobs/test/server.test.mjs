@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { APP_TOKEN, registration, startService } from "./helpers.mjs";
 import { createMockBot } from "../mock-bot.mjs";
@@ -146,4 +147,73 @@ test("the mock bot runs a job end to end", async (t) => {
   }
   assert.equal(job.status, "done");
   assert.match(job.result, /^Mock bot: "Draft a reply saying yes\."/);
+});
+
+test("two identical registrations at once make one job", async (t) => {
+  const service = await startService();
+  t.after(() => service.stop());
+  const answers = await Promise.all([
+    service.call("/jobs", { method: "POST", json: registration() }),
+    service.call("/jobs", { method: "POST", json: registration() }),
+  ]);
+  assert.deepEqual(answers.map((answer) => answer.status).sort(), [200, 201]);
+  assert.equal(answers[0].body.job.id, answers[1].body.job.id);
+  assert.equal(service.service.store.jobs.size, 1);
+});
+
+test("a registration whose write fails leaves nothing behind, so a retry gets a callback", async (t) => {
+  const service = await startService();
+  t.after(() => service.stop());
+  const store = service.service.store;
+  const write = store.write.bind(store);
+  store.write = async () => {
+    store.write = write;
+    throw new Error("disk full");
+  };
+
+  assert.equal((await service.call("/jobs", { method: "POST", json: registration() })).status, 500);
+  assert.equal(store.jobs.size, 0);
+  const retry = await service.call("/jobs", { method: "POST", json: registration() });
+  assert.equal(retry.status, 201);
+  assert.equal(retry.body.replayed, false);
+  assert.ok(retry.body.callback.token);
+});
+
+test("a slow running report can't undo a done that landed while it was sent", async (t) => {
+  const service = await startService();
+  t.after(() => service.stop());
+  const { body } = await service.call("/jobs", { method: "POST", json: registration() });
+  const { url, token } = body.callback;
+  const running = JSON.stringify({ status: "running" });
+
+  const request = httpRequest(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(running),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const slow = new Promise((resolve, reject) => {
+    request.on("response", (response) => {
+      response.resume();
+      response.on("end", () => resolve(response.statusCode));
+    });
+    request.on("error", reject);
+  });
+  request.flushHeaders();
+  request.write(running.slice(0, 5));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const done = await service.call(`/jobs/${body.job.id}/result`, {
+    method: "POST",
+    json: { status: "done", result: "Drafted." },
+    token,
+  });
+  assert.equal(done.status, 200);
+  request.end(running.slice(5));
+
+  assert.equal(await slow, 409);
+  const read = await service.call(`/jobs/${body.job.id}`);
+  assert.deepEqual([read.body.status, read.body.result], ["done", "Drafted."]);
 });

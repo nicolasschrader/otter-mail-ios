@@ -6,6 +6,7 @@ struct ThreadView: View {
     @Environment(Session.self) private var session
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openTaskTarget) private var openTarget
 
     let threadID: String
     let place: Place
@@ -154,9 +155,14 @@ struct ThreadView: View {
         }
         .toolbarVisibility(.hidden, for: .tabBar)
         .sheet(item: $newTask) { task in
-            // Already in the conversation it links to, so its link stays on the task's own screen.
+            // This conversation is already open under it; another one it links to opens as LinkedTasks opens it.
             NavigationStack {
-                TaskEditor(task: task, onEmail: { _ in newTask = nil })
+                TaskEditor(task: task, onEmail: { email in
+                    newTask = nil
+                    if !email.links(thread.id, mailbox: shown(mailbox).email) && !email.links(thread.id, mailbox: thread.mailbox) {
+                        openTarget(.email(email))
+                    }
+                })
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("Close", systemImage: "xmark") { newTask = nil }

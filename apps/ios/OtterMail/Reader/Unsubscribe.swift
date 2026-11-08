@@ -44,10 +44,11 @@ struct Unsubscribe {
     /** The email a mailto link asks for, as core's `unsubscribeEmail` reads it. */
     static func email(_ mailto: URL) throws -> Email {
         guard let components = URLComponents(url: mailto, resolvingAgainstBaseURL: false) else { throw Failure.malformed }
-        // URLSearchParams turns bare "+" into a space; URLComponents keeps it.
+        // URLSearchParams turns a bare "+" into a space before it decodes, so "%2B" stays a "+".
         let query = { (name: String) -> String? in
-            guard let value = components.queryItems?.first(where: { $0.name.lowercased() == name })?.value else { return nil }
-            return value.replacingOccurrences(of: "+", with: " ")
+            guard let raw = components.percentEncodedQueryItems?.first(where: { $0.name.lowercased() == name })?.value else { return nil }
+            let spaced = raw.replacingOccurrences(of: "+", with: " ")
+            return spaced.removingPercentEncoding ?? spaced
         }
         let to = components.path.trimmingCharacters(in: .whitespaces)
         let subject = query("subject") ?? "unsubscribe"

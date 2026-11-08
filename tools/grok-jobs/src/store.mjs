@@ -16,6 +16,8 @@ export class JobStore {
     this.jobs = new Map();
     /** @type {Promise<void>} */
     this.writing = Promise.resolve();
+    /** @type {Promise<unknown>} */
+    this.queue = Promise.resolve();
   }
 
   async load() {
@@ -49,21 +51,41 @@ export class JobStore {
     return [...this.jobs.values()];
   }
 
+  /**
+   * Runs `work` alone, after the work before it, so a check and the write it
+   * leads to can't interleave with another request's.
+   * @template T @param {() => Promise<T> | T} work @returns {Promise<T>}
+   */
+  exclusive(work) {
+    const run = this.queue.then(work);
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
   /** @param {Job} job */
   put(job) {
-    this.jobs.set(job.id, job);
-    return this.save();
+    return this.commit((jobs) => jobs.set(job.id, job));
   }
 
   /** @param {string[]} ids */
   remove(ids) {
-    for (const id of ids) this.jobs.delete(id);
-    return this.save();
+    return this.commit((jobs) => {
+      for (const id of ids) jobs.delete(id);
+    });
   }
 
-  save() {
-    const data = JSON.stringify({ version: 1, jobs: this.all() });
-    const next = this.writing.then(() => this.write(data));
+  /**
+   * Memory takes the change only once its file is written: a failed write
+   * leaves the jobs as they were.
+   * @param {(jobs: Map<string, Job>) => void} change
+   */
+  commit(change) {
+    const next = this.writing.then(async () => {
+      const jobs = new Map(this.jobs);
+      change(jobs);
+      await this.write(JSON.stringify({ version: 1, jobs: [...jobs.values()] }));
+      this.jobs = jobs;
+    });
     // A failed write fails its own caller; the next write still runs.
     this.writing = next.catch(() => {});
     return next;
