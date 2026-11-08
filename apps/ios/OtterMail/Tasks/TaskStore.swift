@@ -147,6 +147,16 @@ final class TaskStore {
 
     func contains(_ id: UUID) -> Bool { task(id) != nil }
 
+    func linked(to event: CalendarEvent) -> [MailTask] { TaskLinks.linked(tasks, to: event) }
+
+    func linked(thread: String, mailboxes: [String]) -> [MailTask] { TaskLinks.linked(tasks, thread: thread, mailboxes: mailboxes) }
+
+    /** A task's links changed from the event or conversation they point at, kept as Save keeps it: on disk first. */
+    func update(_ id: UUID, _ change: (MailTask) -> MailTask) async throws {
+        guard let task = task(id) else { return }
+        try await save(change(task))
+    }
+
     /** Keeps a task, and only confirms it once the file is written (the editor waits on this). */
     func save(_ task: MailTask) async throws {
         guard let scope else { return }

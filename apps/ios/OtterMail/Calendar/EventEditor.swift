@@ -95,7 +95,11 @@ struct EventEditor: View {
                     .frame(minHeight: 60, alignment: .topLeading)
             }
 
-            if let event { extras(event) }
+            if let event {
+                LinkedTasks(source: .event(event), inForm: true)
+                GrokJobCards(source: .event(event), inForm: true)
+                extras(event)
+            }
 
             if let error {
                 Section {

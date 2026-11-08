@@ -16,6 +16,8 @@ struct ThreadView: View {
     @State private var expanded: Set<String> = []
     @State private var asking: [MailContext]?
     @State private var newTask: MailTask?
+    @State private var linkingTask = false
+    @State private var delegating: GrokSource?
     @State private var unsubscribed = false
     @State private var unsubscribing = false
     @State private var notice: Notice?
@@ -49,6 +51,19 @@ struct ThreadView: View {
 
                 if let code = thread.verificationCode {
                     CodeCard(code: code)
+                        .padding(.bottom, 20)
+                        .padding(.horizontal, MessageView.inset)
+                }
+
+                // Only the tasks linked: a conversation adds and links them from More.
+                if !session.tasks.linked(thread: thread.id, mailboxes: [shown(mailbox).email, thread.mailbox]).isEmpty {
+                    LinkedTasks(source: .thread(thread, mailbox: shown(mailbox).email))
+                        .padding(.bottom, 20)
+                        .padding(.horizontal, MessageView.inset)
+                }
+
+                if grok.hasJobs(for: GrokSource.thread(thread, mailbox: shown(mailbox).email).key) {
+                    GrokJobCards(source: .thread(thread, mailbox: shown(mailbox).email))
                         .padding(.bottom, 20)
                         .padding(.horizontal, MessageView.inset)
                 }
@@ -97,6 +112,14 @@ struct ThreadView: View {
                     Button("Add task", systemImage: "checklist") {
                         newTask = MailTask(from: thread, mailbox: shown(mailbox).email)
                     }
+                    if !session.tasks.tasks.isEmpty {
+                        Button("Link to a task", systemImage: "link") { linkingTask = true }
+                    }
+                    if grok.isAvailable {
+                        Button("Give to Grok", systemImage: "paperplane") {
+                            delegating = .thread(thread, mailbox: shown(mailbox).email)
+                        }
+                    }
                     if !unsubscribed, let unsubscribe = Unsubscribe(thread.sent.last?.headers ?? [:]) {
                         Button(unsubscribing ? "Unsubscribing…" : "Unsubscribe", systemImage: "hand.raised") {
                             guard !unsubscribing else { return }
@@ -141,6 +164,20 @@ struct ThreadView: View {
                     }
             }
         }
+        .sheet(isPresented: $linkingTask) {
+            NavigationStack {
+                TaskPicker(linked: Set(session.tasks.linked(thread: thread.id, mailboxes: [shown(mailbox).email, thread.mailbox]).map(\.id))) { task, _ in
+                    let email = TaskEmail(thread, mailbox: shown(mailbox).email)
+                    Task {
+                        do { try await session.tasks.update(task.id) { TaskLinks.linking($0, email: email) } }
+                        catch { notice = Notice(text: "Couldn't link the task. \(error.localizedDescription)") }
+                    }
+                }
+            }
+        }
+        .sheet(item: $delegating) { source in
+            NavigationStack { GrokDelegateView(source: source) }
+        }
         .sheet(isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } })) {
             NavigationStack {
                 AgentView(context: asking ?? [], sheet: true)
@@ -153,6 +190,8 @@ struct ThreadView: View {
             if thread.unread { store.setRead(true, thread.id) }
         }
     }
+
+    private var grok: GrokJobs { session.grok }
 
     private func shown(_ mailbox: Mailbox) -> Mailbox {
         store.alias(place.scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox

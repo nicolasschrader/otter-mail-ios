@@ -110,6 +110,15 @@ struct SettingsView: View {
                         Label("Agents", image: "OtterAgent")
                     }
                 }
+                NavigationLink {
+                    GrokSettings()
+                } label: {
+                    LabeledContent {
+                        Text(session.grok.isConfigured ? "On" : "Off")
+                    } label: {
+                        Label("Grok bot", systemImage: "paperplane")
+                    }
+                }
             }
 
             Section {

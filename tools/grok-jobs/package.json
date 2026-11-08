@@ -1,0 +1,19 @@
+{
+  "name": "@otter-mail/grok-jobs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Otter Mail's local job service for Grok delegation: registers jobs, hands out one-time callbacks, keeps their status.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "grok-jobs": "./bin/grok-jobs.mjs"
+  },
+  "scripts": {
+    "mock-bot": "node mock-bot.mjs",
+    "start": "node bin/grok-jobs.mjs",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

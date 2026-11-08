@@ -37,6 +37,8 @@ struct HomeView: View {
     @State private var calendarShown = CalendarShown()
     @State private var catchUp = CatchUpState()
     @State private var openingTask: UUID?
+    /** A task's event, opened in the calendar over its pages. */
+    @State private var openingEvent: TaskEvent?
     @State private var query = ""
     @State private var searchPath: [String] = []
     @State private var keyboardUp = false
@@ -53,6 +55,8 @@ struct HomeView: View {
 
     var body: some View {
         content
+            .environment(calendar)
+            .environment(\.openTaskTarget, openTaskTarget)
             .onChange(of: store.shownScopes.map(\.email), initial: true) { _, shown in
                 if !shown.contains(place.scope) { place = Place(scope: shown.first ?? "") }
             }
@@ -81,6 +85,14 @@ struct HomeView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardUp = false
+            }
+            .onAppear {
+                switch UserDefaults.standard.string(forKey: "otter:shot") {
+                case "calendar", "calendars": section = .calendar
+                case "tasks": section = .tasks
+                case "catchup": section = .mail; catchingUp = true
+                default: break
+                }
             }
     }
 
@@ -120,7 +132,8 @@ struct HomeView: View {
             }
         case .calendar:
             withPlaces(CalendarView(
-                events: calendar, visibility: calendarShown, listing: $calendarListing, onTitle: { setMenu(open: true) }
+                events: calendar, visibility: calendarShown, listing: $calendarListing, opening: $openingEvent,
+                onTitle: { setMenu(open: true) }
             ))
         case .tasks:
             withPlaces(TasksView(
@@ -285,6 +298,20 @@ struct HomeView: View {
         settingsOpen = false
         openingTask = destination.id
         show(.tasks)
+    }
+
+    /** A task's link, wherever it was tapped: the conversation in Mail, the event in the calendar. */
+    private func openTaskTarget(_ target: TaskTarget) {
+        agentOpen = false
+        searchOpen = false
+        settingsOpen = false
+        switch target {
+        case .email(let email):
+            openTaskEmail(email)
+        case .event(let link):
+            openingEvent = link
+            show(.calendar)
+        }
     }
 
     /** The conversation a task came from, opened as a notification's is. */

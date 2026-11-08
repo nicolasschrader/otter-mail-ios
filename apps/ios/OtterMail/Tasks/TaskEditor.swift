@@ -10,6 +10,7 @@ struct TaskEditor: View {
     @Environment(Session.self) private var session
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openTaskTarget) private var openTarget
 
     let onEmail: (TaskEmail) -> Void
     let onSaved: (MailTask) -> Void
@@ -80,20 +81,14 @@ struct TaskEditor: View {
                 Text(whenFooter).sectionFooter()
             }
 
-            if let email = task.email {
-                Section {
-                    Button { onEmail(email) } label: {
-                        LabeledContent {
-                            Image(systemName: "chevron.right").font(.inter(.footnote)).foregroundStyle(palette.muted)
-                        } label: {
-                            Label(email.subject, systemImage: "envelope").lineLimit(2)
-                        }
-                    }
-                } header: {
-                    Text("From").sectionHeader()
-                } footer: {
-                    Text("The conversation this task came from, in \(email.mailbox).").sectionFooter()
-                }
+            TaskEditorLinks(task: $task, onEmail: onEmail) { link in
+                dismiss()
+                openTarget(.event(link))
+            }
+
+            // What's given to Grok is the task as saved, not edits still in the form.
+            if let saved = tasks.task(task.id) {
+                GrokJobCards(source: .task(saved), inForm: true)
             }
 
             if existing {

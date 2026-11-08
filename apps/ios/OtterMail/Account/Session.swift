@@ -32,6 +32,8 @@ final class Session {
     let agent = Agent()
     /** This iPhone's own tasks, per account (and the demo's): local, never synced. */
     let tasks = TaskStore()
+    /** What was given to Grok from this iPhone, per account like the tasks: local, never synced. */
+    let grok = GrokJobs()
     @ObservationIgnored let relay = Relay()
     @ObservationIgnored let google = GoogleAuth()
     @ObservationIgnored let microsoft = MicrosoftAuth()
@@ -75,9 +77,15 @@ final class Session {
     /** The tasks of whoever is signed in, with their reminders scheduled again from disk. */
     private func openTasks() {
         switch state {
-        case .welcome: tasks.close()
-        case .demo: tasks.open(TaskStore.scope(user: nil), seed: DemoTasks.seed(), seedProjects: DemoTasks.projects)
-        case .signedIn(let user): tasks.open(TaskStore.scope(user: user.id))
+        case .welcome:
+            tasks.close()
+            grok.close()
+        case .demo:
+            tasks.open(TaskStore.scope(user: nil), seed: DemoTasks.seed(), seedProjects: DemoTasks.projects)
+            grok.open(TaskStore.scope(user: nil), demo: true)
+        case .signedIn(let user):
+            tasks.open(TaskStore.scope(user: user.id))
+            grok.open(TaskStore.scope(user: user.id), demo: false)
         }
     }
 
@@ -528,6 +536,7 @@ final class Session {
         openingTask = nil
         // The account's tasks stay on this iPhone; their reminders come down with it.
         tasks.close()
+        grok.close()
         notificationConnections = [:]
         notificationProviders = []
         let previousUser = user
@@ -572,6 +581,7 @@ final class Session {
         store.clearRecovery()
         openingTask = nil
         tasks.close()
+        grok.close()
         UserDefaults.standard.set(false, forKey: Self.demoKey)
         store = MailStore(preferences: preferences)
         state = .welcome

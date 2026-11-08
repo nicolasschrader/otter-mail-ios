@@ -10,11 +10,23 @@ struct EventView: View {
     let event: CalendarEvent
     var dates: CalendarDates = CalendarDates()
     var color: Color
+    /** Why this is what a task kept of the event, rather than the event itself. */
+    var notice: String? = nil
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if let notice {
+                    Label(notice, systemImage: "calendar.badge.exclamationmark")
+                        .font(.inter(.subheadline))
+                        .foregroundStyle(palette.muted)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(palette.warning.opacity(0.12), in: .rect(cornerRadius: 14))
+                }
                 head
+                LinkedTasks(source: .event(event))
+                GrokJobCards(source: .event(event))
                 facts
                 if let details {
                     Text(details)

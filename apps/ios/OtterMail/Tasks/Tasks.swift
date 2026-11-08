@@ -20,10 +20,15 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
     var done = false
     var completed: Date? = nil
     var created = Date.now
-    /** The conversation it came from (Todoist's `email`). */
-    var email: TaskEmail? = nil
+    /** The conversations it's linked to, the one it came from first (Todoist's `email`, as many as it needs). */
+    var emails: [TaskEmail] = []
+    /** The calendar events it's linked to: an occurrence, or a whole series. */
+    var events: [TaskEvent] = []
     /** The list it's on (Todoist's `projectId`); nil is the Inbox, as every task was before lists. */
     var projectId: String? = nil
+
+    /** The conversation it came from, which is what a file from before several links held. */
+    var email: TaskEmail? { emails.first }
 
     /** When a local notification is due: a time, still to come, on a task that isn't finished. */
     var reminderAt: Date? {
@@ -35,17 +40,18 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
     var reminderBody: String {
         let line = notes.split(separator: "\n").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         if !line.isEmpty { return line }
-        return email.map { "From: \($0.subject)" } ?? "Task reminder"
+        if let email { return "From: \(email.subject)" }
+        return events.first.map { "For: \($0.title)" } ?? "Task reminder"
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, content, notes, due, hasTime, reminder, done, completed, created, email, projectId
+        case id, content, notes, due, hasTime, reminder, done, completed, created, email, emails, events, projectId
     }
 
     init(
         id: UUID = UUID(), content: String = "", notes: String = "", due: Date? = nil, hasTime: Bool = false,
         reminder: Bool = false, done: Bool = false, completed: Date? = nil, created: Date = .now, email: TaskEmail? = nil,
-        projectId: String? = nil
+        emails: [TaskEmail] = [], events: [TaskEvent] = [], projectId: String? = nil
     ) {
         self.id = id
         self.content = content
@@ -56,7 +62,8 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
         self.done = done
         self.completed = completed
         self.created = created
-        self.email = email
+        self.emails = TaskLinks.unique((email.map { [$0] } ?? []) + emails)
+        self.events = TaskLinks.unique(events)
         self.projectId = projectId
     }
 
@@ -64,7 +71,13 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
     init(from thread: MailThread, mailbox: String) {
         let subject = thread.subject.trimmingCharacters(in: .whitespacesAndNewlines)
         content = subject.isEmpty ? "Reply to \(thread.latest.from.label)" : subject
-        email = TaskEmail(mailbox: mailbox, thread: thread.id, message: thread.latest.id, subject: subject.isEmpty ? "(no subject)" : subject)
+        emails = [TaskEmail(thread, mailbox: mailbox)]
+    }
+
+    /** "Add task" on an event: its title, linked to the occurrence or to its whole series, as picked. */
+    init(from event: CalendarEvent, scope: TaskEvent.Scope) {
+        content = event.title
+        events = [TaskEvent(event, scope: scope)]
     }
 
     /** A file written by an older or newer build keeps what it can. */
@@ -79,18 +92,69 @@ nonisolated struct MailTask: Identifiable, Hashable, Codable, Sendable {
         done = try container.decodeIfPresent(Bool.self, forKey: .done) ?? false
         completed = try container.decodeIfPresent(Date.self, forKey: .completed)
         created = try container.decodeIfPresent(Date.self, forKey: .created) ?? .now
-        email = try container.decodeIfPresent(TaskEmail.self, forKey: .email)
+        // A file from before several links has the one `email`; a link this build can't read is left out, not the task.
+        let single = (try? container.decodeIfPresent(TaskEmail.self, forKey: .email)) ?? nil
+        let many = (try? container.decodeIfPresent([Lossy<TaskEmail>].self, forKey: .emails))?.compactMap(\.value)
+        emails = TaskLinks.unique(many ?? single.map { [$0] } ?? [])
+        let linked = (try? container.decodeIfPresent([Lossy<TaskEvent>].self, forKey: .events))?.compactMap(\.value)
+        events = TaskLinks.unique(linked ?? [])
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+    }
+
+    /** `email` is written too, the first link, so a build from before several links still reads where a task came from. */
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(content, forKey: .content)
+        try container.encode(notes, forKey: .notes)
+        try container.encodeIfPresent(due, forKey: .due)
+        try container.encode(hasTime, forKey: .hasTime)
+        try container.encode(reminder, forKey: .reminder)
+        try container.encode(done, forKey: .done)
+        try container.encodeIfPresent(completed, forKey: .completed)
+        try container.encode(created, forKey: .created)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encode(emails, forKey: .emails)
+        try container.encode(events, forKey: .events)
+        try container.encodeIfPresent(projectId, forKey: .projectId)
     }
 }
 
-/** The conversation a task came from, as the Todoist extension links one (`{ accountId, messageId }`). */
+/** An element of a list on disk that may not decode: the rest of the list still does. */
+nonisolated struct Lossy<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
+/** A conversation a task is linked to, as the Todoist extension links one (`{ accountId, messageId }`). */
 nonisolated struct TaskEmail: Hashable, Codable, Sendable {
     /** The mailbox's address, which is what the app scopes mail by. */
     var mailbox: String
     var thread: String
     var message: String? = nil
     var subject: String
+
+    init(mailbox: String, thread: String, message: String? = nil, subject: String) {
+        self.mailbox = mailbox
+        self.thread = thread
+        self.message = message
+        self.subject = subject
+    }
+
+    init(_ thread: MailThread, mailbox: String) {
+        let subject = thread.subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(mailbox: mailbox, thread: thread.id, message: thread.latest.id, subject: subject.isEmpty ? "(no subject)" : subject)
+    }
+
+    /** One link a conversation: the same thread in the same mailbox, whatever its address's case. */
+    var key: String { "\(mailbox.lowercased())|\(thread)" }
+
+    func links(_ thread: String, mailbox: String) -> Bool {
+        self.thread == thread && self.mailbox.lowercased() == mailbox.lowercased()
+    }
 }
 
 /**

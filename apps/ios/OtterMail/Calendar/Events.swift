@@ -71,8 +71,14 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
     var meetingLink: String? = nil
     var htmlLink: String? = nil
     var recurring = false
-    /** The series an occurrence is of (Google's `recurringEventId`): an invitation is answered for all of it. */
+    /**
+     * The series an occurrence is of (Google's `recurringEventId`), or the
+     * series itself for its first event (core's `seriesId`): an invitation is
+     * answered for all of it.
+     */
     var seriesId: String? = nil
+    /** Where an occurrence of a series was before it was moved (Google's `originalStartTime`). */
+    var originalStart: Date? = nil
 
     var id: String { "\(calendar.key)/\(eventId)" }
 

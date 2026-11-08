@@ -24,7 +24,7 @@ nonisolated enum DemoCalendar {
     private static let studio = Person(name: "Studio", email: "studio@otter.example")
 
     static func events(in window: EventWindow, now: Date = .now, dates: CalendarDates = CalendarDates()) -> [CalendarEvent] {
-        let found = weekly(in: window, dates: dates) + anchored(to: dates.startOfDay(now), dates: dates)
+        let found = weekly(in: window, dates: dates).map(inSeries) + anchored(to: dates.startOfDay(now), dates: dates)
         return EventDays.sorted(found.filter { $0.end > window.from && $0.start < window.to })
     }
 
@@ -54,9 +54,18 @@ nonisolated enum DemoCalendar {
                     start: at(day, 7, minutes: 30, calendar: calendar), end: at(day, 8, minutes: 15, calendar: calendar)
                 ))
             }
-            return events
+            return events.map(inSeries)
         }
         return EventDays.sorted(found.filter { $0.end > window.from && $0.start < window.to })
+    }
+
+    /** A weekly event is an occurrence of its series, as Google's are: `<series>-<day>`, at its original start. */
+    private static func inSeries(_ event: CalendarEvent) -> CalendarEvent {
+        guard event.recurring, let dash = event.eventId.lastIndex(of: "-") else { return event }
+        var occurrence = event
+        occurrence.seriesId = String(event.eventId[..<dash])
+        occurrence.originalStart = event.start
+        return occurrence
     }
 
     private static func weekly(in window: EventWindow, dates: CalendarDates) -> [CalendarEvent] {

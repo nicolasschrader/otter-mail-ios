@@ -14,6 +14,7 @@ struct TasksView: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openTaskTarget) private var openTarget
 
     /** A task whose reminder was tapped: it opens on top of the list. */
     var opening: UUID?
@@ -157,7 +158,7 @@ struct TasksView: View {
         ContentUnavailableView(
             "No tasks",
             systemImage: "checklist",
-            description: Text("Add one here, or from a conversation's More menu. Tasks stay on this iPhone.")
+            description: Text("Add one here, from a conversation's More menu, or from an event. Tasks stay on this iPhone.")
         )
         .foregroundStyle(palette.muted)
         .listRowSeparator(.hidden)
@@ -172,7 +173,8 @@ struct TasksView: View {
             overdue: TaskList.group(of: task, now: now, dates: dates) == .overdue,
             onToggle: { toggle(task) },
             onOpen: { editing = task },
-            onEmail: open
+            onEmail: open,
+            onEvent: open
         )
         .padding(.leading, 20)
         .padding(.trailing, 16)
@@ -184,6 +186,9 @@ struct TasksView: View {
             Button("Edit", systemImage: "pencil") { editing = task }
             if let email = task.email {
                 Button("Open the email", systemImage: "envelope") { open(email) }
+            }
+            if let event = task.events.first {
+                Button("Open the event", systemImage: "calendar") { open(event) }
             }
             Divider()
             Button("Delete", systemImage: "trash", role: .destructive) {
@@ -217,6 +222,11 @@ struct TasksView: View {
         editing = nil
         onEmail(email)
     }
+
+    private func open(_ event: TaskEvent) {
+        editing = nil
+        openTarget(.event(event))
+    }
 }
 
 /**
@@ -230,9 +240,12 @@ struct TaskRow: View {
     let task: MailTask
     var due: String?
     var overdue = false
+    /** Off where the row is shown on the very thing it links to. */
+    var showsLinks = true
     let onToggle: () -> Void
     let onOpen: () -> Void
     let onEmail: (TaskEmail) -> Void
+    var onEvent: (TaskEvent) -> Void = { _ in }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -250,23 +263,40 @@ struct TaskRow: View {
                 Button(action: onOpen) { lines }
                     .buttonStyle(.plain)
                     .accessibilityElement(children: .combine)
-                if let email = task.email {
-                    Button { onEmail(email) } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "envelope")
-                            Text(email.subject).lineLimit(1)
-                        }
-                        .font(.inter(.footnote))
-                        .foregroundStyle(palette.muted)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("From \(email.subject)")
-                    .accessibilityHint("Opens the conversation")
+                if showsLinks, let email = task.email {
+                    link("envelope", email.subject) { onEmail(email) }
+                        .accessibilityLabel("From \(email.subject)")
+                        .accessibilityHint("Opens the conversation")
+                }
+                if showsLinks, let event = task.events.first {
+                    link(event.scope == .series ? "repeat" : "calendar", event.title) { onEvent(event) }
+                        .accessibilityLabel("For \(event.title)")
+                        .accessibilityHint("Opens the event")
+                }
+                if showsLinks, more > 0 {
+                    Text(more == 1 ? "1 more link" : "\(more) more links")
+                        .font(.inter(.caption))
+                        .foregroundStyle(palette.muted.opacity(0.8))
                 }
             }
         }
         .contentShape(.rect)
+    }
+
+    /** The links past the first conversation and the first event, which the editor lists. */
+    private var more: Int { max(task.emails.count - 1, 0) + max(task.events.count - 1, 0) }
+
+    private func link(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                Text(title).lineLimit(1)
+            }
+            .font(.inter(.footnote))
+            .foregroundStyle(palette.muted)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     private var lines: some View {

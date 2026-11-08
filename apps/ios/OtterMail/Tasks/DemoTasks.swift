@@ -42,6 +42,28 @@ nonisolated enum DemoTasks {
                 projectId: home.id
             ),
             MailTask(content: "Draft the offsite agenda", due: day(5), created: now.addingTimeInterval(-5400), projectId: work.id),
+            // Linked to today's call on Otterware's calendar.
+            MailTask(
+                content: "Send the printer the final proofs",
+                due: at(day(0), 12),
+                hasTime: true,
+                created: now.addingTimeInterval(-4000),
+                events: [TaskEvent(
+                    account: mailbox, calendarId: DemoCalendar.work.id, eventId: "supplier-call", title: "Call with the printer",
+                    start: at(day(0), 13), end: calendar.date(byAdding: .minute, value: 45, to: at(day(0), 13))
+                )],
+                projectId: work.id
+            ),
+            // Every standup, not one of them: linked to the series.
+            MailTask(
+                content: "Bring blockers to standup",
+                created: now.addingTimeInterval(-3000),
+                events: [TaskEvent(
+                    account: mailbox, calendarId: DemoCalendar.work.id, eventId: "standup", seriesId: "standup",
+                    scope: .series, title: "Standup", start: at(day(0), 9)
+                )],
+                projectId: work.id
+            ),
             MailTask(
                 content: "Read the welcome message",
                 done: true,

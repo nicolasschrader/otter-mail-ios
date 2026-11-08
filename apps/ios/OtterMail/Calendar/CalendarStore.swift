@@ -372,6 +372,58 @@ final class CalendarStore {
         }
         return nil
     }
+
+    /** What a task's link reaches: the event, gone from the calendar, or out of reach (signed out, offline). */
+    enum Reach: Equatable {
+        case found(CalendarEvent)
+        case gone
+        case unavailable
+    }
+
+    /** The event a task's link reaches among those loaded: the occurrence, or the series' next one. */
+    func find(_ link: TaskEvent, now: Date = .now) -> CalendarEvent? {
+        Self.nearest(cache.values.flatMap { $0.filter(link.matches) }, now: now)
+    }
+
+    /** The first not over yet, else the last there was. */
+    nonisolated static func nearest(_ events: [CalendarEvent], now: Date) -> CalendarEvent? {
+        events.filter { $0.end > now }.min { $0.start < $1.start } ?? events.max { $0.start < $1.start }
+    }
+
+    /**
+     * A task's link outside the windows loaded, asked of Google by the
+     * occurrence's id (the demo makes its events again around the link's day).
+     * A series whose linked occurrence is gone is found by the series' own id,
+     * and shown read-only: changing it there would change every occurrence.
+     * Nothing is written, and the task keeps its link whatever the answer.
+     */
+    func resolve(_ link: TaskEvent, sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async -> Reach {
+        if let found = find(link) { return .found(found) }
+        guard link.provider == "google", let mailbox = sources.first(where: { $0.email.lowercased() == link.account }) else {
+            return .unavailable
+        }
+        let calendar = lists[mailbox.email]?.first { $0.id == link.calendarId }
+            ?? EventCalendar(id: link.calendarId, name: link.calendarId, account: mailbox.email)
+        if demo {
+            let day = dates.startOfDay(link.originalStart ?? link.start)
+            let around = EventWindow(from: dates.addDays(day, -1), to: dates.addDays(day, 2))
+            let found = demoEvents(around, account: mailbox.email, first: sources.first?.email == mailbox.email, dates: dates)
+            return Self.nearest(found.filter(link.matches), now: .now).map(Reach.found) ?? .gone
+        }
+        let api = GoogleCalendarAPI(email: mailbox.email) { [google] refresh in
+            try await google.accessToken(mailbox.email, force: refresh)
+        }
+        do {
+            if let occurrence = try await api.event(link.eventId, on: calendar) { return .found(occurrence) }
+            guard link.scope == .series, let seriesId = link.seriesId, var series = try await api.event(seriesId, on: calendar) else {
+                return .gone
+            }
+            series.calendar.writable = false
+            return .found(series)
+        } catch {
+            return .unavailable
+        }
+    }
 }
 
 /** Why an event can't be saved, said before asking Google. */

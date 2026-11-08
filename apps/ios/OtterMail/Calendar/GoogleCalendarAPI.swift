@@ -59,6 +59,18 @@ nonisolated struct GoogleCalendarAPI: EventWriter {
         return found
     }
 
+    /** One event by its id, for a task's link outside the windows loaded: nil when Google no longer has it. */
+    @concurrent
+    func event(_ eventId: String, on calendar: EventCalendar) async throws -> CalendarEvent? {
+        do {
+            let data = try await request("calendars/\(encoded(calendar.id))/events/\(encoded(eventId))", query: [])
+            let found = try GoogleEvents.event(data, on: calendar, me: email, times: EventTimes())
+            return found.status == .cancelled ? nil : found
+        } catch let failure as Failure where failure.status == 404 || failure.status == 410 {
+            return nil
+        }
+    }
+
     /**
      * Answers an invitation as core's setResponse does: the event's attendees
      * with this mailbox's answer in them, PATCHed back with sendUpdates=all, so
@@ -261,7 +273,9 @@ nonisolated enum GoogleEvents {
             meetingLink: video ?? api.hangoutLink ?? Meetings.findLink(in: [api.location, api.description]),
             htmlLink: api.htmlLink,
             recurring: api.recurringEventId != nil || api.recurrence?.isEmpty == false,
-            seriesId: api.recurringEventId
+            // core's calendar.ts: `recurringEventId ?? (recurrence ? id : null)`.
+            seriesId: api.recurringEventId ?? (api.recurrence?.isEmpty == false ? api.id : nil),
+            originalStart: date(api.originalStartTime, times: times)
         )
     }
 
@@ -353,5 +367,6 @@ nonisolated enum GoogleEvents {
         var conferenceData: Conference?
         var recurringEventId: String?
         var recurrence: [String]?
+        var originalStartTime: Time?
     }
 }
