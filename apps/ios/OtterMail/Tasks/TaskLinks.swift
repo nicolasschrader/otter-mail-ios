@@ -182,6 +182,20 @@ nonisolated enum TaskLinks {
         return task
     }
 
+    /**
+     * The events a task can be linked to: today's and later ones, and those still going, soonest first.
+     * Google lists every event that overlaps the window, however long ago it began.
+     */
+    static func upcoming(_ events: [CalendarEvent], now: Date, dates: CalendarDates) -> [CalendarEvent] {
+        let today = dates.startOfDay(now)
+        return events.filter { $0.start >= today || $0.end > now }.sorted { a, b in
+            if a.start != b.start { return a.start < b.start }
+            if a.allDay != b.allDay { return a.allDay }
+            if a.end != b.end { return a.end > b.end }
+            return a.id < b.id
+        }
+    }
+
     static func linked(_ tasks: [MailTask], to event: CalendarEvent) -> [MailTask] {
         tasks.filter { $0.events.contains { $0.matches(event) } }
     }

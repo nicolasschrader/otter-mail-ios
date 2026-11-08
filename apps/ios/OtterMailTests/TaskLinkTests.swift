@@ -123,6 +123,33 @@ struct TaskLinkTests {
         #expect(task.events.count == 2)
     }
 
+    @Test func offersOnlyEventsFromTodayOnSoonestFirst() {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = TimeZone(identifier: "Europe/Berlin")!
+        let dates = CalendarDates(calendar: gregorian)
+        let now = gregorian.date(from: DateComponents(year: 2026, month: 11, day: 8, hour: 12))!
+        let today = gregorian.startOfDay(for: now)
+        let hour: TimeInterval = 3600
+        func at(_ id: String, _ start: Date, hours: Double = 1, allDay: Bool = false) -> CalendarEvent {
+            CalendarEvent(
+                eventId: id, calendar: EventCalendar(id: "work", name: "Work", account: "robin@otter.example"), title: id,
+                start: start, end: start.addingTimeInterval(hours * hour), allDay: allDay
+            )
+        }
+        let events = [
+            at("next-week", today.addingTimeInterval(7 * 24 * hour)),
+            at("decade-ago", gregorian.date(byAdding: .year, value: -10, to: now)!),
+            at("yesterday", today.addingTimeInterval(-5 * hour)),
+            at("tomorrow", today.addingTimeInterval(33 * hour)),
+            at("this-morning", today.addingTimeInterval(9 * hour)),
+            at("all-day-next-week", today.addingTimeInterval(7 * 24 * hour), hours: 24, allDay: true),
+            at("going-on", today.addingTimeInterval(-2 * hour), hours: 16),
+        ]
+        #expect(TaskLinks.upcoming(events, now: now, dates: dates).map(\.title) == [
+            "going-on", "this-morning", "tomorrow", "all-day-next-week", "next-week",
+        ])
+    }
+
     @Test func rescopesInPlaceWithoutMakingASecondLink() {
         let occurrence = TaskEvent(event("standup_1", series: "standup", originalStart: start), scope: .occurrence)
         var task = MailTask(content: "Rescope", events: [occurrence])
