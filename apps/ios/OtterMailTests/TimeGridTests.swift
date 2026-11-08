@@ -29,8 +29,8 @@ struct TimeGridTests {
         CalendarEvent(eventId: id, calendar: mine, title: id, start: start, end: end, allDay: allDay)
     }
 
-    private func placed(_ events: [CalendarEvent]) -> [String: [Int]] {
-        TimeGrid.columns(events).reduce(into: [:]) { result, entry in
+    private func placed(_ events: [CalendarEvent], on day: Date? = nil) -> [String: [Int]] {
+        TimeGrid.columns(events, on: day ?? at(4, 0), dates: dates).reduce(into: [:]) { result, entry in
             result[String(entry.key.split(separator: "/").last!)] = [entry.value.col, entry.value.cols]
         }
     }
@@ -112,6 +112,18 @@ struct TimeGridTests {
         let back = event("back", at(25, 9, month: 10), at(25, 10, month: 10))
         #expect(TimeGrid.minutes(back, on: at(25, 0, month: 10), dates: dates) == (9 * 60)...(10 * 60))
         #expect(TimeGrid.openingHour([back], on: at(25, 0, month: 10), now: at(4, 12), dates: dates) == 8)
+    }
+
+    /** 02:00–02:30 comes twice in Berlin on Oct 25, 2026 (+02:00, then +01:00): both are drawn there, side by side. */
+    @Test func theRepeatedHoursEventsSitSideBySide() {
+        let day = at(25, 0, month: 10)
+        let summer = day.addingTimeInterval(2 * 3600)
+        let winter = summer.addingTimeInterval(3600)
+        let first = event("first", summer, summer.addingTimeInterval(30 * 60))
+        let second = event("second", winter, winter.addingTimeInterval(30 * 60))
+        #expect(TimeGrid.minutes(first, on: day, dates: dates) == (2 * 60)...(2 * 60 + 30))
+        #expect(TimeGrid.minutes(second, on: day, dates: dates) == (2 * 60)...(2 * 60 + 30))
+        #expect(placed([first, second], on: day) == ["first": [0, 2], "second": [1, 2]])
     }
 
     @Test func allDayAndDayLongEventsGoInTheAllDayRow() {
@@ -213,7 +225,7 @@ struct TimeGridTests {
         let now = at(4, 10)
         let day = dates.window(.day, anchor: now)
         let today = TimeGrid.timed(DemoCalendar.events(in: day, now: now, dates: dates), on: now, dates: dates)
-        let layout = TimeGrid.columns(today)
+        let layout = TimeGrid.columns(today, on: now, dates: dates)
         let lunch = today.first { $0.eventId == "lunch" }!
         let call = today.first { $0.eventId == "supplier-call" }!
         #expect(layout[lunch.id] == TimeGrid.Placement(col: 0, cols: 2))

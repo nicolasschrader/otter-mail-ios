@@ -160,13 +160,18 @@ final class TaskStore {
     /**
      * A task's links changed from the event or conversation they point at, kept as Save keeps it: on disk first.
      * The change is made to the task as the save before it left it, so two quick links both stay.
+     * What's written is what's shown: the change is asked again only if the task changed during the write.
      */
     func update(_ id: UUID, _ change: (MailTask) -> MailTask) async throws {
+        var made: (from: MailTask, to: MailTask)?
         var saved: MailTask?
         try await commit { tasks in
             guard let index = tasks.firstIndex(where: { $0.id == id }) else { return nil }
             var tasks = tasks
-            tasks[index] = Self.trimmed(change(tasks[index]))
+            let from = tasks[index]
+            let to = made.flatMap { $0.from == from ? $0.to : nil } ?? Self.trimmed(change(from))
+            made = (from, to)
+            tasks[index] = to
             guard !tasks[index].content.isEmpty else { return nil }
             saved = tasks[index]
             return tasks

@@ -657,7 +657,9 @@ struct LinkedTasks: View {
         }
     }
 
+    /** The link is made from the scope as it was tapped, not as the picker stands once it's written. */
     private func link(_ task: MailTask) async {
+        let scope = scope
         do {
             try await tasks.update(task.id) { task in
                 switch source {

@@ -320,6 +320,27 @@ struct TaskTests {
         #expect(try files.load("demo")?.first?.emails.map(\.thread) == ["t1", "t2"])
     }
 
+    /** A change that would come out differently asked twice (the scope picker moved during the write) is asked once. */
+    @Test func showsTheLinkItWrote() async throws {
+        let folder = folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = TaskFiles(folder: folder)
+        let store = TaskStore(files: files, reminders: Reminders())
+        let reply = task("Reply to Robin")
+        store.open("demo", seed: [reply])
+        await store.settled()
+
+        var asked = 0
+        try await store.update(reply.id) { task in
+            asked += 1
+            return TaskLinks.linking(task, email: TaskEmail(mailbox: "robin@otter.example", thread: "t\(asked)", subject: "One"))
+        }
+
+        #expect(asked == 1)
+        #expect(store.task(reply.id)?.emails.map(\.thread) == ["t1"])
+        #expect(try files.load("demo")?.first?.emails.map(\.thread) == ["t1"])
+    }
+
     @Test func dropsASaveFromTheAccountSignedOutOfWhileItWasWritten() async throws {
         let folder = folder()
         defer { try? FileManager.default.removeItem(at: folder) }

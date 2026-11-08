@@ -28,28 +28,31 @@ nonisolated enum TimeGrid {
     /**
      * layoutDay: where they overlap, Notion Calendar's way, each cluster's
      * events take a column, a later one laid over the one before, so each
-     * keeps more than its share. Keyed by the event's `id`.
+     * keeps more than its share. Keyed by the event's `id`. Overlaps are
+     * measured in the clock minutes the blocks are drawn at, so two events in
+     * the hour the clocks repeat sit side by side, not on top of each other.
      */
-    static func columns(_ events: [CalendarEvent]) -> [String: Placement] {
-        let sorted = events.sorted { a, b in
-            if a.start != b.start { return a.start < b.start }
-            if a.end != b.end { return a.end > b.end }
-            return a.id < b.id
+    static func columns(_ events: [CalendarEvent], on day: Date, dates: CalendarDates) -> [String: Placement] {
+        let sorted = events.map { (event: $0, span: minutes($0, on: day, dates: dates)) }.sorted { a, b in
+            if a.span.lowerBound != b.span.lowerBound { return a.span.lowerBound < b.span.lowerBound }
+            if a.span.upperBound != b.span.upperBound { return a.span.upperBound > b.span.upperBound }
+            return a.event.id < b.event.id
         }
         var placed: [String: Placement] = [:]
         var cluster: [String] = []
-        var columns: [Date] = []
-        var clusterEnd = Date.distantPast
+        var columns: [Double] = []
+        var clusterEnd = -Double.infinity
         func close() {
             for id in cluster { placed[id]?.cols = columns.count }
             cluster = []
             columns = []
         }
-        for event in sorted {
-            let end = max(event.end, event.start.addingTimeInterval(20 * 60))
-            if event.start >= clusterEnd { close() }
+        for (event, span) in sorted {
+            let start = span.lowerBound
+            let end = max(span.upperBound, start + 20)
+            if start >= clusterEnd { close() }
             let col: Int
-            if let free = columns.firstIndex(where: { $0 <= event.start }) {
+            if let free = columns.firstIndex(where: { $0 <= start }) {
                 col = free
                 columns[free] = end
             } else {

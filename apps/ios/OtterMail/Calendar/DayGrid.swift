@@ -69,7 +69,7 @@ struct DayGrid: View {
     }
 
     private func hours(_ timed: [CalendarEvent]) -> some View {
-        let layout = TimeGrid.columns(timed)
+        let layout = TimeGrid.columns(timed, on: day, dates: dates)
         let height = Self.hourHeight
         return ZStack(alignment: .topLeading) {
             ForEach(0..<24, id: \.self) { hour in
