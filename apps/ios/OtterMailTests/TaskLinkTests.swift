@@ -183,6 +183,15 @@ struct TaskLinkTests {
         #expect(linked.matches(moved))
     }
 
+    @Test func opensEveryLinkOfTheTaskDetailAtWhatItLinksTo() {
+        let first = email("t1")
+        let second = email("t2", mailbox: "alias@otter.example")
+        let series = TaskEvent(event("standup_1", series: "standup", originalStart: start), scope: .series)
+        let task = MailTask(content: "Prepare", emails: [first, second], events: [series])
+        #expect(TaskTarget.all(of: task) == [.email(first), .email(second), .event(series)])
+        #expect(TaskTarget.all(of: MailTask(content: "Alone")).isEmpty)
+    }
+
     @Test func keepsWhatTheEventSaidForWhenItsGone() {
         let link = TaskEvent(event("call"), scope: .occurrence)
         let kept = link.snapshot(calendar: nil)

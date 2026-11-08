@@ -4,9 +4,9 @@ import SwiftUI
  * Tasks, a section of the home screen in the mail's place, chosen from the
  * bottom bar as the calendar is, its ⌃⌄ picking the list (`TaskListsPanel`):
  * what's open by when it's due, then what's done under a heading that folds
- * away. Swipe a row to finish it or to throw it away, tap it to change
- * it (in place, the bar still under it), tap the conversation under it to go
- * back to the mail it came from.
+ * away. Swipe a row to finish it or to throw it away, tap it to read it
+ * (in place, the bar still under it) and change it from there, tap a link
+ * under it to go to that conversation or event.
  */
 struct TasksView: View {
     @Environment(Session.self) private var session
@@ -22,6 +22,7 @@ struct TasksView: View {
     var onTitle: () -> Void = {}
 
     @State private var editing: MailTask?
+    @State private var viewing: MailTask?
     @State private var settingsShown = false
     @State private var reveal: Reveal?
     @State private var showDone = false
@@ -94,6 +95,9 @@ struct TasksView: View {
             .navigationDestination(item: $editing) { task in
                 TaskEditor(task: task, onEmail: open) { saved in reveal = Reveal(id: saved.id.uuidString) }
             }
+            .navigationDestination(item: $viewing) { task in
+                TaskDetail(task: task, onOpen: open)
+            }
             .navigationDestination(isPresented: $settingsShown) { SettingsView(inPlace: true) }
             .task {
                 now = .now
@@ -106,7 +110,11 @@ struct TasksView: View {
             }
             .onChange(of: opening, initial: true) { _, id in
                 guard let id, let task = tasks.task(id) else { return }
-                editing = task
+                viewing = task
+            }
+            // Deleted from its editor, the task's detail goes with it.
+            .onChange(of: viewing.map { tasks.contains($0.id) }) { _, kept in
+                if kept == false { viewing = nil }
             }
             .alert("Couldn't save the tasks", isPresented: .constant(tasks.failure != nil)) {
                 Button("OK") { tasks.failure = nil }
@@ -172,7 +180,7 @@ struct TasksView: View {
             due: TaskList.dueLabel(task, now: now, dates: dates),
             overdue: TaskList.group(of: task, now: now, dates: dates) == .overdue,
             onToggle: { toggle(task) },
-            onOpen: { editing = task },
+            onOpen: { viewing = task },
             onEmail: open,
             onEvent: open
         )
@@ -220,12 +228,21 @@ struct TasksView: View {
 
     private func open(_ email: TaskEmail) {
         editing = nil
+        viewing = nil
         onEmail(email)
     }
 
     private func open(_ event: TaskEvent) {
         editing = nil
+        viewing = nil
         openTarget(.event(event))
+    }
+
+    private func open(_ target: TaskTarget) {
+        switch target {
+        case .email(let email): open(email)
+        case .event(let event): open(event)
+        }
     }
 }
 
