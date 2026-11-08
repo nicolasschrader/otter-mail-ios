@@ -417,6 +417,19 @@ struct CalendarTests {
         #expect(chosen.colors == ["robin@otter.example|work": "#f97316"])
     }
 
+    /** A color kept under the primary calendar's old id, the mailbox's address, moves to `primary` unless one is there. */
+    @Test func movesThePrimaryCalendarsOldColorKey() {
+        let old = CalendarPreferences(ui: [
+            "calendar:colors": ##"{"robin@otter.example|robin@otter.example": "#f97316", "robin@otter.example|work": "#9fe1e7"}"##
+        ])
+        #expect(old.colors == ["robin@otter.example|primary": "#f97316", "robin@otter.example|work": "#9fe1e7"])
+
+        let both = CalendarPreferences(ui: [
+            "calendar:colors": ##"{"sam@otter.example|sam@otter.example": "#f97316", "sam@otter.example|primary": "#111111"}"##
+        ])
+        #expect(both.colors == ["sam@otter.example|primary": "#111111"])
+    }
+
     /** calendar-view.tsx's listedCalendars(): a chosen color wins, else the mailbox's for its primary calendar. */
     @Test func picksAnEventsColorLikeTheSidebar() {
         let mailbox = Mailbox(

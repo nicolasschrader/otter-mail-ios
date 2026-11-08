@@ -43,7 +43,23 @@ nonisolated struct CalendarPreferences: Equatable {
         defaultCalendar = ui["calendar:default-calendar"] ?? ""
         if let data = ui["calendar:colors"]?.data(using: .utf8),
            let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-            colors = record.compactMapValues { $0 as? String }
+            colors = Self.migratingPrimary(record.compactMapValues { $0 as? String })
         }
+    }
+
+    /**
+     * The primary calendar was keyed by its id, the mailbox's address (`<mailbox>|<mailbox>`),
+     * before it became `primary`: its color moves there, unless one is chosen there already.
+     */
+    private static func migratingPrimary(_ colors: [String: String]) -> [String: String] {
+        var migrated = colors
+        for (key, hex) in colors {
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false)
+            guard parts.count == 2, parts[0] == parts[1], parts[0].contains("@") else { continue }
+            migrated[key] = nil
+            let primary = "\(parts[0])|primary"
+            if colors[primary] == nil { migrated[primary] = hex }
+        }
+        return migrated
     }
 }
