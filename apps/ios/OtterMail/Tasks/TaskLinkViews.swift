@@ -400,15 +400,15 @@ struct TaskEditorLinks: View {
         return Array(found.sorted { $0.date > $1.date }.prefix(terms.isEmpty ? 3 : 6))
     }
 
-    /** The agenda's days ahead, as the calendar lists them; an event of a series asks whether it's the one or all. */
+    /** The agenda's events from today on, soonest first; an event of a series asks whether it's the one or all. */
     private var eventMatches: [CalendarEvent] {
         let linked = Set(task.events.map(\.key))
-        let found = (calendar.events(in: window) ?? []).filter { event in
+        let found = TaskLinks.upcoming(calendar.events(in: window) ?? [], now: now, dates: dates).filter { event in
             guard event.status != .cancelled, terms.isEmpty || event.title.localizedCaseInsensitiveContains(terms) else { return false }
             let occurrence = TaskEvent(event, scope: .occurrence)
             return !linked.contains(occurrence.key) && !(occurrence.recurring && linked.contains(occurrence.scoped(.series).key))
         }
-        return Array(EventDays.sorted(found).prefix(terms.isEmpty ? 3 : 6))
+        return Array(found.prefix(terms.isEmpty ? 3 : 6))
     }
 
     private var footer: String {
