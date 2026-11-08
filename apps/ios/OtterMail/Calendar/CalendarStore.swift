@@ -46,8 +46,17 @@ final class CalendarStore {
     @ObservationIgnored private var demoAnswers: [String: CalendarEvent.Response] = [:]
     /** The demo's events made, changed and deleted, for the same reason. */
     @ObservationIgnored private var demoEdits = DemoEdits()
-    /** Task links Google answered for with nothing, or whose event was deleted here, by `TaskEvent.key`. */
-    private var gone: Set<String> = []
+    /** Task links Google answered for with nothing, or whose event was deleted here, by `TaskEvent.key`; kept across restarts. */
+    private var gone: Set<String> {
+        didSet { if gone != oldValue { goneDefaults.set(gone.sorted(), forKey: Self.goneKey) } }
+    }
+    @ObservationIgnored private let goneDefaults: UserDefaults
+    private static let goneKey = "calendar.goneLinks"
+
+    init(defaults: UserDefaults = .standard) {
+        goneDefaults = defaults
+        gone = Set(defaults.stringArray(forKey: Self.goneKey) ?? [])
+    }
 
     /** How far ahead Catch up looks for invitations. */
     nonisolated static let inviteDays = 60

@@ -298,6 +298,26 @@ struct EventEditingTests {
         #expect(!store.isGone(elsewhere))
     }
 
+    /** A task's event deleted is still gone after a restart, its mailbox still there and nothing loaded. */
+    @MainActor @Test func aTasksDeletedEventStaysGoneAfterARestart() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let event = CalendarEvent(eventId: "e", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let link = TaskEvent(event, scope: .occurrence)
+        try await CalendarStore(defaults: defaults).delete(event, with: RecordingWriter(dates: dates))
+
+        #expect(CalendarStore(defaults: defaults).isGone(link))
+    }
+
+    /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */
+    @Test func aCancelledEventWithoutTimesIsGone() throws {
+        let cancelled = #"{"id":"abc","status":"cancelled"}"#
+        #expect(try GoogleEvents.unlessCancelled(Data(cancelled.utf8), on: mine, me: robin, times: EventTimes(calendar: calendar)) == nil)
+        let live = #"{"id":"abc","start":{"dateTime":"2026-11-09T12:00:00+01:00"}}"#
+        #expect(try GoogleEvents.unlessCancelled(Data(live.utf8), on: mine, me: robin, times: EventTimes(calendar: calendar))?.eventId == "abc")
+    }
+
     /** A task's event moved to a day not loaded is missing from its old day, and still not gone: it keeps its id. */
     @MainActor @Test func aTasksMovedEventIsntGone() async throws {
         let store = CalendarStore()
