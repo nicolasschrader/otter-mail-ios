@@ -341,6 +341,30 @@ struct ThreadListView: View {
     }
 
     private func row(_ thread: MailThread) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            link(thread)
+            if !selecting, let code = thread.verificationCode {
+                CodeCard(code: code).padding(.leading, 48)
+            }
+        }
+        .padding(.leading, 24)
+        .padding(.trailing, 16)
+        .padding(.vertical, 10)
+        .background(rowBackground(unread: thread.unread && !thread.isDraft))
+        .contextMenu {
+            if !selecting { ThreadActions(thread: thread) }
+        }
+        .modifier(MailSwipeActions(
+            leading: selecting ? nil : leadingAction(thread),
+            trailing: selecting ? nil : trailingAction(thread),
+            square: preferences.fullWidthRows
+        ))
+        .listRowBackground(palette.canvas)
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets())
+    }
+
+    private func link(_ thread: MailThread) -> some View {
         Group {
             let content = ThreadRow(thread: thread, mark: mailbox?.mark ?? "star", mine: Set(store.addresses(of: thread.mailbox)))
             if selecting {
@@ -365,21 +389,6 @@ struct ThreadListView: View {
                     .matchedTransitionSource(id: thread.id, in: messageTransition)
             }
         }
-        .padding(.leading, 24)
-        .padding(.trailing, 16)
-        .padding(.vertical, 10)
-        .background(rowBackground(unread: thread.unread && !thread.isDraft))
-        .contextMenu {
-            if !selecting { ThreadActions(thread: thread) }
-        }
-        .modifier(MailSwipeActions(
-            leading: selecting ? nil : leadingAction(thread),
-            trailing: selecting ? nil : trailingAction(thread),
-            square: preferences.fullWidthRows
-        ))
-        .listRowBackground(palette.canvas)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets())
     }
 
     /** The desktop's rows (styles.css): unread mail on a raised card, or edge to edge with a hairline between. */

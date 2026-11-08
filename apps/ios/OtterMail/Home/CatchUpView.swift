@@ -485,6 +485,11 @@ private struct CatchUpCard: View {
                     .lineLimit(2)
                     .padding(.bottom, 16)
                     .padding(.horizontal, MessageView.inset)
+                if let code = thread.verificationCode {
+                    CodeCard(code: code)
+                        .padding(.bottom, 16)
+                        .padding(.horizontal, MessageView.inset)
+                }
 
                 let messages = thread.distinctMessages(preferring: store.alias(scope)?.email)
                 ForEach(messages) { message in

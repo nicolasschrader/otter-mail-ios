@@ -47,6 +47,12 @@ struct ThreadView: View {
                     .padding(.bottom, 20)
                     .padding(.horizontal, MessageView.inset)
 
+                if let code = thread.verificationCode {
+                    CodeCard(code: code)
+                        .padding(.bottom, 20)
+                        .padding(.horizontal, MessageView.inset)
+                }
+
                 let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email)
                 ForEach(messages) { message in
                     let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id)
