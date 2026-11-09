@@ -16,6 +16,7 @@ struct ThreadListView: View {
     let onSettings: () -> Void
     var onSearch: () -> Void = {}
     var onCatchUp: (() -> Void)? = nil
+    var onAllNew: (() -> Void)? = nil
     let onResume: (Draft) -> Void
 
     @State private var collapsedDays: Set<Date> = []
@@ -155,6 +156,7 @@ struct ThreadListView: View {
                     HStack(spacing: 16) {
                         Button("Search", systemImage: "magnifyingglass", action: onSearch)
                         Menu("More", systemImage: "ellipsis") {
+                            if let onAllNew { MailViewPicker(allNew: false, onSwitch: onAllNew) }
                             Button("Select messages", systemImage: "checkmark.circle") { withAnimation(actionAnimation) { selecting = true } }
                                 .disabled(threads.isEmpty)
                             Button("Mark all as read", systemImage: "envelope.open") {

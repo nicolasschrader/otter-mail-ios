@@ -71,6 +71,19 @@ nonisolated enum AllNew {
     }
 }
 
+/** What Mail lists, in its ⋯: its conversations, or All new. */
+struct MailViewPicker: View {
+    let allNew: Bool
+    let onSwitch: () -> Void
+
+    var body: some View {
+        Picker("View", selection: Binding(get: { allNew }, set: { if $0 != allNew { onSwitch() } })) {
+            Label("Conversations", systemImage: "bubble.left.and.bubble.right").tag(false)
+            Label("All new", systemImage: "tray.2").tag(true)
+        }
+    }
+}
+
 /** All new: every shown inbox's incoming mail, a row per message, newest first. */
 struct AllNewView: View {
     @Environment(MailStore.self) private var store
@@ -78,6 +91,7 @@ struct AllNewView: View {
 
     let onTitle: () -> Void
     let onSettings: () -> Void
+    let onConversations: () -> Void
 
     private var mailboxes: [Mailbox] { store.shownMailboxes.filter { !$0.signedOut } }
 
@@ -149,6 +163,7 @@ struct AllNewView: View {
             .sharedBackgroundVisibility(.hidden)
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("More", systemImage: "ellipsis") {
+                    MailViewPicker(allNew: true, onSwitch: onConversations)
                     Button("Settings", systemImage: "gearshape", action: onSettings)
                 }
             }
