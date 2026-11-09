@@ -59,6 +59,11 @@ final class CalendarStore {
     @ObservationIgnored private var demo = false
     /** The windows read back from disk, that a window not saved itself is shown from. */
     @ObservationIgnored private var restored: Set<EventWindow> = []
+    /** Where the phone is, the zone the events in memory are drawn in. */
+    @ObservationIgnored private var zone = TimeZone.current
+    /** Restored windows drawn in another zone, by that zone, and as the same days here: what their all-day events are compared with. */
+    @ObservationIgnored private var zones: [EventWindow: String] = [:]
+    @ObservationIgnored private var days: [EventWindow: EventWindow] = [:]
     /** How many windows each mailbox keeps on disk, the nearest to now. */
     static let savedWindows = 12
     /** The mailboxes kept on this device, as last seen; one gone from them takes its events with it. */
@@ -162,7 +167,7 @@ final class CalendarStore {
         let made = try await writer.create(draft.input(dates: dates), on: draft.calendar, notify: false)
         if demo { demoEdits.made.append(made) }
         let account = made.calendar.account
-        for (window, byAccount) in parts where made.end > window.from && made.start < window.to {
+        for (window, byAccount) in parts where Self.holds(window, made, days: days) {
             parts[window]?[account] = (byAccount[account] ?? []) + [made]
         }
         settle()
@@ -197,7 +202,7 @@ final class CalendarStore {
         for (window, byAccount) in parts {
             guard let mine = byAccount[account], mine.contains(where: { $0.id == event.id }) else { continue }
             var kept = mine.filter { $0.id != event.id }
-            if let next, next.end > window.from, next.start < window.to { kept.append(next) }
+            if let next, Self.holds(window, next, days: days) { kept.append(next) }
             parts[window]?[account] = kept
         }
         settle()
@@ -223,18 +228,26 @@ final class CalendarStore {
         for account in accounts {
             var windows: [EventWindow: [CalendarEvent]] = [:]
             var fetched: [EventWindow: Date] = [:]
+            var drawn: [EventWindow: String] = [:]
             for window in nearest {
                 windows[window] = parts[window]?[account]
                 fetched[window] = fetchedAt[window]?[account]
+                drawn[window] = zones[window]
             }
-            disk.save(CalendarCache.Saved(calendars: lists[account] ?? [], windows: windows, fetched: fetched), account: account)
+            disk.save(
+                CalendarCache.Saved(
+                    calendars: lists[account] ?? [], windows: windows, fetched: fetched, timeZone: zone.identifier, zones: drawn
+                ),
+                account: account
+            )
         }
     }
 
     /**
      * A mailbox's calendars and events as they were last saved, less any deleted since, in the windows
      * not loaded yet, each up to date with the newer saved windows; its all-day events on their own
-     * days where the phone is now. Its calendar list is asked of Google again on its next fetch.
+     * days where the phone is now. A window keeps the zone its days were drawn in, saved again or not,
+     * so its all-day events are compared with those days. Its calendar list is asked of Google again on its next fetch.
      */
     private func restore(_ account: String, dates: CalendarDates) {
         let saved = disk.load(account)
@@ -242,17 +255,36 @@ final class CalendarStore {
             lists[account] = saved.calendars
             stale.insert(account)
         }
-        let zone = TimeZone(identifier: saved.timeZone) ?? dates.calendar.timeZone
-        let copies = saved.windows.map { window, events in
-            (window: window, events: events.filter { !isGone($0) }, fetched: saved.fetched[window] ?? .distantPast)
+        let here = dates.calendar.timeZone
+        let zone = TimeZone(identifier: saved.timeZone) ?? here
+        var drawn: [EventWindow: (zone: String, days: EventWindow)] = [:]
+        for window in saved.windows.keys {
+            let there = saved.zones[window].flatMap(TimeZone.init(identifier:)) ?? zone
+            if there != here { drawn[window] = (there.identifier, CalendarCache.days(window, from: there, to: dates.calendar)) }
         }
+        let copies = saved.windows.map { window, events in
+            (
+                window: window,
+                events: events.filter { !isGone($0) }.map { CalendarCache.moved($0, from: zone, to: dates.calendar) },
+                fetched: saved.fetched[window] ?? .distantPast
+            )
+        }
+        let restoredDays = drawn.mapValues { $0.days }
         for window in saved.windows.keys where parts[window]?[account] == nil {
-            // Compared where they were saved: the windows' bounds are that zone's days, as the all-day events still are.
-            parts[window, default: [:]][account] = Self.newest(in: window, of: copies)
-                .map { CalendarCache.moved($0, from: zone, to: dates.calendar) }
+            parts[window, default: [:]][account] = Self.newest(in: window, of: copies, days: restoredDays)
             fetchedAt[window, default: [:]][account] = saved.fetched[window]
             restored.insert(window)
+            if let other = drawn[window] {
+                zones[window] = other.zone
+                days[window] = other.days
+            }
         }
+    }
+
+    /** Whether an event falls in a window; an all-day one in a window drawn in another zone, by that window's days here. */
+    nonisolated static func holds(_ window: EventWindow, _ event: CalendarEvent, days: [EventWindow: EventWindow] = [:]) -> Bool {
+        let bounds = event.allDay ? days[window] ?? window : window
+        return event.end > bounds.from && event.start < bounds.to
     }
 
     /** Deleted here, or Google said its series is gone. */
@@ -275,7 +307,7 @@ final class CalendarStore {
                 .sorted { $0.fetched > $1.fetched }
             var seen: Set<String> = []
             byAccount[account] = copies.flatMap { saved in
-                saved.events.filter { $0.end > window.from && $0.start < window.to && seen.insert($0.id).inserted }
+                saved.events.filter { Self.holds(window, $0, days: days) && seen.insert($0.id).inserted }
             }
             fetchedAt[window, default: [:]][account] = copies.map(\.fetched).min()
         }
@@ -286,9 +318,12 @@ final class CalendarStore {
     /**
      * A window from the saved copies: each event's newest copy, and none from an older window where a
      * newer one had nothing or moved it elsewhere, any window. The window's own copy wins a tie.
+     * `days` are the windows drawn in another zone, as `holds` takes them.
      */
     nonisolated static func newest(
-        in window: EventWindow, of copies: [(window: EventWindow, events: [CalendarEvent], fetched: Date)]
+        in window: EventWindow,
+        of copies: [(window: EventWindow, events: [CalendarEvent], fetched: Date)],
+        days: [EventWindow: EventWindow] = [:]
     ) -> [CalendarEvent] {
         let newest = copies
             .sorted { ($0.fetched, $0.window == window ? 1 : 0) > ($1.fetched, $1.window == window ? 1 : 0) }
@@ -297,8 +332,8 @@ final class CalendarStore {
         for (index, saved) in newest.enumerated() {
             let newer = newest[..<index]
             kept += saved.events.filter { event in
-                event.end > window.from && event.start < window.to
-                    && !newer.contains { event.end > $0.window.from && event.start < $0.window.to }
+                holds(window, event, days: days)
+                    && !newer.contains { holds($0.window, event, days: days) }
                     && !seen.contains(event.id)
             }
             seen.formUnion(saved.events.map(\.id))
@@ -327,6 +362,7 @@ final class CalendarStore {
         force: Bool = false
     ) async {
         self.demo = demo
+        zone = dates.calendar.timeZone
         adopt(sources.map(\.email), dates: dates)
         if force {
             loadedAt.removeAll()
@@ -503,6 +539,9 @@ final class CalendarStore {
             case .success(let found):
                 parts[window, default: [:]][account] = found
                 fetchedAt[window, default: [:]][account] = .now
+                // Fetched where the phone is now: Google gives every all-day event in it by this zone's days.
+                zones[window] = nil
+                days[window] = nil
                 spread(found, of: account, from: window)
                 reached = true
             case .failure:
@@ -525,7 +564,7 @@ final class CalendarStore {
      */
     private func spread(_ found: [CalendarEvent], of account: String, from window: EventWindow) {
         let byId = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let within = { (event: CalendarEvent, window: EventWindow) in event.end > window.from && event.start < window.to }
+        let within = { (event: CalendarEvent, window: EventWindow) in Self.holds(window, event, days: self.days) }
         for (other, byAccount) in parts where other != window {
             guard let mine = byAccount[account] else { continue }
             var kept = mine.compactMap { event -> CalendarEvent? in

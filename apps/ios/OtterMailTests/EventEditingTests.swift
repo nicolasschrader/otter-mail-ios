@@ -596,6 +596,23 @@ struct EventEditingTests {
             await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
             #expect(store.events(in: window)?.contains { $0.eventId == "holiday" } == false)
         }
+
+        // Saved again by a fetch elsewhere, the Berlin windows keep their days: Nov 13's doesn't take the holiday from the month.
+        store.absorb([(robin, .success([]))], for: there.window(.day, anchor: day(newYork, 20)))
+        let again = CalendarStore(defaults: isolated(), cache: disk)
+        let monthThere = there.window(.month, anchor: day(newYork, 9))
+        await again.load(monthThere, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        await again.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        let kept = try #require(again.events(in: month)?.first { $0.eventId == "holiday" })
+        #expect(kept.start == day(newYork, 12))
+        #expect(kept.end == day(newYork, 13))
+        let shownAgain = try #require(again.events(in: monthThere)?.first { $0.eventId == "holiday" })
+        #expect(shownAgain.start == day(newYork, 12))
+        for other in [11, 13] {
+            let window = there.window(.day, anchor: day(newYork, other))
+            await again.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+            #expect(again.events(in: window)?.contains { $0.eventId == "holiday" } == false)
+        }
     }
 
     /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */

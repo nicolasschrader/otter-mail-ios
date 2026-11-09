@@ -20,6 +20,8 @@ nonisolated final class CalendarCache: Sendable {
         var fetched: [EventWindow: Date] = [:]
         /** Where the phone was: an all-day event is its days there, read back as the same days where the phone is now. */
         var timeZone = TimeZone.current.identifier
+        /** The windows whose days are another zone's, kept from before the phone moved: their bounds are midnights there. */
+        var zones: [EventWindow: String] = [:]
     }
 
     private func file(_ account: String) -> URL { folder.appending(path: "\(account.lowercased()).json") }
@@ -50,16 +52,26 @@ nonisolated final class CalendarCache: Sendable {
      */
     static func moved(_ event: CalendarEvent, from zone: TimeZone, to calendar: Calendar) -> CalendarEvent {
         guard event.allDay, zone != calendar.timeZone else { return event }
-        var then = calendar
-        then.timeZone = zone
-        let saved = CalendarDates(calendar: then)
-        let times = EventTimes(calendar: calendar)
-        let day = { (date: Date) in times.day(saved.dayKey(date)) ?? date }
+        let day = sameDay(from: zone, to: calendar)
         var event = event
         event.start = day(event.start)
         event.end = day(event.end)
         event.originalStart = event.originalStart.map(day)
         return event
+    }
+
+    /** A window drawn in another zone as the same days where the phone is now, what its all-day events are compared with. */
+    static func days(_ window: EventWindow, from zone: TimeZone, to calendar: Calendar) -> EventWindow {
+        let day = sameDay(from: zone, to: calendar)
+        return EventWindow(from: day(window.from), to: day(window.to))
+    }
+
+    private static func sameDay(from zone: TimeZone, to calendar: Calendar) -> (Date) -> Date {
+        var then = calendar
+        then.timeZone = zone
+        let saved = CalendarDates(calendar: then)
+        let times = EventTimes(calendar: calendar)
+        return { times.day(saved.dayKey($0)) ?? $0 }
     }
 
     private struct Address: Decodable { var email: String }
