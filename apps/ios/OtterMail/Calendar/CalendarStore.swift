@@ -297,12 +297,14 @@ final class CalendarStore {
 
     /**
      * A window's part for each mailbox without one, shown from that mailbox's saved windows it overlaps
-     * (the agenda starts anew each day). They agree already (`restore`, `spread`), so each event is
-     * taken from the newest that has it.
+     * (the agenda starts anew each day), or whose days here do, for one drawn in another zone. They
+     * agree already (`restore`, `spread`), so each event is taken from the newest that has it.
      */
     private func fill(_ window: EventWindow) {
         let missing = accounts.filter { parts[window]?[$0] == nil }
-        let overlapping = restored.filter { $0.from < window.to && $0.to > window.from }
+        let overlapping = restored.filter { saved in
+            [saved, days[saved] ?? saved].contains { $0.from < window.to && $0.to > window.from }
+        }
         guard !missing.isEmpty, !overlapping.isEmpty else { return }
         var filled = false
         for account in missing {
@@ -369,6 +371,7 @@ final class CalendarStore {
     ) async {
         self.demo = demo
         follow(dates)
+        let here = zone
         adopt(sources.map(\.email), dates: dates)
         if force {
             loadedAt.removeAll()
@@ -402,7 +405,7 @@ final class CalendarStore {
                 failures.append(error)
             }
         }
-        let reached = absorb(results, for: window)
+        let reached = absorb(results, for: window, fetchedIn: here)
         guard mine == generation else { return }
         // A refresh that fails leaves the events already up, as React Query keeps its data.
         if kept == nil { for error in failures { ErrorReports.capture(error, scope: "calendar") } }
@@ -447,12 +450,13 @@ final class CalendarStore {
     func prefetch(_ windows: [EventWindow], sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async {
         guard sources.map(\.email) == accounts, !lists.isEmpty || demo else { return }
         follow(dates)
+        let here = zone
         let asked = sources.filter { !denied.contains($0.email) && lists[$0.email] != nil }
         guard !asked.isEmpty else { return }
         for window in windows where !Self.isFresh(loadedAt[window]) {
             let results = await fetch(window, from: asked, demo: demo, google: google, dates: dates)
             guard sources.map(\.email) == accounts else { return }
-            absorb(results, for: window)
+            absorb(results, for: window, fetchedIn: here)
         }
     }
 
@@ -561,10 +565,14 @@ final class CalendarStore {
      * What each mailbox found, in its place in the window; a mailbox that failed keeps its part.
      * A refresh that finds what's already there redraws nothing, so the pages it would redraw
      * (mid-swipe, perhaps) stay as they are; it's saved still, so the disk knows how fresh it is.
-     * The other windows take what it found. True when any mailbox answered.
+     * The other windows take what it found. True when any mailbox answered. A fetch made before the
+     * phone moved to another zone is dropped: its all-day events are that zone's days, not these.
      */
     @discardableResult
-    func absorb(_ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow) -> Bool {
+    func absorb(
+        _ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow, fetchedIn: TimeZone? = nil
+    ) -> Bool {
+        if let fetchedIn, fetchedIn != zone { return false }
         var reached = false
         var complete = true
         for (account, result) in results where accounts.contains(account) {

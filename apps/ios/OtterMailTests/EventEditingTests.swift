@@ -651,6 +651,80 @@ struct EventEditingTests {
         }
     }
 
+    private func zoned(_ identifier: String) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: identifier)!
+        calendar.locale = Locale(identifier: "en_US")
+        return calendar
+    }
+
+    /**
+     * Only Nov 12 saved, in Kiritimati (+14), opened offline in Honolulu (-10): the two days only touch,
+     * but the saved day is Nov 12 here too, so its all-day event is on Nov 12 and no other day.
+     */
+    @MainActor @Test func aSavedDayKeepsItsAllDayEventAcrossTheDateLine() async throws {
+        let disk = onDisk()
+        let kiritimati = zoned("Pacific/Kiritimati")
+        let honolulu = zoned("Pacific/Honolulu")
+        let there = CalendarDates(calendar: honolulu)
+        let day = { (zone: Calendar, number: Int) in zone.date(from: DateComponents(year: 2026, month: 11, day: number))! }
+        let holiday = CalendarEvent(
+            eventId: "holiday", calendar: mine, title: "Holiday", start: day(kiritimati, 12), end: day(kiritimati, 13), allDay: true
+        )
+        let saved = CalendarDates(calendar: kiritimati).window(.day, anchor: day(kiritimati, 12))
+        disk.save(CalendarCache.Saved(
+            calendars: [mine], windows: [saved: [holiday]], fetched: [saved: day(kiritimati, 11)], timeZone: "Pacific/Kiritimati"
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        let twelfth = there.window(.day, anchor: day(honolulu, 12))
+        await store.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        let shown = try #require(store.events(in: twelfth)?.first { $0.eventId == "holiday" })
+        #expect(shown.start == day(honolulu, 12))
+        #expect(shown.end == day(honolulu, 13))
+        for other in [11, 13] {
+            let window = there.window(.day, anchor: day(honolulu, other))
+            await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+            #expect((store.events(in: window) ?? []).contains { $0.eventId == "holiday" } == false)
+        }
+    }
+
+    /**
+     * A fetch started in Berlin lands after the phone moved to New York: its all-day event is Berlin's
+     * day, so it's dropped rather than saved as New York's, and after a restart the event is still on Nov 12.
+     */
+    @MainActor @Test func aFetchFromBeforeTheZoneChangedIsDropped() async throws {
+        let disk = onDisk()
+        let berlin = calendar
+        let newYork = zoned("America/New_York")
+        let there = CalendarDates(calendar: newYork)
+        let day = { (zone: Calendar, number: Int) in zone.date(from: DateComponents(year: 2026, month: 11, day: number))! }
+        let holiday = CalendarEvent(eventId: "holiday", calendar: mine, title: "Holiday", start: day(berlin, 12), end: day(berlin, 13), allDay: true)
+        var renamed = holiday
+        renamed.title = "Late holiday"
+        let month = dates.window(.month, anchor: at(9, 0))
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        store.absorb([(robin, .success([holiday]))], for: month, fetchedIn: berlin.timeZone)
+
+        let twelfth = there.window(.day, anchor: day(newYork, 12))
+        await store.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        #expect(!store.absorb([(robin, .success([renamed]))], for: month, fetchedIn: berlin.timeZone))
+        let moved = try #require(store.events(in: month)?.first { $0.eventId == "holiday" })
+        #expect(moved.title == "Holiday")
+        #expect(moved.start == day(newYork, 12))
+
+        let after = CalendarStore(defaults: isolated(), cache: disk)
+        await after.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        let kept = try #require(after.events(in: twelfth)?.first { $0.eventId == "holiday" })
+        #expect(kept.start == day(newYork, 12))
+        #expect(kept.end == day(newYork, 13))
+        let eleventh = there.window(.day, anchor: day(newYork, 11))
+        await after.load(eleventh, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        #expect((after.events(in: eleventh) ?? []).contains { $0.eventId == "holiday" } == false)
+    }
+
     /** An event moved here to a day loaded since its month is on that day after a restart, in the day and the month. */
     @MainActor @Test func anEventMovedToALoadedDayIsThereAfterARestart() async throws {
         let disk = onDisk()
