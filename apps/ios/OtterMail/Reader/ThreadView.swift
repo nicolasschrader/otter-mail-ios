@@ -142,7 +142,7 @@ struct ThreadView: View {
                         .disabled(unsubscribing)
                     }
                     Divider()
-                    ThreadActions(thread: thread, onGone: { leave(thread) })
+                    ThreadActions(thread: acted(thread), onGone: { leave(thread) })
                 }
             }
         }
@@ -199,6 +199,14 @@ struct ThreadView: View {
     }
 
     @ViewBuilder
+    /** Labelled as the picked message is, so an inbox message beside a trashed one isn't offered Delete forever. */
+    private func acted(_ thread: MailThread) -> MailThread {
+        guard let message, let labels = thread.messages.first(where: { $0.id == message })?.labels else { return thread }
+        var acted = thread
+        acted.labels = labels
+        return acted
+    }
+
     private func labels(_ thread: MailThread, _ mailbox: Mailbox) -> some View {
         let userLabels = mailbox.labels.filter { thread.labels.contains($0.id) }
         HStack(spacing: 6) {
