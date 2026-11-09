@@ -32,24 +32,29 @@ nonisolated enum AllNew {
      * mailbox (`more`) has older pages still to load, nothing older than its
      * oldest conversation here is listed yet, so another's older mail doesn't
      * sit above mail of its still to come. A tie goes by inbox, then by id, so
-     * the list holds still.
+     * the list holds still. Each message is listed under the first inbox it
+     * came in to (`receives`), so a conversation can sit under two.
      */
-    static func entries(inboxes: [(scope: String, threads: [MailThread])], mine: [String: Set<String>], more: Set<String> = []) -> [Entry] {
-        var seen: Set<String> = []
-        let listed = inboxes.flatMap { inbox in
-            inbox.threads.filter { seen.insert($0.id).inserted }.map { (scope: inbox.scope, thread: $0) }
-        }
+    static func entries(
+        inboxes: [(scope: String, threads: [MailThread])], mine: [String: Set<String>], more: Set<String> = [],
+        receives: (Message, String) -> Bool = { _, _ in true }
+    ) -> [Entry] {
+        let listed = inboxes.flatMap { inbox in inbox.threads.map { (scope: inbox.scope, thread: $0) } }
         let since = more.compactMap { mailbox in
             listed.filter { $0.thread.mailbox == mailbox }.map(\.thread.latest.date).min()
         }.max()
+        var seen: Set<String> = []
         return listed
             .flatMap { item in
                 let (scope, thread) = item
                 let own = mine[thread.mailbox] ?? [thread.mailbox.lowercased()]
                 return thread.distinctMessages(preferring: scope == thread.mailbox ? nil : scope) { message in
-                    !message.draft && !own.contains(message.from.email.lowercased()) && thread.inInbox(message)
+                    !message.draft && !own.contains(message.from.email.lowercased()) && thread.inInbox(message) && receives(message, scope)
                 }
-                .filter { message in since.map { message.date >= $0 } != false }
+                .filter { message in
+                    since.map { message.date >= $0 } != false
+                        && seen.insert("\(thread.id)/\(message.headers["Message-ID"] ?? message.id)").inserted
+                }
                 .map { Entry(scope: scope, thread: thread, message: $0) }
             }
             .sorted { a, b in
@@ -87,7 +92,7 @@ struct AllNewView: View {
             return (scope: scope.email, threads: store.sync?.listed(threads, in: .inbox) ?? threads)
         }
         let mine = Dictionary(uniqueKeysWithValues: mailboxes.map { ($0.email, Set(store.addresses(of: $0.email))) })
-        return AllNew.entries(inboxes: inboxes, mine: mine, more: Set(more))
+        return AllNew.entries(inboxes: inboxes, mine: mine, more: Set(more), receives: { store.receives($0, in: $1) })
     }
 
     var body: some View {
