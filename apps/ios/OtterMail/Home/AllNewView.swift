@@ -46,12 +46,11 @@ nonisolated enum AllNew {
             .flatMap { item in
                 let (scope, thread) = item
                 let own = mine[thread.mailbox] ?? [thread.mailbox.lowercased()]
-                return thread.distinctMessages(preferring: scope == thread.mailbox ? nil : scope)
-                    .filter { message in
-                        !message.draft && !own.contains(message.from.email.lowercased()) && thread.inInbox(message)
-                            && since.map { message.date >= $0 } != false
-                    }
-                    .map { Entry(scope: scope, thread: thread, message: $0) }
+                return thread.distinctMessages(preferring: scope == thread.mailbox ? nil : scope) { message in
+                    !message.draft && !own.contains(message.from.email.lowercased()) && thread.inInbox(message)
+                }
+                .filter { message in since.map { message.date >= $0 } != false }
+                .map { Entry(scope: scope, thread: thread, message: $0) }
             }
             .sorted { a, b in
                 if a.message.date != b.message.date { return a.message.date > b.message.date }
@@ -84,7 +83,7 @@ struct AllNewView: View {
 
     private var entries: [AllNew.Entry] {
         let inboxes = scopes.map { scope in
-            let threads = store.threads(in: .inbox, scope: scope.email)
+            let threads = store.inboxMail(scope: scope.email)
             return (scope: scope.email, threads: store.sync?.listed(threads, in: .inbox) ?? threads)
         }
         let mine = Dictionary(uniqueKeysWithValues: mailboxes.map { ($0.email, Set(store.addresses(of: $0.email))) })

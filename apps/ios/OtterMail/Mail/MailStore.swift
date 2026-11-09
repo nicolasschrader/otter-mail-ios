@@ -298,6 +298,13 @@ final class MailStore {
         return result
     }
 
+    /** `scope`'s conversations with mail in its inbox, though another of their messages is in Spam or Trash. */
+    func inboxMail(scope: String) -> [MailThread] {
+        _ = threads
+        _ = otherAddresses
+        return threads(of: scope, in: .inbox, messagewise: true)
+    }
+
     func unreadCount(in folder: Folder, scope: String) -> Int {
         _ = threads
         _ = otherAddresses
@@ -309,15 +316,18 @@ final class MailStore {
         return count
     }
 
-    /** `whole`: a mailbox's own list with its alias mailboxes' mail, whatever its switch says. */
-    private func threads(of scope: String, in folder: Folder, whole: Bool = false) -> [MailThread] {
+    /**
+     * `whole`: a mailbox's own list with its alias mailboxes' mail, whatever its switch says.
+     * `messagewise`: by where each message is rather than the whole conversation.
+     */
+    private func threads(of scope: String, in folder: Folder, whole: Bool = false, messagewise: Bool = false) -> [MailThread] {
         let alias = aliasScope(scope)
         let source = alias?.source ?? scope
         let addresses = self.addresses(of: source)
         let (mine, others) = (Set(addresses), Set(addresses.dropFirst()))
         let apart = alias != nil || whole ? [] : aliasesApart(from: scope)
         return allThreads(of: source).filter { thread in
-            guard matches(thread, folder, mine: mine) else { return false }
+            guard messagewise ? thread.messages.contains(where: thread.inInbox) : matches(thread, folder, mine: mine) else { return false }
             if let alias { return Self.belongs(thread, to: alias.email, in: folder, others: others) }
             return apart.isEmpty || Self.isRest(thread, without: apart, in: folder, mine: mine, others: others)
         }

@@ -165,11 +165,11 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
     var isDraft: Bool { messages.allSatisfy(\.draft) }
     var sent: [Message] { messages.filter { !$0.draft } }
 
-    /** iCloud files a copy for each address a message was delivered to; `address`'s (an alias mailbox's) is kept. */
-    func distinctMessages(preferring address: String? = nil) -> [Message] {
+    /** iCloud files a copy for each address a message was delivered to; `address`'s (an alias mailbox's) is kept, of the copies `keep` takes. */
+    func distinctMessages(preferring address: String? = nil, where keep: (Message) -> Bool = { _ in true }) -> [Message] {
         var kept: [String: Int] = [:]
         var distinct: [Message] = []
-        for message in messages {
+        for message in messages where keep(message) {
             guard !message.draft, let id = message.headers["Message-ID"] else { distinct.append(message); continue }
             if let i = kept[id] {
                 if let address, message.deliveredTo.contains(address), !distinct[i].deliveredTo.contains(address) { distinct[i] = message }

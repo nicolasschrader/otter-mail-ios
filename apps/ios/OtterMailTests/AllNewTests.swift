@@ -3,9 +3,42 @@ import Testing
 @testable import Otter_Mail
 
 struct AllNewTests {
-    private func message(_ id: String, from: String, at date: Date, unread: Bool, labels: Set<String> = ["INBOX"]) -> Message {
+    private func message(_ id: String, from: String, at date: Date, unread: Bool, labels: Set<String> = ["INBOX"], headers: [String: String] = [:]) -> Message {
         Message(id: id, from: Person(name: from, email: "\(from)@example.com"), to: [], cc: [], date: date,
-                text: "", html: nil, attachments: [], unread: unread, starred: false, draft: false, headers: [:], labels: labels)
+                text: "", html: nil, attachments: [], unread: unread, starred: false, draft: false, headers: headers, labels: labels)
+    }
+
+    @Test func keepsInboxMailBesideTrashedMessagesAndArchivedCopies() {
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX", "ARCHIVE", "TRASH"], messages: [
+            message("old", from: "ann", at: t, unread: false, labels: ["TRASH"]),
+            message("archived", from: "bob", at: t + 10, unread: false, labels: ["ARCHIVE"], headers: ["Message-ID": "<b@x>"]),
+            message("inbox", from: "bob", at: t + 10, unread: true, labels: ["INBOX"], headers: ["Message-ID": "<b@x>"]),
+        ])
+        let store = MailStore(preferences: Preferences(), mailboxes: [mailbox], threads: [thread])
+        let entries = AllNew.entries(inboxes: [(scope: mailbox.email, threads: store.inboxMail(scope: mailbox.email))], mine: [:])
+
+        #expect(store.threads(in: .inbox, scope: mailbox.email).isEmpty)
+        #expect(entries.map(\.message.id) == ["inbox"])
+    }
+
+    @Test func mailCachedWithoutEachMessagesLabelsIsFetchedAgain() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX"], messages: [
+            message("m", from: "ann", at: .now, unread: false),
+        ])
+        let old = MailCache.Snapshot(mailbox: mailbox, state: MailboxState(historyID: "7", watchTopic: "topic"), threads: [thread], version: nil)
+        try JSONEncoder().encode(old).write(to: folder.appending(path: "me@example.com.json"))
+
+        let loaded = try #require(await MailCache(folder: folder).load([mailbox.email]).first)
+
+        #expect(loaded.threads.isEmpty)
+        #expect(loaded.state.historyID == nil)
+        #expect(loaded.state.watchTopic == "topic")
     }
 
     @Test func listsBothMailboxesMessagesOneByOneNewestFirstWithReadOnesNotBold() {

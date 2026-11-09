@@ -5,7 +5,23 @@ nonisolated final class MailCache: Sendable {
         var mailbox: Mailbox
         var state: MailboxState
         var threads: [MailThread]
+        var version: Int? = MailCache.version
+
+        /**
+         * Mail cached before each message carried its own labels gives it its thread's, and
+         * sync only fetches threads that change: it's fetched again instead, keeping what
+         * the mailbox's watches and Trash need.
+         */
+        var current: Snapshot {
+            guard version != MailCache.version else { return self }
+            var fresh = MailboxState(watchedAt: state.watchedAt, watchExpiresAt: state.watchExpiresAt, watchTopic: state.watchTopic)
+            fresh.trashedFrom = state.trashedFrom
+            fresh.subscription = state.subscription
+            return Snapshot(mailbox: mailbox, state: fresh, threads: [])
+        }
     }
+
+    static let version = 2
 
     static let live = MailCache(folder: URL.applicationSupportDirectory.appending(path: "mail", directoryHint: .isDirectory))
     private let folder: URL
@@ -20,7 +36,7 @@ nonisolated final class MailCache: Sendable {
             queue.async {
                 let snapshots = emails.compactMap { email -> Snapshot? in
                     guard let data = try? Data(contentsOf: self.file(email)) else { return nil }
-                    return try? JSONDecoder().decode(Snapshot.self, from: data)
+                    return (try? JSONDecoder().decode(Snapshot.self, from: data))?.current
                 }
                 continuation.resume(returning: snapshots)
             }
