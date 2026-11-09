@@ -3,7 +3,7 @@ import Foundation
 /**
  * Where a day's events sit in the Day page's hours, ported from the Mac and
  * web apps' apps/web/src/main/calendar/time-grid.tsx: the timed ones by their
- * times, in layoutDay's columns where they overlap and TimedEvent's widths;
+ * times, in layoutDay's columns where they overlap, side by side;
  * those all day or a day or more long in the all-day row above.
  */
 nonisolated enum TimeGrid {
@@ -26,9 +26,8 @@ nonisolated enum TimeGrid {
     }
 
     /**
-     * layoutDay: where they overlap, Notion Calendar's way, each cluster's
-     * events take a column, a later one laid over the one before, so each
-     * keeps more than its share. Keyed by the event's `id`. Overlaps are
+     * layoutDay: where they overlap, each cluster's events take a column, and
+     * the cluster as many as it ever needed. Keyed by the event's `id`. Overlaps are
      * measured in the clock minutes the blocks are drawn at, so two events in
      * the hour the clocks repeat sit side by side, not on top of each other.
      */
@@ -72,10 +71,13 @@ nonisolated enum TimeGrid {
         Double(placement.col) / Double(placement.cols)
     }
 
-    /** TimedEvent's width: the last column takes what's left, the others half a column more than their share. */
+    /**
+     * Its share of the day's width: a cluster's columns split it evenly, side
+     * by side as Apple's and Google's Calendar lay them, so on a phone's narrow
+     * day no block covers another's title or another's tap.
+     */
     static func width(_ placement: Placement) -> Double {
-        let rest = 1 - leading(placement)
-        return placement.col == placement.cols - 1 ? rest : min(rest, 1.5 / Double(placement.cols))
+        1 / Double(placement.cols)
     }
 
     /**

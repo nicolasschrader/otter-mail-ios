@@ -5,7 +5,7 @@ import Testing
 
 /**
  * The Day page's grid and the Month page's week, as ported from
- * apps/web/src/main/calendar/time-grid.tsx (layoutDay, TimedEvent's widths,
+ * apps/web/src/main/calendar/time-grid.tsx (layoutDay, the columns' widths,
  * openingHour) and dates.ts (visibleDays' week).
  */
 struct TimeGridTests {
@@ -73,12 +73,63 @@ struct TimeGridTests {
         #expect(layout == ["long": [0, 2], "short": [1, 2]])
     }
 
-    @Test func widthsAreTimedEventsOwn() {
+    /** Each event's left and right edges, as shares of the day's width. */
+    private func spans(_ events: [CalendarEvent]) -> [String: ClosedRange<Double>] {
+        TimeGrid.columns(events, on: at(4, 0), dates: dates).reduce(into: [:]) { result, entry in
+            let left = TimeGrid.leading(entry.value)
+            result[String(entry.key.split(separator: "/").last!)] = left...(left + TimeGrid.width(entry.value))
+        }
+    }
+
+    /** No two of them cover each other, so each is tapped on its own. */
+    private func sideBySide(_ spans: [String: ClosedRange<Double>]) -> Bool {
+        let all = Array(spans.values)
+        return all.indices.allSatisfy { i in
+            all.indices.allSatisfy { j in
+                i == j || all[i].upperBound <= all[j].lowerBound + 1e-9 || all[j].upperBound <= all[i].lowerBound + 1e-9
+            }
+        }
+    }
+
+    @Test func twoOverlappingShareTheWidthEvenly() {
+        let layout = spans([event("a", at(4, 9), at(4, 10, 45)), event("b", at(4, 9), at(4, 10, 45))])
+        #expect(layout["a"] == 0...0.5)
+        #expect(layout["b"] == 0.5...1)
+        #expect(sideBySide(layout))
+    }
+
+    @Test func threeOverlappingTakeAThirdEach() {
+        let layout = spans([
+            event("a", at(4, 9), at(4, 11)),
+            event("b", at(4, 9, 30), at(4, 10, 30)),
+            event("c", at(4, 10), at(4, 12)),
+        ])
+        #expect(layout.values.allSatisfy { abs($0.upperBound - $0.lowerBound - 1.0 / 3) < 1e-9 })
+        #expect(sideBySide(layout))
+    }
+
+    /** a overlaps b and b overlaps c, though a and c don't meet: one cluster of two columns. */
+    @Test func aChainOfOverlapsIsOneCluster() {
+        let layout = spans([
+            event("a", at(4, 9), at(4, 10)),
+            event("b", at(4, 9, 30), at(4, 11)),
+            event("c", at(4, 10, 30), at(4, 12)),
+            event("apart", at(4, 13), at(4, 14)),
+        ])
+        #expect(layout["a"] == 0...0.5)
+        #expect(layout["b"] == 0.5...1)
+        #expect(layout["c"] == 0...0.5)
+        #expect(layout["apart"] == 0...1)
+        #expect(sideBySide(layout.filter { ["a", "b"].contains($0.key) }))
+        #expect(sideBySide(layout.filter { ["b", "c"].contains($0.key) }))
+    }
+
+    @Test func widthsAreAnEvenShare() {
         #expect(TimeGrid.width(.init(col: 0, cols: 1)) == 1)
-        #expect(TimeGrid.width(.init(col: 0, cols: 2)) == 0.75)
+        #expect(TimeGrid.width(.init(col: 0, cols: 2)) == 0.5)
         #expect(TimeGrid.width(.init(col: 1, cols: 2)) == 0.5)
         #expect(TimeGrid.leading(.init(col: 1, cols: 2)) == 0.5)
-        #expect(abs(TimeGrid.width(.init(col: 0, cols: 3)) - 0.5) < 1e-9)
+        #expect(abs(TimeGrid.width(.init(col: 0, cols: 3)) - 1.0 / 3) < 1e-9)
         #expect(abs(TimeGrid.width(.init(col: 2, cols: 3)) - 1.0 / 3) < 1e-9)
     }
 

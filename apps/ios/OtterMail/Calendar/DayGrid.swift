@@ -146,7 +146,7 @@ struct EventBlock: View {
     let dates: CalendarDates
     /** The block's height, which says how much of its text it holds (`TimeGrid.titleLines`). */
     let height: CGFloat
-    /** Edged in the canvas, so blocks laid over each other part. */
+    /** Edged in the canvas, so blocks side by side part. */
     var outlined = false
 
     var body: some View {
