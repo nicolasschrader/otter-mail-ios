@@ -151,15 +151,18 @@ nonisolated enum OutlookMail {
     ) -> MailThread? {
         let shown = messages.filter { folders.isSynced($0.parentFolderId) }.sorted { $0.date < $1.date }
         guard let first = shown.first else { return nil }
-        var labels = Set(shown.flatMap { folders.labels(of: $0) })
-        labels.subtract(["UNREAD", "STARRED", "DRAFT"])
+        let placed = shown.map { graph in
+            var mail = message(graph, mailbox: mailbox, content: contents[graph.id] ?? known[graph.id].map(content(keeping:)))
+            mail.labels = Set(folders.labels(of: graph)).subtracting(["UNREAD", "STARRED", "DRAFT"])
+            return mail
+        }
         let subject = first.subject ?? ""
         return MailThread(
             id: id,
             mailbox: mailbox,
             subject: subject.isEmpty ? "(no subject)" : subject,
-            labels: labels,
-            messages: shown.map { message($0, mailbox: mailbox, content: contents[$0.id] ?? known[$0.id].map(content(keeping:))) }
+            labels: Set(placed.flatMap { $0.labels ?? [] }),
+            messages: placed
         )
     }
 

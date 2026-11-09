@@ -12,6 +12,8 @@ struct ThreadRow: View {
     var mark = "star"
     var mine: Set<String> = []
     var preview = true
+    /** Marked on the picture where rows from several mailboxes share a list. */
+    var account: Mailbox?
 
     var body: some View {
         let unread = thread.unread
@@ -20,6 +22,13 @@ struct ThreadRow: View {
                 .overlay(alignment: .leading) {
                     if unread {
                         Circle().fill(palette.action).frame(width: 6, height: 6).offset(x: -13)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let account {
+                        MailboxMark(mailbox: account, size: 14)
+                            .overlay(RoundedRectangle(cornerRadius: 14 * 0.28).strokeBorder(palette.canvas, lineWidth: 1.5))
+                            .offset(x: 4, y: 4)
                     }
                 }
                 .padding(.top, 2)
@@ -100,6 +109,28 @@ struct ThreadRow: View {
             return only.from.label
         }
         return names.isEmpty ? "Draft" : names.joined(separator: ", ")
+    }
+}
+
+/** The desktop's rows (styles.css): unread mail on a raised card, or edge to edge with a hairline between. */
+struct ThreadRowBackground: View {
+    @Environment(Preferences.self) private var preferences
+    @Environment(\.palette) private var palette
+    @Environment(\.displayScale) private var displayScale
+    let unread: Bool
+
+    var body: some View {
+        let fill = palette.text.opacity(unread ? 0.04 : 0)
+        palette.canvas.overlay {
+            if preferences.fullWidthRows {
+                Rectangle().fill(fill)
+                    .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1 / displayScale) }
+            } else {
+                RoundedRectangle(cornerRadius: 8).fill(fill)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+            }
+        }
     }
 }
 

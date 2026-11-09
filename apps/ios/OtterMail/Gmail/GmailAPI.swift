@@ -333,7 +333,8 @@ nonisolated private struct GmailMessage: Decodable {
             unread: labels.contains("UNREAD"),
             starred: labels.contains("STARRED"),
             draft: labels.contains("DRAFT"),
-            headers: headers
+            headers: headers,
+            labels: labels.subtracting(["UNREAD", "STARRED", "DRAFT"])
         )
     }
 }

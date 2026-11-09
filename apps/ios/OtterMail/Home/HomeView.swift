@@ -16,6 +16,9 @@ struct HomeView: View {
 
     @State private var place = Place()
     @State private var path: [String] = []
+    /** Mail as All new (its ⋯ switches), and what's opened from it. */
+    @State private var allNew = false
+    @State private var allNewPath: [AllNew.Opened] = []
     @State private var menuOpen = false
     @State private var selecting = false
     @State private var draft: Draft?
@@ -88,6 +91,22 @@ struct HomeView: View {
                     onDone: { select(Place(scope: place.scope)) }
                 )))
             }
+        case .mail where allNew:
+            NavigationStack(path: $allNewPath) {
+                withPlaces(loadingInvites(AllNewView(
+                    onTitle: { setMenu(open: true) },
+                    onCompose: { compose() },
+                    onSettings: openSettings,
+                    onConversations: { setAllNew(false) }
+                )))
+                .navigationDestination(for: AllNew.Opened.self) { opened in
+                    let path = Binding(
+                        get: { allNewPath.map(\.thread) },
+                        set: { allNewPath = $0.map { AllNew.Opened(thread: $0, scope: opened.scope) } }
+                    )
+                    ThreadView(threadID: opened.thread, place: Place(scope: opened.scope), path: path, draft: $draft, message: opened.message)
+                }
+            }
         case .mail:
             NavigationStack(path: $path) {
                 withPlaces(loadingInvites(ThreadListView(
@@ -100,6 +119,7 @@ struct HomeView: View {
                     onSearch: { setMenu(open: false); searchOpen = true },
                     onCatchUp: { setMenu(open: false); catchingUp = true },
                     catchUpCount: catchUpItems(place.scope).count,
+                    onAllNew: { setAllNew(true) },
                     onResume: { draft = $0 }
                 )))
                 .navigationDestination(isPresented: $catchingUp) {
@@ -222,8 +242,18 @@ struct HomeView: View {
         settingsOpen = true
     }
 
+    private func setAllNew(_ on: Bool) {
+        setMenu(open: false)
+        selecting = false
+        path = []
+        allNewPath = []
+        allNew = on
+    }
+
+    /** A folder or a mailbox picked is its conversations, All new left. */
     private func select(_ next: Place) {
         place = next
+        allNew = false
         path = []
         catchingUp = false
         module = .mail
@@ -281,6 +311,7 @@ struct HomeView: View {
     /** The conversation a task links to, opened as a notification's is. */
     private func openTaskEmail(_ email: TaskEmail) {
         module = .mail
+        allNew = false
         catchingUp = false
         if let thread = store.thread(email.thread) {
             let scope = store.shownScopes.first { $0.email.lowercased() == email.mailbox.lowercased() }?.email ?? thread.mailbox
@@ -313,6 +344,7 @@ struct HomeView: View {
             searchOpen = false
             catchingUp = false
             module = .mail
+            allNew = false
             if let thread = destination.thread, let loaded = store.thread(thread),
                destination.email == nil || loaded.mailbox.lowercased() == (mailbox?.source ?? destination.email)?.lowercased() {
                 path = [thread]

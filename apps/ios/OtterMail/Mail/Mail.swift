@@ -136,6 +136,8 @@ nonisolated struct Message: Identifiable, Hashable, Codable {
     var draft: Bool
     /** The ones replies, unsubscribing and alias mailboxes need: Message-ID, References, List-Unsubscribe, Original-Recipient, Delivered-To, X-Original-To. */
     var headers: [String: String]
+    /** Where this message itself is, as its thread's `labels` (nil: as its thread, where the provider doesn't say). */
+    var labels: Set<String>? = nil
 
     var deliveredTo: [String] { AliasMailbox.deliveredTo { headers[$0] } }
 
@@ -163,14 +165,18 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
     var isDraft: Bool { messages.allSatisfy(\.draft) }
     var sent: [Message] { messages.filter { !$0.draft } }
 
-    /** iCloud files a copy for each address a message was delivered to; `address`'s (an alias mailbox's) is kept. */
-    func distinctMessages(preferring address: String? = nil) -> [Message] {
+    /** iCloud files a copy for each address a message was delivered to; `picked`, else `address`'s (an alias mailbox's) is kept, of the copies `keep` takes. */
+    func distinctMessages(preferring address: String? = nil, picked: String? = nil, where keep: (Message) -> Bool = { _ in true }) -> [Message] {
         var kept: [String: Int] = [:]
         var distinct: [Message] = []
-        for message in messages {
+        for message in messages where keep(message) {
             guard !message.draft, let id = message.headers["Message-ID"] else { distinct.append(message); continue }
             if let i = kept[id] {
-                if let address, message.deliveredTo.contains(address), !distinct[i].deliveredTo.contains(address) { distinct[i] = message }
+                if message.id == picked {
+                    distinct[i] = message
+                } else if distinct[i].id != picked, let address, message.deliveredTo.contains(address), !distinct[i].deliveredTo.contains(address) {
+                    distinct[i] = message
+                }
             } else {
                 kept[id] = distinct.count
                 distinct.append(message)
@@ -202,16 +208,63 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
      * Elsewhere (Gmail) a change lands as it is.
      */
     mutating func land(add: [String], remove: [String], archiveFolder: Bool) {
-        let had = labels
-        labels.subtract(remove)
+        labels = Self.landed(labels, add: add, remove: remove, archiveFolder: archiveFolder)
+        for i in messages.indices {
+            messages[i].labels = messages[i].labels.map { Self.landed($0, add: add, remove: remove, archiveFolder: archiveFolder) }
+        }
+    }
+
+    /** `original`'s labels among `affected`, back on the conversation and each of its messages. */
+    mutating func restore(_ affected: Set<String>, from original: MailThread) {
+        labels = labels.subtracting(affected).union(original.labels.intersection(affected))
+        for i in messages.indices {
+            guard let had = original.messages.first(where: { $0.id == messages[i].id })?.labels else { continue }
+            messages[i].labels = (messages[i].labels ?? []).subtracting(affected).union(had.intersection(affected))
+        }
+    }
+
+    private static func landed(_ had: Set<String>, add: [String], remove: [String], archiveFolder: Bool) -> Set<String> {
+        var labels = had.subtracting(remove)
         if archiveFolder {
-            if add.contains(where: Self.isFolder) {
-                labels = labels.filter { !Self.archivesFrom($0) && $0 != "ARCHIVE" }
-            } else if remove.contains(where: { had.contains($0) && Self.archivesFrom($0) }) {
+            if add.contains(where: isFolder) {
+                labels = labels.filter { !archivesFrom($0) && $0 != "ARCHIVE" }
+            } else if remove.contains(where: { had.contains($0) && archivesFrom($0) }) {
                 labels.insert("ARCHIVE")
             }
         }
-        labels.formUnion(add)
+        return labels.union(add)
+    }
+
+    /** Whether every message is in the trash, not only one beside mail still in the inbox. */
+    var trashed: Bool {
+        messages.allSatisfy { ($0.labels ?? labels).contains("TRASH") }
+    }
+
+    /**
+     * Whether Delete forever may take it: deleting removes the whole conversation from the server,
+     * so every message has to be in the trash, or every one in junk, not one beside mail elsewhere.
+     */
+    var deletable: Bool {
+        trashed || messages.allSatisfy { ($0.labels ?? labels).contains("SPAM") }
+    }
+
+    /** Whether `message` itself is in the inbox, not only the conversation it's in. */
+    func inInbox(_ message: Message) -> Bool {
+        let labels = message.labels ?? self.labels
+        return labels.contains("INBOX") && !labels.contains("SPAM") && !labels.contains("TRASH")
+    }
+
+    /**
+     * The conversation as a menu for one of its messages acts on it: in the inbox, Spam, Trash or
+     * Archive as that message is, so one beside a trashed message isn't offered Delete forever, but
+     * with the conversation's own labels, since toggling a label acts on the whole conversation.
+     */
+    func acted(on message: Message) -> MailThread {
+        guard let own = message.labels else { return self }
+        let places: Set<String> = ["INBOX", "SPAM", "TRASH", "ARCHIVE"]
+        var acted = self
+        acted.labels = labels.subtracting(places).union(own.intersection(places))
+        return acted
     }
 }
 
