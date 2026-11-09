@@ -55,6 +55,8 @@ final class CalendarStore {
     @ObservationIgnored private let files: CalendarFiles
     /** The demo's pretend events are made again on every load, so they aren't kept on disk. */
     @ObservationIgnored private var demo = false
+    /** The windows read back from disk, that a window not saved itself is shown from. */
+    @ObservationIgnored private var restored: Set<EventWindow> = []
     /** How many windows each mailbox keeps on disk, the nearest to now. */
     static let savedWindows = 12
 
@@ -209,8 +211,29 @@ final class CalendarStore {
     /** A mailbox's events as they were last saved, less any deleted since, in the windows not loaded yet. */
     private func restore(_ account: String) {
         for (window, events) in files.load(account) where parts[window]?[account] == nil {
-            parts[window, default: [:]][account] = events.filter { !gone.contains(TaskEvent($0, scope: .occurrence).key) }
+            parts[window, default: [:]][account] = events.filter { !isGone($0) }
+            restored.insert(window)
         }
+    }
+
+    /** Deleted here, or Google said its series is gone. */
+    private func isGone(_ event: CalendarEvent) -> Bool {
+        gone.contains(TaskEvent(event, scope: .occurrence).key) || gone.contains(TaskEvent(event, scope: .series).key)
+    }
+
+    /** A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day). */
+    private func fill(_ window: EventWindow) {
+        guard cache[window] == nil else { return }
+        let overlapping = restored.filter { $0.from < window.to && $0.to > window.from }
+        guard !overlapping.isEmpty else { return }
+        var byAccount: [String: [CalendarEvent]] = [:]
+        for account in accounts {
+            var seen: Set<String> = []
+            byAccount[account] = overlapping.flatMap { parts[$0]?[account] ?? [] }
+                .filter { $0.end > window.from && $0.start < window.to && seen.insert($0.id).inserted }
+        }
+        parts[window] = byAccount
+        cache[window] = Self.merged(byAccount, accounts: accounts)
     }
 
     nonisolated static func answered(_ event: CalendarEvent, _ response: CalendarEvent.Response) -> CalendarEvent {
@@ -243,6 +266,7 @@ final class CalendarStore {
         // Every load, a cached one included, leaves the one before it to be dropped when it lands.
         generation += 1
         let mine = generation
+        fill(window)
         let kept = cache[window]
         if kept != nil {
             if state != .ready { state = .ready }

@@ -343,6 +343,31 @@ struct EventEditingTests {
         #expect(files.load(robin).isEmpty)
     }
 
+    /** The agenda saved yesterday shows today's part of it offline, less a series Google said is gone. */
+    @MainActor @Test func aSavedAgendaShowsTheNextDayWithoutAGoneSeries() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let yesterday = dates.window(.agenda, anchor: at(8, 9))
+        let today = dates.window(.agenda, anchor: at(9, 9))
+        let past = CalendarEvent(eventId: "past", calendar: mine, title: "Breakfast", start: at(8, 12), end: at(8, 13))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        var standup = CalendarEvent(eventId: "standup_1", calendar: mine, title: "Standup", start: at(10, 9), end: at(10, 10))
+        standup.seriesId = "standup"
+        files.save([yesterday: [past, lunch, standup]], account: robin)
+        defaults.set([TaskEvent(standup, scope: .series).key], forKey: "calendar.goneLinks")
+
+        let store = CalendarStore(defaults: defaults, files: files)
+        await store.load(today, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.state == .ready)
+        #expect(store.events(in: today)?.map(\.eventId) == ["lunch"])
+        #expect(store.isGone(TaskEvent(standup, scope: .series)))
+    }
+
     /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */
     @Test func aCancelledEventWithoutTimesIsGone() throws {
         let cancelled = #"{"id":"abc","status":"cancelled"}"#
