@@ -696,10 +696,11 @@ struct EventEditingTests {
     /**
      * Nov 12 saved with its all-day event and Nov 13 saved empty, in Kiritimati, opened offline in Honolulu:
      * they have the bounds of Honolulu's Nov 11 and Nov 12, so Nov 12 has a part of its own already (empty,
-     * Kiritimati's Nov 13). The holiday is still on Nov 12 and no other day, whichever day is opened first.
+     * Kiritimati's Nov 13). The holiday is still on Nov 12 and no other day, whichever day is opened first,
+     * and when a fetch of Nov 20 saves them after the first day and the app is opened again.
      */
-    @MainActor @Test(arguments: [[11, 12, 13], [12, 11, 13], [13, 12, 11], [12, 13, 11], [11, 13, 12], [13, 11, 12]])
-    func twoSavedDaysKeepTheirAllDayEventAcrossTheDateLine(order: [Int]) async throws {
+    @MainActor @Test(arguments: [false, true], [[11, 12, 13], [12, 11, 13], [13, 12, 11], [12, 13, 11], [11, 13, 12], [13, 11, 12]])
+    func twoSavedDaysKeepTheirAllDayEventAcrossTheDateLine(restart: Bool, order: [Int]) async throws {
         let disk = onDisk()
         let kiritimati = zoned("Pacific/Kiritimati")
         let honolulu = zoned("Pacific/Honolulu")
@@ -718,16 +719,20 @@ struct EventEditingTests {
             timeZone: "Pacific/Kiritimati"
         ), account: robin)
 
-        let store = CalendarStore(defaults: isolated(), cache: disk)
-        for number in order {
+        var store = CalendarStore(defaults: isolated(), cache: disk)
+        for (index, number) in order.enumerated() {
             let window = there.window(.day, anchor: day(honolulu, number))
             await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
             let shown = (store.events(in: window) ?? []).filter { $0.eventId == "holiday" }
             if number == 12 {
-                #expect(shown.map(\.start) == [day(honolulu, 12)], "order \(order)")
-                #expect(shown.map(\.end) == [day(honolulu, 13)], "order \(order)")
+                #expect(shown.map(\.start) == [day(honolulu, 12)], "order \(order), restart \(restart)")
+                #expect(shown.map(\.end) == [day(honolulu, 13)], "order \(order), restart \(restart)")
             } else {
-                #expect(shown.isEmpty, "Nov \(number), order \(order)")
+                #expect(shown.isEmpty, "Nov \(number), order \(order), restart \(restart)")
+            }
+            if restart, index == 0 {
+                store.absorb([(robin, .success([]))], for: there.window(.day, anchor: day(honolulu, 20)))
+                store = CalendarStore(defaults: isolated(), cache: disk)
             }
         }
     }

@@ -327,10 +327,12 @@ final class CalendarStore {
      * A window shown here that a window drawn in another zone has the same bounds as (Kiritimati's
      * Nov 12 is Honolulu's Nov 11): its all-day events fill the days they're on here first, and it
      * keeps only what falls in it as this zone's window, with the all-day events of saved windows
-     * whose days here it is. Either may have a part of its own already, saved as another zone's day.
+     * whose days here it is. Either may have a part of its own already, saved as another zone's day:
+     * that one is claimed first, so what it's given and the days it's saved with agree.
      */
-    private func claim(_ window: EventWindow) {
+    private func claim(_ window: EventWindow, after claiming: Set<EventWindow> = []) {
         guard let other = days[window], other != window else { return }
+        if !claiming.contains(other) { claim(other, after: claiming.union([window])) }
         fill(other)
         take(window, into: other)
         zones[window] = nil
