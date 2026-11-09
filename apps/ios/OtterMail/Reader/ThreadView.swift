@@ -12,9 +12,12 @@ struct ThreadView: View {
     let place: Place
     @Binding var path: [String]
     @Binding var draft: Draft?
+    /** Opened and scrolled to, where a single message was picked (All new). */
+    var message: String?
 
     @State private var siblings: [String] = []
     @State private var expanded: Set<String> = []
+    @State private var scrolledTo: String?
     @State private var asking: [MailContext]?
     @State private var newTask: MailTask?
     @State private var linkingTask = false
@@ -69,9 +72,9 @@ struct ThreadView: View {
                         .padding(.horizontal, MessageView.inset)
                 }
 
-                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email)
+                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email, picked: message)
                 ForEach(messages) { message in
-                    let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id)
+                    let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id) || message.id == self.message
                     MessageView(message: message, mailbox: mailbox, open: open) {
                         if message.draft {
                             draft = .resume(message, in: thread)
@@ -84,8 +87,10 @@ struct ThreadView: View {
                     }
                 }
             }
+            .scrollTargetLayout()
             .padding(.top, 8)
         }
+        .scrollPosition(id: $scrolledTo, anchor: .top)
         .minimizingNavigationBar()
         .scrollContentBackground(.hidden)
         .background(palette.canvas)
@@ -182,6 +187,7 @@ struct ThreadView: View {
         .toolbarTitleDisplayMode(.inline)
         .onAppear {
             if siblings.isEmpty { siblings = store.threads(in: place.folder, scope: place.scope).map(\.id) }
+            if scrolledTo == nil { scrolledTo = message }
             if thread.unread { store.setRead(true, thread.id) }
         }
     }
@@ -273,8 +279,12 @@ struct ThreadView: View {
     }
 
     private func leave(_ thread: MailThread) {
+        // All new opens conversations its folder's list leaves out (inbox mail beside a trashed message).
+        guard let index = siblings.firstIndex(of: thread.id) else {
+            path = []
+            return
+        }
         let remaining = Set(store.threads(in: place.folder, scope: place.scope).map(\.id))
-        let index = siblings.firstIndex(of: thread.id) ?? 0
         let after = siblings[(index + 1)...].first(where: remaining.contains)
         let before = siblings[..<index].last(where: remaining.contains)
         let next: String? = switch preferences.advance {

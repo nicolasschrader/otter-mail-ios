@@ -10,10 +10,12 @@ their code.
   Compose and More at the top right. Under it, a glass bar (`Home/PlacesBar.swift`): Threads
   (Catch up, `Home/CatchUpView.swift`: every shown mailbox's unread inbox mail, newest first, after
   the invitations on shown calendars still waiting on an answer, with Accept, Decline, Maybe;
-  empty, it hands back to Mail), Mail (the inbox), Calendar (when any mailbox has one), Tasks, and
+  empty, it hands back to Mail), All new (`Home/AllNewView.swift`: every shown mailbox's incoming
+  inbox mail, a row per message, newest first), Mail (the inbox), Calendar (when any mailbox has
+  one), Tasks, and
   ⌃⌄ for what the one in front is scoped by: in Mail the mailboxes (the one switcher) and the
   mailbox's folders and labels, Search, Settings (the title opens it too); in Calendar its list
-  of calendars to show or hide; in Threads the mailboxes it covers. Tasks has none. The agent has
+  of calendars to show or hide; in Threads and All new the mailboxes they cover. Tasks has none. The agent has
   its own round button beside the bar and opens as a sheet; so does Search. Settings is ChatGPT's
   grouped sheet.
   Gmail's folders include All Mail and Important; Outlook's and IMAP's an Archive of their own,
