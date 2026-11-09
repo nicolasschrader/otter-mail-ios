@@ -1,8 +1,14 @@
 import { ipc, task } from "~/lib/ipc";
-import type { AliasMailbox, ImapSettings } from "@otter-mail/contracts";
-import type { NotificationConnection } from "@otter-mail/contracts/relay";
-export type { ChatChange } from "@otter-mail/contracts";
-import type { AgentAccess, AgentTokens, ConnectedAgent } from "@otter-mail/contracts/agent-tokens";
+import type { AliasMailbox, ImapSettings } from "@otter/contracts";
+import type { NotificationConnection } from "@otter/contracts/relay";
+export type { ChatChange } from "@otter/contracts";
+import type { AgentAccess, AgentTokens, ConnectedAgent } from "@otter/contracts/agent-tokens";
+import type {
+  AgentScheduledTasks,
+  ChannelTarget,
+  ScheduledTaskInput,
+  TaskRun,
+} from "@otter/contracts/scheduled";
 import type {
   ComposeAttachment,
   ContactSuggestion,
@@ -104,6 +110,9 @@ export type ProviderSnapshot = {
   models: ProviderModel[];
   model: string | null;
   sessions: boolean;
+  forks: boolean;
+  titles: boolean;
+  liveBrowser: boolean;
   /** The agent's settings, plus what it adds for its settings form (never its secrets). */
   settings: AgentSettingsView;
 };
@@ -139,6 +148,7 @@ export type ToolStep = {
   title: string;
   detail?: string;
   source?: string;
+  compaction?: true;
 };
 
 export type ChatQuestion = {
@@ -157,11 +167,12 @@ export type ChatQuestion = {
 
 export type ChatEvent =
   | { requestId: string; type: "session"; sessionId: string }
+  | { requestId: string; type: "title"; title: string }
   | { requestId: string; type: "delta"; id?: string; text: string }
   | { requestId: string; type: "text"; id: string; text: string }
   | { requestId: string; type: "tool"; id?: string; step: ToolStep }
   | { requestId: string; type: "toolResult"; id?: string; output: string }
-  | { requestId: string; type: "change"; change: import("@otter-mail/contracts").ChatChange }
+  | { requestId: string; type: "change"; change: import("@otter/contracts").ChatChange }
   | { requestId: string; type: "approval"; approval: ApprovalRequest }
   | { requestId: string; type: "approvalResolved"; approvalId: string }
   | { requestId: string; type: "question"; question: ChatQuestion }
@@ -337,12 +348,6 @@ export type AddImapAccountParams = {
   imap: ImapSettings;
 };
 
-export type TabDrag = {
-  tab: { href: string; title: string; icon: string };
-  grabX: number;
-  grabY: number;
-};
-
 export const mailApi = {
   notificationConnections: (): Promise<{
     connections: NotificationConnection[];
@@ -352,7 +357,7 @@ export const mailApi = {
     ipc("otter:connectNotifications", { accountId }),
   disconnectNotifications: (accountId: string): Promise<void> =>
     ipc("otter:disconnectNotifications", { accountId }),
-  saveSupportReport: (contents: string, filename?: "Otter Mail diagnostics.json") =>
+  saveSupportReport: (contents: string, filename?: "Otter diagnostics.json") =>
     task<boolean>("support:saveReport", { contents, filename }),
   listAccounts: (): Promise<MailAccount[]> => ipc("gmail:listAccounts"),
 
@@ -460,7 +465,7 @@ export const mailApi = {
   ): Promise<{ done: true } | { openUrl: string }> =>
     task("gmail:unsubscribe", { accountId, messageId }),
 
-  listSchedules: (): Promise<import("@otter-mail/contracts").MailSchedule[]> =>
+  listSchedules: (): Promise<import("@otter/contracts").MailSchedule[]> =>
     ipc("gmail:listSchedules"),
   cancelSchedule: (id: string): Promise<"cancelled" | "sent" | undefined> =>
     task("gmail:cancelSchedule", { id }),
@@ -550,17 +555,7 @@ export const mailApi = {
 
   openSettings: (target?: SettingsTarget): Promise<void> => ipc("window:openSettings", target),
   closeMainWindow: (): Promise<void> => ipc("window:closeMain"),
-  /**
-   * Window tab drags between windows (the main process follows the cursor).
-   * `openTabWindow`: a window of its own for a tab pulled off the strip;
-   * `carryWindow`: this window, its only tab dragged. Either follows
-   * `carryTabWindow` until `dropTabWindow` (or `returnTabWindow`: back in the strip).
-   */
-  openTabWindow: (params: TabDrag): Promise<void> => ipc("window:openTab", params),
-  carryWindow: (params: TabDrag): Promise<void> => ipc("window:carry", params),
-  carryTabWindow: (): Promise<void> => ipc("window:carryTo"),
-  dropTabWindow: (): Promise<void> => ipc("window:dropTab"),
-  returnTabWindow: (): Promise<void> => ipc("window:returnTab"),
+  openWindow: (href: string): Promise<void> => ipc("window:open", { href }),
 
   getSettingsTarget: (): Promise<SettingsTarget | null> => ipc("window:getSettingsTarget"),
 
@@ -607,6 +602,22 @@ export const mailApi = {
     requestId: string;
     sessionId: string;
   }): Promise<{ resumed: boolean }> => ipc("agent:resume", params),
+
+  /** Notifies that an agent is waiting on the user (an approval, a question). */
+  agentNotifyAsk: (params: {
+    provider: ProviderKind;
+    key: string;
+    title: string;
+    subtitle?: string;
+    body?: string;
+    focused: boolean;
+  }): Promise<{ ok: boolean }> => ipc("agent:notifyAsk", params),
+
+  /** Watches these chats' sessions for runs the agent starts itself; they arrive as `agent:runStarted`. */
+  agentWatch: (
+    provider: ProviderKind,
+    sessions: { id: string; since: number; cursor?: string }[],
+  ): Promise<{ ok: boolean }> => ipc("agent:watch", { provider, sessions }),
 
   agentStageAttachments: (
     items: { name: string; mime: string; bytes: Uint8Array }[],
@@ -657,8 +668,81 @@ export const mailApi = {
     size: number;
   }> => task("agent:readFile", { provider, sessionId, href }),
 
+  agentFork: (
+    provider: ProviderKind,
+    sessionId: string,
+    before?: { requestId?: string; fromEnd: number },
+  ): Promise<string> => ipc("agent:fork", { provider, sessionId, before }),
+
+  agentRetitle: (
+    provider: ProviderKind,
+    sessionId: string,
+    name: { title: string } | { message: string },
+  ): Promise<string | null> => ipc("agent:retitle", { provider, sessionId, ...name }),
+
+  agentBrowserView: (
+    provider: ProviderKind,
+    sessionId: string,
+    request: { width: number; height: number; except?: string },
+  ): Promise<{ targetId: string; url: string | null; page?: string; profile?: string } | null> =>
+    ipc("agent:browserView", { provider, sessionId, ...request }),
+
+  agentBrowserInput: (
+    provider: ProviderKind,
+    input: {
+      targetId: string;
+      profile?: string;
+      take?: boolean;
+      seq?: number;
+      events?: unknown[];
+    },
+  ): Promise<{ ok: boolean }> => ipc("agent:browserInput", { provider, ...input }),
+
+  agentBrowserEvents: (
+    provider: ProviderKind,
+    request: { targetId: string; profile?: string; since?: number; run?: string; waitMs: number },
+  ): Promise<{
+    run: string;
+    seq: number;
+    dialog: { dialogType: string; message: string; defaultPrompt: string } | null;
+    events: ({ type: string; seq: number } & Record<string, unknown>)[];
+  } | null> => ipc("agent:browserEvents", { provider, ...request }),
+
+  agentBrowserUpload: (
+    provider: ProviderKind,
+    upload: { targetId: string; profile?: string; files: { name: string; data: string }[] },
+  ): Promise<{ ok: boolean }> => ipc("agent:browserUpload", { provider, ...upload }),
+
   agentDeleteSession: (provider: ProviderKind, sessionId: string): Promise<{ ok: boolean }> =>
     ipc("agent:deleteSession", { provider, sessionId }),
+
+  scheduledTasks: (): Promise<AgentScheduledTasks[]> => ipc("agent:scheduled"),
+  saveScheduledTask: (
+    provider: ProviderKind,
+    id: string | null,
+    task: ScheduledTaskInput,
+  ): Promise<{ id: string }> => ipc("agent:saveScheduled", { provider, id, task }),
+  setScheduledTaskEnabled: (
+    provider: ProviderKind,
+    id: string,
+    enabled: boolean,
+  ): Promise<{ ok: boolean }> => ipc("agent:setScheduledEnabled", { provider, id, enabled }),
+  runScheduledTask: (provider: ProviderKind, id: string): Promise<{ ok: boolean }> =>
+    ipc("agent:runScheduled", { provider, id }),
+  deleteScheduledTask: (provider: ProviderKind, id: string): Promise<{ ok: boolean }> =>
+    ipc("agent:deleteScheduled", { provider, id }),
+  scheduledTaskRuns: (provider: ProviderKind, id: string, limit = 20): Promise<TaskRun[]> =>
+    ipc("agent:scheduledRuns", { provider, id, limit }),
+  scheduledTargets: (
+    provider: ProviderKind,
+    agent: string,
+    channel: string,
+  ): Promise<ChannelTarget[]> => ipc("agent:scheduledTargets", { provider, agent, channel }),
+  scheduledRunTranscript: (
+    provider: ProviderKind,
+    id: string,
+    runId: string,
+  ): Promise<ChatSessionMessage[]> => ipc("agent:scheduledRunTranscript", { provider, id, runId }),
 
   connectedAgents: (): Promise<AgentTokens<ConnectedAgent>> => ipc("mcp:listAgents"),
   addConnectedAgent: (name: string, access: AgentAccess): Promise<string> =>

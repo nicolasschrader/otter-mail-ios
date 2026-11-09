@@ -1,5 +1,5 @@
 {
-  "name": "@otter-mail/core",
+  "name": "@otter/core",
   "version": "0.1.0",
   "private": true,
   "description": "The mail backend shared by the desktop app (Electron main process) and the web app (a Web Worker).",
@@ -9,7 +9,8 @@
     "./agent-server": "./src/services/agent/server.ts",
     "./agent-instructions": "./src/services/agent/instructions.ts",
     "./imap": "./src/protocols/imap/client.ts",
-    "./extension-kit": "./src/extension-kit.ts"
+    "./extension-kit": "./src/extension-kit.ts",
+    "./fake": "./src/fake/index.ts"
   },
   "scripts": {
     "test": "vp test run --passWithNoTests",
@@ -17,8 +18,8 @@
   },
   "dependencies": {
     "@openrouter/ai-sdk-provider": "3.1.0",
-    "@otter-mail/contracts": "workspace:*",
-    "@otter-mail/shared": "workspace:*",
+    "@otter/contracts": "workspace:*",
+    "@otter/shared": "workspace:*",
     "ai": "7.0.127",
     "better-auth": "^1.7.6",
     "postal-mime": "^4.0.0"

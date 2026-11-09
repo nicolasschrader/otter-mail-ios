@@ -1,5 +1,5 @@
 export type { CoreExtension, ExtensionContext } from "./extensions.js";
-export { extensionManifest, type ExtensionManifest } from "@otter-mail/contracts/extensions";
+export { extensionManifest, type ExtensionManifest } from "@otter/contracts/extensions";
 
 export type {
   AgentSettings,
@@ -29,6 +29,7 @@ export { onOtterAccountChange } from "./services/otter-account.js";
 export { preferenceChanged } from "./services/preferences.js";
 
 export { fromBase64, sha256Hex, toBase64, utf8Decode, utf8Encode } from "./bytes.js";
+export { readJson, writeJson } from "./json-file.js";
 export { runAsTask } from "./handlers/ipc-budget.js";
 export { broadcast, handle, registeredHandlers } from "./ipc.js";
 export { logger } from "./logger.js";
@@ -67,8 +68,13 @@ export { TextStream } from "./services/agent/text-stream.js";
 export { agentTools, cancelToolApprovals, runAgentTool } from "./services/agent/tools/index.js";
 export type { ToolCaller, ToolFiles } from "./services/agent/tools/index.js";
 export type {
+  AgentRun,
   ApprovalDecision,
   ApprovalRequest,
+  BrowserEvents,
+  BrowserInput,
+  BrowserView,
+  BrowserViewRequest,
   ChatAttachment,
   ChatEvent,
   ChatProvider,
@@ -76,10 +82,13 @@ export type {
   ChatSession,
   ChatSessionMessage,
   Emit,
+  ForkPoint,
   ProviderModel,
   ProviderModelOption,
   ProviderSettings,
+  ScheduleSupport,
   Skill,
+  WatchedSession,
 } from "./services/agent/types.js";
 export { getAttachmentData } from "./services/attachment-cache.js";
 export * as mailStore from "./services/mail-store.js";

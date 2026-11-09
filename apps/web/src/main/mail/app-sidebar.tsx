@@ -1,10 +1,9 @@
 import { useState, type ComponentType } from "react";
-import { PlusIcon, SearchIcon, SettingsIcon, SquarePenIcon } from "lucide-react";
+import { PlusIcon, SettingsIcon, SquarePenIcon } from "lucide-react";
 
 import { CalendarSidebar } from "../calendar/calendar-sidebar";
 import type { WorkspaceProps } from "../extensions/types";
 import { useWorkspaces, type Workspace } from "../extensions/workspaces";
-import { calendarAccounts } from "../calendar/calendar-view";
 import type { CalendarMode } from "../calendar/dates";
 import type { KeybindingCommand } from "../keybindings/commands";
 import { shortcutText } from "../keybindings/keys";
@@ -12,14 +11,20 @@ import { UpdateCard } from "../updates";
 import { AccountPicture } from "./account-picture";
 import { MailboxFolders, SearchRow, type SidebarSearch } from "./accounts-sidebar";
 import { AddMailboxMenu } from "./add-mailbox";
-import { AgentIcon } from "./agent-icon";
+import { AgentIcon } from "../agent/agent-icon";
 import { type NavGlyphProps, OtterCalendarIcon, OtterMailIcon } from "./app-icons";
-import { AgentSidebar } from "./agent-sidebar";
+import { AgentSidebar } from "../agent/agent-sidebar";
 import type { SettingsPane } from "./api";
-import { useChats } from "./chat-store";
+import { useChats } from "../agent/chat-store";
 import { useAddAccount, useViewUnreadCounts } from "./hooks";
 import { ScheduledMailButton } from "./mail-schedule";
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "./menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "./menu";
 import {
   NewRow,
   SIDEBAR_ROW,
@@ -27,6 +32,7 @@ import {
   SectionAddButton,
   SidebarBody,
   SidebarPicker,
+  SidebarSwitcher,
   SkRow,
 } from "./sidebar-ui";
 import { VIEW_LIST, type AppMode } from "./spaces";
@@ -35,8 +41,10 @@ import { toast } from "./toast";
 import { useInboxUnread, useMailboxOptions, type MailboxOption } from "./top-bar";
 import type { MailAccount, MailView } from "./types";
 import type { MailboxTab } from "../mailboxes";
-import { HintTooltip, IconBtn, cn } from "./ui";
+import { HintTooltip, IconBtn } from "./ui";
 import { ViewMark } from "./view-icon";
+import { inNewWindow } from "../new-window-click";
+import { PLACE } from "../place-menu";
 
 export function AppSidebar({
   accounts,
@@ -50,13 +58,11 @@ export function AppSidebar({
   composing,
   onMode,
   onGo,
-  onMoveTab,
   onSelectChat,
   onNewChat,
   onCompose,
   onNewView,
   onEditView,
-  onOpenPalette,
   onOpenSettings,
   searches,
   onSelectSearch,
@@ -73,13 +79,11 @@ export function AppSidebar({
   composing: boolean;
   onMode: (mode: AppMode) => void;
   onGo: (spaceId: string, labelId?: string) => void;
-  onMoveTab: (id: string, target: string, after: boolean) => void;
   onSelectChat: (chatId: string) => void;
   onNewChat: () => void;
   onCompose: () => void;
   onNewView: () => void;
   onEditView: (viewId: string) => void;
-  onOpenPalette: () => void;
   onOpenSettings: (pane?: SettingsPane) => void;
   searches: SidebarSearch[];
   onSelectSearch: (id: string) => void;
@@ -98,6 +102,9 @@ export function AppSidebar({
   const healthIds = spaceTab ? [spaceTab.account.id] : accounts.map((a) => a.id);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-col px-(--sidebar-content-inset) pt-(--sidebar-content-inset) pb-2">
+        <ModePicker mode={composing ? "mail" : mode} accounts={accounts} onMode={onMode} />
+      </div>
       {workspace && !composing ? (
         <workspace.workspace.Sidebar
           location={workspace.location}
@@ -111,25 +118,26 @@ export function AppSidebar({
       ) : (
         <>
           <div className="flex shrink-0 flex-col pt-(--sidebar-content-inset)">
-            <NewRow icon={<SearchIcon />} label="Search or ask" onClick={onOpenPalette} />
             <NewRow
               icon={<SquarePenIcon />}
               label="New message"
               selected={composing}
               tour="compose"
+              place
               onClick={onCompose}
             />
             <ScheduledMailButton />
           </div>
-          <div className="flex shrink-0 flex-col px-(--sidebar-content-inset) pt-3">
-            <SidebarTabs
-              options={options}
-              tabs={tabs}
-              selectedId={mailbox}
-              onSelect={(id) => onGo(id)}
-              onMove={onMoveTab}
-            />
-          </div>
+          {options.length > 0 ? (
+            <div className="flex shrink-0 flex-col px-(--sidebar-content-inset) pt-3">
+              <MailboxSwitcher
+                options={options}
+                tabs={tabs}
+                selectedId={mailbox}
+                onSelect={(id) => onGo(id)}
+              />
+            </div>
+          ) : null}
           <MailPage
             accounts={accounts}
             views={views}
@@ -148,38 +156,35 @@ export function AppSidebar({
       <SignInCards accountIds={healthIds} />
       <UpdateCard />
       <div className="flex shrink-0 items-center gap-0.5 px-(--sidebar-content-inset) pb-(--sidebar-content-inset)">
-        <ModeSwitcher
-          mode={composing ? "mail" : mode}
-          accounts={accounts}
-          calendar={calendarAccounts(accounts).length > 0}
-          onMode={onMode}
-        />
-        <span className="min-w-0 flex-1" />
-        {mode === "mail" ? <SyncButton accountIds={healthIds} /> : null}
         <HintTooltip label="Settings" hint={shortcutText("mod+,")}>
-          <IconBtn label="Settings" active={settingsOpen} onClick={() => onOpenSettings()}>
+          <IconBtn
+            label="Settings"
+            active={settingsOpen}
+            onClick={() => onOpenSettings()}
+            {...PLACE}
+          >
             <SettingsIcon />
           </IconBtn>
         </HintTooltip>
+        {mode === "mail" ? <SyncButton accountIds={healthIds} /> : null}
       </div>
     </div>
   );
 }
 
-function ModeSwitcher({
+function ModePicker({
   mode,
   accounts,
-  calendar,
   onMode,
 }: {
   mode: AppMode;
   accounts: MailAccount[];
-  calendar: boolean;
   onMode: (mode: AppMode) => void;
 }) {
   const unread = Object.values(useInboxUnread(accounts)).some((n) => n > 0);
   const agentDot = useChats((s) => s.unseen.size > 0);
   const workspaces = useWorkspaces();
+  const [order, setOrder] = useState(loadModeOrder);
   const modes: {
     mode: AppMode;
     label: string;
@@ -187,101 +192,103 @@ function ModeSwitcher({
     shortcut?: KeybindingCommand;
     dot: boolean;
   }[] = [
+    { mode: "mail", label: "Mail", Icon: OtterMailIcon, shortcut: "mode.mail", dot: unread },
     {
-      mode: "mail",
-      label: "Mail",
-      Icon: OtterMailIcon,
-      shortcut: "mode.mail",
-      dot: unread,
+      mode: "calendar",
+      label: "Calendar",
+      Icon: OtterCalendarIcon,
+      shortcut: "mode.calendar",
+      dot: false,
     },
-    ...(calendar
-      ? [
-          {
-            mode: "calendar" as const,
-            label: "Calendar",
-            Icon: OtterCalendarIcon,
-            shortcut: "mode.calendar" as const,
-            dot: false,
-          },
-        ]
-      : []),
     ...workspaces.map((w) => ({
       mode: `workspace:${w.id}` as const,
       label: w.title,
       Icon: w.Icon,
+      shortcut: w.id === "drive" ? ("mode.drive" as const) : undefined,
       dot: false,
     })),
-    {
-      mode: "agent",
-      label: "Agent",
-      Icon: AgentIcon,
-      shortcut: "mode.agent",
-      dot: agentDot,
-    },
+    { mode: "agent", label: "Agent", Icon: AgentIcon, shortcut: "mode.agent", dot: agentDot },
   ];
+  // Modes not yet ordered (new ones) keep their place after the ordered ones.
+  const rank = (mode: string) => {
+    const at = order.indexOf(mode);
+    return at < 0 ? order.length : at;
+  };
+  const sorted = modes
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => rank(a.m.mode) - rank(b.m.mode) || a.i - b.i)
+    .map(({ m }) => m);
+  const move = (id: string, target: string, after: boolean) => {
+    const shown = sorted.map((m) => m.mode as string).filter((m) => m !== id);
+    shown.splice(shown.indexOf(target) + (after ? 1 : 0), 0, id);
+    // A mode hidden now (a workspace turned off) keeps its saved place.
+    const next = [...shown, ...order.filter((m) => !shown.includes(m))];
+    setOrder(next);
+    saveModeOrder(next);
+  };
   return (
-    <div role="tablist" aria-label="Mode" className="flex items-center gap-0.5" data-tour="modes">
-      {modes.map((m) => {
-        const selected = m.mode === mode;
-        return (
-          <HintTooltip key={m.mode} label={m.label} shortcut={m.shortcut}>
-            <button
-              type="button"
-              role="tab"
-              aria-label={m.label}
-              aria-selected={selected}
-              onClick={() => onMode(m.mode)}
-              className={cn(
-                "relative flex h-7 w-8 cursor-pointer items-center justify-center rounded-lg outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-focus-ring [&>svg]:size-4",
-                selected
-                  ? "text-sidebar-foreground"
-                  : "text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
-              )}
-            >
-              <m.Icon selected={selected} />
-              {m.dot && !selected ? (
-                <span
-                  aria-hidden
-                  className="absolute right-1.5 top-1 size-1.5 rounded-full bg-sidebar-foreground ring-2 ring-sidebar-surface"
-                />
-              ) : null}
-            </button>
-          </HintTooltip>
-        );
-      })}
-    </div>
+    <SidebarPicker
+      tour="modes"
+      selectedId={mode}
+      onSelect={(id) => onMode(id as AppMode)}
+      onMove={move}
+      items={sorted.map((m) => ({
+        id: m.mode,
+        label: m.label,
+        icon: <m.Icon selected={m.mode === mode} />,
+        shortcut: m.shortcut,
+        dot: m.dot,
+      }))}
+    />
   );
 }
 
-function SidebarTabs({
+/** This computer's order of the mode switcher; not synced. */
+const MODE_ORDER_KEY = "otter:mode-order";
+
+function loadModeOrder(): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(MODE_ORDER_KEY) ?? "[]");
+    return Array.isArray(saved) ? saved.filter((id) => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveModeOrder(order: string[]): void {
+  try {
+    localStorage.setItem(MODE_ORDER_KEY, JSON.stringify(order));
+  } catch {
+    // Unsaved, the order lasts until reload.
+  }
+}
+
+function MailboxSwitcher({
   options,
   tabs,
   selectedId,
   onSelect,
-  onMove,
 }: {
   options: MailboxOption[];
   tabs: MailboxTab[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onMove: (id: string, target: string, after: boolean) => void;
 }) {
   const unread = useInboxUnread(
     tabs.flatMap((tab) => (tab.alias ? [] : [tab.account])),
     tabs.flatMap((tab) => (tab.alias ? [tab.alias] : [])),
   );
   return (
-    <SidebarPicker
+    <SidebarSwitcher
       tour="mailbox"
       selectedId={selectedId}
       onSelect={onSelect}
-      onMove={onMove}
       items={options.map((option) => ({
         id: option.id,
         label: option.name,
         icon: <AccountPicture account={option.account} className="size-5 rounded-md text-[10px]" />,
-        hint: option.shortcut,
         detail: option.detail,
+        accelerator: option.shortcut,
         dot: (unread[option.id] ?? 0) > 0,
       }))}
     />
@@ -379,10 +386,15 @@ function MailPage({
                   title={view.name}
                   selected={view.id === spaceId}
                   badge={viewUnread[view.id] ?? 0}
+                  place
                   onClick={() => onGo(view.id, VIEW_LIST)}
                 />
               </ContextMenuTrigger>
               <ContextMenuContent>
+                <ContextMenuItem onSelect={() => inNewWindow(() => onGo(view.id, VIEW_LIST))}>
+                  Open in New Window
+                </ContextMenuItem>
+                <ContextMenuSeparator />
                 <ContextMenuItem onSelect={() => onEditView(view.id)}>Edit view…</ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>

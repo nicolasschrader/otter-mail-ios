@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { CHAT_LIMITS, chatForSync, type Chat, type ChatSummary } from "@otter-mail/contracts/chats";
+import { CHAT_LIMITS, chatForSync, type Chat, type ChatSummary } from "@otter/contracts/chats";
 
 const relay = {
   chats: new Map<string, Chat & { deletedAt: number | null }>(),
@@ -177,6 +177,20 @@ describe("chats", () => {
     expect(here.turns.map((t) => t.id)).toEqual([...turns.map((t) => t.id), "t90"]);
     const step = here.turns[50].items?.[0];
     expect(step?.kind === "step" && step.output).toBe(long);
+  });
+
+  it("keeps where this device has read the chat's session when another device writes", async () => {
+    await chats.saveChat(chat("c9", { cursor: "t-1:42", updatedAt: 100 }));
+    await settle();
+    const synced = relay.chats.get("c9")!;
+    const { cursor: _cursor, ...elsewhere } = synced;
+    relay.chats.set("c9", { ...elsewhere, title: "Renamed elsewhere", updatedAt: 200 });
+
+    await chats.pullChats();
+
+    const here = (await chats.getChat("c9"))!;
+    expect(here.title).toBe("Renamed elsewhere");
+    expect(here.cursor).toBe("t-1:42");
   });
 
   it("lets the oldest chats go everywhere past the limit", async () => {

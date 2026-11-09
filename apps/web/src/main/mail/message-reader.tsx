@@ -49,9 +49,9 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
   XIcon,
-  ListIcon,
+  ListTodoIcon,
 } from "lucide-react";
-import { AgentIcon } from "./agent-icon";
+import { AgentIcon } from "../agent/agent-icon";
 import { SenderHoverCard } from "./sender-hovercard";
 import { UnsubscribeLink } from "./unsubscribe-link";
 import {
@@ -126,7 +126,7 @@ import {
   autosaveDelayMs,
   loadMessageAttachments,
 } from "./compose-attachments";
-import type { QuoteContext } from "./chat-context";
+import type { QuoteContext } from "../agent/chat-context";
 import { DraftEditor } from "./draft-editor";
 import { useDraftAutosave } from "./use-draft-autosave";
 import type { ComposeAttachment, MailLabel, MessageDetail, MessageSummary } from "./types";
@@ -2833,7 +2833,7 @@ export function MessageReader({
                     setSummaryPinned(!summaryPinned);
                   }}
                 >
-                  <ListIcon className="size-4" />
+                  <ListTodoIcon className="size-4" />
                 </IconBtn>
               </HintTooltip>
             ) : (
@@ -2841,7 +2841,7 @@ export function MessageReader({
                 <HintTooltip label="Summary" side="bottom">
                   <Popover.Trigger asChild>
                     <IconBtn label="Toggle summary" active={summaryOpen}>
-                      <ListIcon className="size-4" />
+                      <ListTodoIcon className="size-4" />
                     </IconBtn>
                   </Popover.Trigger>
                 </HintTooltip>

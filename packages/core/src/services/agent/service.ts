@@ -1,7 +1,7 @@
 /**
  * The agents' registry and routing layer (T3 Code's ProviderService in
  * miniature). The agents are extensions' (`context.registerAgent`): the
- * Otter Mail agent, Hermes and OpenClaw everywhere, Codex and Claude from the
+ * Otter agent, Hermes and OpenClaw everywhere, Codex and Claude from the
  * desktop backend. Only what this backend runs is listed: the web app doesn't
  * show the Mac's agents.
  *
@@ -11,9 +11,17 @@
  * fire-and-forget; their events stream as `agent:chatEvent`.
  */
 
+import type {
+  AgentScheduledTasks,
+  ChannelTarget,
+  ScheduledTaskInput,
+  TaskRun,
+} from "@otter/contracts/scheduled";
 import { registeredAgents } from "../../extensions.js";
 import { broadcast } from "../../ipc.js";
 import { logger } from "../../logger.js";
+import { platform } from "../../platform.js";
+import { getSettings } from "../settings-store.js";
 import { answerToolApproval } from "./tools/index.js";
 import {
   clearHermesKey,
@@ -30,12 +38,16 @@ import {
   type ChatEvent,
   type ChatProvider,
   type ChatSession,
+  type BrowserInput,
+  type BrowserViewRequest,
   type ChatSessionMessage,
+  type ForkPoint,
   type ProviderKind,
   type ProviderSettings,
   type ProviderSnapshot,
   type ProvidersState,
   type ResumeTurnInput,
+  type WatchedSession,
   type SendTurnInput,
   type Skill,
 } from "./types.js";
@@ -64,7 +76,7 @@ function selectedOf(settings: ProviderSettings): ProviderKind {
 
 const STALE_AFTER_MS = 5 * 60_000;
 
-type Checked = Omit<ProviderSnapshot, "settings">;
+type Checked = Omit<ProviderSnapshot, "settings" | "forks" | "titles" | "liveBrowser">;
 const checked = new Map<ProviderKind, Checked>();
 const checking = new Map<ProviderKind, Promise<void>>();
 /** Bumped when a check's answer may be stale before it lands (the Otter account changed). */
@@ -103,6 +115,9 @@ export async function providersState(): Promise<ProvidersState> {
         enabled: settings.enabled,
         status: settings.enabled ? snapshot.status : "disabled",
         model: chosen || fallback || null,
+        forks: Boolean(agent.fork),
+        titles: Boolean(agent.retitle),
+        liveBrowser: Boolean(agent.browserView),
         settings: { ...settings, ...(await agent.settingsView?.(settings)) },
       } satisfies ProviderSnapshot;
     }),
@@ -269,6 +284,61 @@ export async function resumeTurn(kind: ProviderKind, turn: ResumeTurnInput): Pro
   return true;
 }
 
+export async function watchSessions(kind: ProviderKind, sessions: WatchedSession[]): Promise<void> {
+  const found = provider(kind);
+  const settings = await agentSettings(kind);
+  if (!found.watch || !settings.enabled) return;
+  found.watch(
+    settings,
+    sessions,
+    (run) => broadcast("agent:runStarted", { provider: kind, ...run }),
+    (sessionId, cursor) => broadcast("agent:sessionRead", { provider: kind, sessionId, cursor }),
+  );
+}
+
+/** An agent's gateway delivered something to Otter: the providers that watch catch up on it. */
+export async function agentDelivered(sessionKey?: string): Promise<void> {
+  for (const found of registeredAgents().values()) {
+    if (!found.delivered) continue;
+    const settings = await agentSettings(found.kind);
+    if (settings.enabled) found.delivered(settings, sessionKey);
+  }
+}
+
+/** Asks already reported, by key, and whether a window that had focus reported them. */
+const asks = new Map<string, { focused: boolean }>();
+/** How long every window (each web tab, the desktop window) gets to report an ask. */
+const ASK_SETTLE_MS = 500;
+
+/**
+ * What an agent asks of the user (an approval, a question) notifies once, when
+ * no window that showed it had focus: every window reports it, a turn picked up
+ * again reports it again.
+ */
+export function notifyAsk(
+  kind: ProviderKind,
+  ask: { key: string; title: string; subtitle?: string; body?: string; focused: boolean },
+): void {
+  const seen = asks.get(ask.key);
+  if (seen) {
+    seen.focused ||= ask.focused;
+    return;
+  }
+  const entry = { focused: ask.focused };
+  asks.set(ask.key, entry);
+  setTimeout(() => {
+    if (entry.focused) return;
+    void getSettings().then((settings) => {
+      if (settings.notificationsMode === "off") return;
+      platform().notify({
+        title: ask.title,
+        subtitle: ask.subtitle ?? `${provider(kind).displayName} is waiting for you`,
+        body: ask.body,
+      });
+    });
+  }, ASK_SETTLE_MS);
+}
+
 export async function answerQuestion(
   kind: ProviderKind,
   requestId: string,
@@ -323,6 +393,56 @@ export async function deleteSession(kind: ProviderKind, sessionId: string): Prom
   await provider(kind).deleteSession(await agentSettings(kind), sessionId);
 }
 
+export async function forkSession(kind: ProviderKind, sessionId: string, before?: ForkPoint) {
+  const found = provider(kind);
+  if (!found.fork) throw new Error(`${found.displayName} chats can't be forked.`);
+  return found.fork(await agentSettings(kind), sessionId, before);
+}
+
+export async function retitleSession(
+  kind: ProviderKind,
+  sessionId: string,
+  name: { title: string } | { message: string },
+): Promise<string | null> {
+  const found = provider(kind);
+  if (!found.retitle) throw new Error(`${found.displayName} chats can't be retitled.`);
+  return found.retitle(await agentSettings(kind), sessionId, name);
+}
+
+export async function browserView(
+  kind: ProviderKind,
+  sessionId: string,
+  request: BrowserViewRequest,
+) {
+  const found = provider(kind);
+  if (!found.browserView) return null;
+  return found.browserView(await agentSettings(kind), sessionId, request);
+}
+
+export async function browserInput(kind: ProviderKind, input: BrowserInput) {
+  const found = provider(kind);
+  if (!found.browserInput) throw new Error(`${found.displayName}'s browser can't be controlled.`);
+  await found.browserInput(await agentSettings(kind), input);
+}
+
+export async function browserEvents(
+  kind: ProviderKind,
+  request: { targetId: string; profile?: string; since?: number; run?: string; waitMs: number },
+) {
+  const found = provider(kind);
+  if (!found.browserEvents) return null;
+  return found.browserEvents(await agentSettings(kind), request);
+}
+
+export async function browserUpload(
+  kind: ProviderKind,
+  upload: { targetId: string; profile?: string; files: { name: string; data: string }[] },
+) {
+  const found = provider(kind);
+  if (!found.browserUpload) throw new Error(`${found.displayName}'s browser can't take files.`);
+  await found.browserUpload(await agentSettings(kind), upload);
+}
+
 export async function readFile(kind: ProviderKind, sessionId: string, href: string) {
   const found = provider(kind);
   if (!found.readFile)
@@ -330,6 +450,91 @@ export async function readFile(kind: ProviderKind, sessionId: string, href: stri
       `${found.displayName} hasn't made this file available. Ask it to attach the image directly.`,
     );
   return found.readFile(await agentSettings(kind), sessionId, href);
+}
+
+function scheduler(kind: ProviderKind) {
+  const found = provider(kind);
+  if (!found.schedules) throw new Error(`${found.displayName} doesn't run scheduled tasks.`);
+  return found.schedules;
+}
+
+/** Every enabled agent's scheduled tasks; one that can't be reached says so without hiding the rest. */
+export async function listScheduledTasks(): Promise<AgentScheduledTasks[]> {
+  const all = await allSettings();
+  const agents = [...registeredAgents().values()].filter(
+    (agent) => agent.schedules && (all.agents[agent.kind] ?? agent.defaults).enabled,
+  );
+  const listed = await Promise.all(
+    agents.map(async (agent): Promise<AgentScheduledTasks | null> => {
+      const settings = all.agents[agent.kind] ?? agent.defaults;
+      try {
+        const found = await agent.schedules!.list(settings);
+        return found && { provider: agent.kind, ...found };
+      } catch (error) {
+        return {
+          provider: agent.kind,
+          tasks: [],
+          error: error instanceof Error ? error.message : String(error),
+          channels: [],
+          can: {
+            create: false,
+            deliverToOtter: false,
+            webhooks: false,
+            history: false,
+            timeZones: false,
+          },
+        };
+      }
+    }),
+  );
+  return listed.filter((agent) => agent !== null);
+}
+
+export async function saveScheduledTask(
+  kind: ProviderKind,
+  id: string | null,
+  input: ScheduledTaskInput,
+): Promise<string> {
+  return scheduler(kind).save(await agentSettings(kind), id, input);
+}
+
+export async function setScheduledTaskEnabled(kind: ProviderKind, id: string, enabled: boolean) {
+  await scheduler(kind).setEnabled(await agentSettings(kind), id, enabled);
+}
+
+export async function runScheduledTask(kind: ProviderKind, id: string): Promise<void> {
+  await scheduler(kind).runNow(await agentSettings(kind), id);
+}
+
+export async function deleteScheduledTask(kind: ProviderKind, id: string): Promise<void> {
+  await scheduler(kind).remove(await agentSettings(kind), id);
+}
+
+export async function scheduledTaskRuns(
+  kind: ProviderKind,
+  id: string,
+  limit: number,
+): Promise<TaskRun[]> {
+  const found = scheduler(kind);
+  return found.runs ? found.runs(await agentSettings(kind), id, limit) : [];
+}
+
+export async function scheduledTargets(
+  kind: ProviderKind,
+  agent: string,
+  channel: string,
+): Promise<ChannelTarget[]> {
+  const found = scheduler(kind);
+  return found.targets ? found.targets(await agentSettings(kind), agent, channel) : [];
+}
+
+export async function scheduledRunTranscript(
+  kind: ProviderKind,
+  id: string,
+  runId: string,
+): Promise<ChatSessionMessage[]> {
+  const found = scheduler(kind);
+  return found.runTranscript ? found.runTranscript(await agentSettings(kind), id, runId) : [];
 }
 
 export function shutdownProviders(): void {

@@ -12,7 +12,7 @@ import { htmlToText } from "./text";
 import type { MessageDetail } from "./types";
 
 export const COMPOSER_SURFACE =
-  "rounded-3xl border border-(--chat-composer-outline) bg-(--chat-composer-surface) shadow-composer transition-colors focus-within:border-input/70 dark:border-transparent dark:shadow-none dark:inset-shadow-2xs dark:inset-shadow-(color:--chat-composer-highlight) dark:focus-within:border-transparent";
+  "rounded-3xl border border-(--chat-composer-outline) bg-(--chat-composer-surface) backdrop-blur-(--chat-composer-blur) shadow-composer transition-colors focus-within:border-input/70 dark:border-transparent dark:shadow-none dark:inset-shadow-2xs dark:inset-shadow-(color:--chat-composer-highlight) dark:focus-within:border-transparent";
 
 export function ComposerCard({
   onSend,
@@ -269,7 +269,7 @@ export function draftStatus(draft: {
 export function draftStatusText(state: DraftSaveState): string | null {
   if (state === "saving") return "Saving draft…";
   if (state === "saved") return "Draft saved";
-  if (state === "error") return "Couldn't save draft — retrying";
+  if (state === "error") return "Couldn't save draft. Retrying…";
   return null;
 }
 

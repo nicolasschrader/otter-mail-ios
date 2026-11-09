@@ -1,18 +1,19 @@
 /**
- * The browser's Platform for @otter-mail/core, inside the Web Worker: the
+ * The browser's Platform for @otter/core, inside the Web Worker: the
  * mail cache in SQLite WASM and the app's files both live in the origin's
  * private file system (OPFS); anything that needs the page goes through
  * `page` (worker.ts).
  */
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
-import type { AsyncContext, FileInfo, Platform, SqlDatabase, SqlValue } from "@otter-mail/core";
-import { SENTRY_DSN, type LogLevel } from "@otter-mail/shared/error-reports";
+import type { AsyncContext, FileInfo, Platform, SqlDatabase, SqlValue } from "@otter/core";
+import { SENTRY_DSN, type LogLevel } from "@otter/shared/error-reports";
 
 import { webGoogleAuth } from "./google";
 import { connectMailSocket } from "./mail-socket";
 import { webMicrosoftAuth } from "./microsoft";
 import { webSecrets } from "./secrets";
+import { RELAY_URL } from "./relay";
 import type { PageEffect, PageRequests } from "./protocol";
 
 export type Page = {
@@ -117,13 +118,6 @@ const noContext = <T>(): AsyncContext<T> => ({ run: (_value, fn) => fn(), get: (
 
 export async function webPlatform(page: Page): Promise<Platform> {
   const database = await openDatabase();
-  const demo = __DEMO__ ? await import("./demo/gmail") : null;
-  const demoOutlook = __DEMO__ ? await import("./demo/outlook") : null;
-  if (demo) await demo.installFakeGmail(files);
-  if (demoOutlook) await demoOutlook.installFakeOutlook(files);
-  const relayUrl = demo
-    ? demo.DEMO_RELAY_URL
-    : import.meta.env.VITE_RELAY_URL || "https://relay.mail.otterware.app";
   const platform: Platform = {
     kind: "web",
     supportDiagnostics: async () => ({ environment: navigator.userAgent }),
@@ -135,9 +129,7 @@ export async function webPlatform(page: Page): Promise<Platform> {
     },
 
     database: () => database,
-    connect: demo
-      ? () => Promise.reject(new Error("The demo can't connect to mail servers."))
-      : (host, port, opts) => connectMailSocket(relayUrl, host, port, opts),
+    connect: (host, port, opts) => connectMailSocket(RELAY_URL, host, port, opts),
     files,
     secrets: webSecrets(files),
     userFiles: {
@@ -157,12 +149,9 @@ export async function webPlatform(page: Page): Promise<Platform> {
         await page.request("todoistSignIn", { close: true });
       }
     },
-    google: demo ? demo.demoGoogleAuth() : webGoogleAuth({ relayUrl, page, files }),
-    microsoft: demoOutlook
-      ? demoOutlook.demoMicrosoftAuth()
-      : webMicrosoftAuth({ relayUrl, page, files }),
-    relayUrl,
-    agentServerUrl: demo ? `${self.location.origin}/api/agent` : undefined,
+    google: webGoogleAuth({ relayUrl: RELAY_URL, page, files }),
+    microsoft: webMicrosoftAuth({ relayUrl: RELAY_URL, page, files }),
+    relayUrl: RELAY_URL,
     relaySession: "cookie",
 
     broadcast: page.broadcast,
@@ -178,5 +167,10 @@ export async function webPlatform(page: Page): Promise<Platform> {
       translate: (texts, source, target) => page.request("translate", { texts, source, target }),
     },
   };
-  return platform;
+  if (!__DEMO__) return platform;
+  const { withFakeServices } = await import("@otter/core/fake");
+  return {
+    ...(await withFakeServices(platform)),
+    agentServerUrl: `${self.location.origin}/api/agent`,
+  };
 }

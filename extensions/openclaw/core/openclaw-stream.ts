@@ -1,5 +1,5 @@
-import { TextStream } from "@otter-mail/core/extension-kit";
-import type { Emit } from "@otter-mail/core/extension-kit";
+import { TextStream } from "@otter/core/extension-kit";
+import type { Emit } from "@otter/core/extension-kit";
 
 export function openClawMessageText(message: unknown): string {
   const content = (message as { content?: unknown })?.content;
@@ -62,6 +62,13 @@ export class OpenClawText {
 
   replay(): void {
     this.stream.replay();
+  }
+
+  /** A run that continues the turn (after a yield) writes text of its own, after what's there. */
+  nextRun(): void {
+    this.boundary();
+    this.agentSeen = false;
+    this.chatText = "";
   }
 
   assistant(data: Record<string, unknown>): void {

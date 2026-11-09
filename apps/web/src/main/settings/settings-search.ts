@@ -129,6 +129,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     pane: "calendar",
     searchTerms: ["12-hour 24-hour clock AM PM calendar"],
   },
+
   {
     id: "advance-direction",
     title: "After archive, delete, or move",
@@ -242,8 +243,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Mail layout",
     pane: "appearance",
     searchTerms: [
-      "split view full inbox floating",
-      "reading pane columns wide list layout floating window popup bottom right panel",
+      "auto split view full inbox",
+      "reading pane columns wide list layout automatic responsive narrow window",
     ],
   },
   {
@@ -402,11 +403,25 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hermes base url api key server connect"],
   },
   {
+    id: "hermes-deliveries",
+    title: "Messages from Hermes",
+    pane: "agents",
+    item: "hermes",
+    searchTerms: ["hermes plugin platform channel cron scheduled deliver send_message notify"],
+  },
+  {
     id: "openclaw-connection",
     title: "Connection",
     pane: "agents",
     item: "openclaw",
     searchTerms: ["openclaw gateway address token connect pair approve device tailscale"],
+  },
+  {
+    id: "openclaw-deliveries",
+    title: "Messages from your agents",
+    pane: "agents",
+    item: "openclaw",
+    searchTerms: ["openclaw channel cron scheduled job deliver announce notify approval inbox"],
   },
   {
     id: "follow-up-behavior",

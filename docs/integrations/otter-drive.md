@@ -9,14 +9,14 @@ Everyone with access to that drive can see it.
 ## Owned modules
 
 Otter Drive is a built-in extension: the `extensions/otter-drive` package
-(`@otter-mail/extension-otter-drive`).
+(`@otter/extension-otter-drive`).
 
-- `package.json`: its manifest (`otterMail`): a connection, the `drive` workspace
-  (`contributes.workspaces`), on every app: Drive's API answers mail.otterware.app (and the dev
+- `package.json`: its manifest (`otter`): a connection, the `drive` workspace
+  (`contributes.workspaces`), on every app: Drive's API answers otter.otterware.app (and the dev
   server on :5833) cross-origin with a bearer token, never cookies. A worktree's dev server on
   another port isn't allowed: run it with `PORT=5833` to try Drive. On localhost, previews from
   Drive's content host (pages, PDFs, videos, images) and thumbnails don't load: that host is
-  same-site with mail.otterware.app only (its content cookie and resource policy). Lists,
+  same-site with otter.otterware.app only (its content cookie and resource policy). Lists,
   text, tables, sharing, settings and editing work.
 - `core/`: `index.ts` registers the `otterDrive:*` handlers; `drive.ts` is the API: the device
   sign-in (the `otterware-cli` client Drive accepts for Otterware's apps), drives and folders

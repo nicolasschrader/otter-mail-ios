@@ -1,14 +1,15 @@
-import { OTTER_ACCOUNT_STATE_CHANNEL, type OtterAccountState } from "@otter-mail/contracts";
-import type { MeResponse, RelayEvent } from "@otter-mail/contracts/relay";
+import { OTTER_ACCOUNT_STATE_CHANNEL, type OtterAccountState } from "@otter/contracts";
+import type { MeResponse, RelayEvent } from "@otter/contracts/relay";
 
 import { SignInCancelledError } from "../google.js";
 import { broadcast, handle } from "../ipc.js";
 import { logger } from "../logger.js";
 import { platform } from "../platform.js";
 import { listAccounts } from "../services/account-store.js";
+import { agentDelivered } from "../services/agent/service.js";
 import { getAccount } from "../services/account-store.js";
 import { getImapPassword } from "../services/imap-passwords.js";
-import type { NotificationConnection } from "@otter-mail/contracts/relay";
+import type { NotificationConnection } from "@otter/contracts/relay";
 import { findProvider, isSignedIn } from "../providers/index.js";
 import {
   clearLinkedSnapshot,
@@ -113,6 +114,13 @@ async function onEvent(event: RelayEvent): Promise<void> {
   }
   if (event.type === "preferences") {
     await syncPreferences();
+    return;
+  }
+  if (event.type === "agent") {
+    // A message's session may have no chat yet; an approval's or a question's is the one that asked.
+    await agentDelivered(
+      event.pointer.kind === "message" ? (event.pointer.sessionKey ?? undefined) : undefined,
+    );
     return;
   }
   if (event.type !== "mail") return;

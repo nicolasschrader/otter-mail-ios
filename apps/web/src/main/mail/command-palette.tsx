@@ -34,13 +34,13 @@ import {
   SunIcon,
   SunMoonIcon,
 } from "lucide-react";
-import { AgentIcon } from "./agent-icon";
+import { AgentIcon } from "../agent/agent-icon";
 import { AccountPicture } from "./account-picture";
 import { useDebouncedValue, useSearchMessages } from "./hooks";
 import { getAccountColor, getAccountDisplayName } from "./account-style";
 import { senderLabel } from "./address";
 import { cn } from "./ui";
-import { changelogUrl } from "@otter-mail/shared/changelog";
+import { changelogUrl } from "@otter/shared/changelog";
 import { openLink } from "../browser/store";
 import { getThemeModes } from "../theme/themePalette";
 import {
@@ -60,7 +60,7 @@ import { shortcutLabelFor, useKeybindingsState } from "../keybindings/store";
 import { requestTour, startSetup } from "../onboarding/onboarding";
 import { updateNow, useUpdateState } from "../updates";
 import { requestProblemReport } from "../support/report-problem";
-import { isBlank, useChats } from "./chat-store";
+import { isBlank, useChats } from "../agent/chat-store";
 import { ViewMark } from "./view-icon";
 import { useWorkspaces, workspaceSpace } from "../extensions/workspaces";
 import { CALENDAR_SPACE } from "./spaces";
@@ -418,7 +418,7 @@ export function CommandPalette({
               title:
                 update.status === "downloaded"
                   ? `Restart to update to ${update.availableVersion}`
-                  : "Update Otter Mail",
+                  : "Update Otter",
               description: `Version ${update.currentVersion}`,
               keywords: "upgrade install restart new version check for updates",
               run: updateNow,

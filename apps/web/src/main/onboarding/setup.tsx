@@ -17,7 +17,7 @@ import {
   ServerIcon,
   ZapIcon,
 } from "lucide-react";
-import { AgentIcon } from "../mail/agent-icon";
+import { AgentIcon } from "../agent/agent-icon";
 import { Switch } from "~/components/ui/switch";
 import { mailApi, type NotificationsMode, type SyncSettings } from "../mail/api";
 import {
@@ -41,7 +41,7 @@ import {
   providerSummary,
   useAgentProviders,
   useSetProvidersState,
-} from "../mail/agent-providers";
+} from "../agent/agent-providers";
 import {
   syncLabel,
   useAccountSync,
@@ -84,7 +84,7 @@ import {
   saveStep,
   startSetup,
 } from "./onboarding";
-import otterIconUrl from "../assets/otter-mail-icon.png";
+import otterIconUrl from "../assets/otter-icon.png";
 
 const STEPS = ["welcome", "mailbox", "look", "habits", "agent", "keys", "done"] as const;
 type Step = (typeof STEPS)[number];
@@ -303,13 +303,13 @@ const PILLARS: { icon: ReactNode; title: string; body: string }[] = [
   },
   {
     icon: <AgentIcon />,
-    title: "An agent beside your mail",
-    body: "Ask about a conversation, have it find that one email, or let it draft the reply.",
+    title: "Your agents, right here",
+    body: "Bring your own agents, and hand them the conversation in front of you.",
   },
   {
     icon: <LayersIcon />,
-    title: "Every mailbox in one place",
-    body: "Gmail and IMAP side by side, with views that cut across all of them.",
+    title: "Every mailbox and calendar",
+    body: "Gmail, Outlook and IMAP side by side, Google and Outlook calendars beside them.",
   },
 ];
 
@@ -322,8 +322,8 @@ function WelcomeStep({ onStart }: { onStart: () => void }) {
         className="mb-6 size-20 rounded-[22%] shadow-[0_12px_32px_-12px_rgb(0_0_0/0.5)]"
       />
       <StepHeader
-        title="Welcome to Otter Mail"
-        description="Calm, fast email for Gmail and any IMAP mailbox. A minute of setup and you're in."
+        title="Welcome to Otter"
+        description="Your daily work, with your agents: mail, calendar and more in one calm app. A minute of setup and you're in."
       />
       <div className="grid w-full grid-cols-2 gap-3">
         {PILLARS.map((p) => (
@@ -372,7 +372,7 @@ function MailboxStep({ accounts }: { accounts: MailAccount[] }) {
     <>
       <StepHeader
         title={accounts.length > 0 ? "Your mail is connected" : "Connect your mail"}
-        description="Otter Mail talks to your mail provider directly and keeps a copy on this device. If you use an agent, the mail and calendar data its tools return are shared with that agent."
+        description="Otter talks to your mail provider directly and keeps a copy on this device. If you use an agent, the mail and calendar data its tools return are shared with that agent."
       />
       <div className={cn("grid gap-3", hasOutlook ? "grid-cols-3" : "grid-cols-2")}>
         <ChoiceCard
@@ -684,7 +684,7 @@ function HabitsStep() {
                   isDefaultMail ? (
                     <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
                       <CheckIcon className="size-3.5 text-success" />
-                      Otter Mail
+                      Otter
                     </span>
                   ) : (
                     <Btn
@@ -698,7 +698,7 @@ function HabitsStep() {
                           .then(refreshDefaultMail);
                       }}
                     >
-                      Use Otter Mail
+                      Use Otter
                     </Btn>
                   )
                 }

@@ -11,10 +11,11 @@ import {
   useSetProvidersState,
   type AgentSettingsProps,
   type ProviderSnapshot,
-} from "@otter-mail/web/extension-kit";
+} from "@otter/web/extension-kit";
 import { useState } from "react";
 
 import { hermesApi } from "./api";
+import { HermesDeliveries } from "./deliveries";
 
 /** Hermes' settings as core shows them (its key never leaves the backend: only whether there is one). */
 export function hermesSettings(provider: ProviderSnapshot) {
@@ -93,7 +94,7 @@ export function HermesSettings({ provider, update }: AgentSettingsProps) {
           </SettingsRow>
           {SITE_ORIGIN ? (
             <SettingsRow
-              title="4. Allow Otter Mail on the web"
+              title="4. Allow Otter on the web"
               description="Browsers may only call Hermes from sites it allows. Separate sites with commas, and keep any you allowed before."
             >
               <Command value={`hermes config set API_SERVER_CORS_ORIGINS ${SITE_ORIGIN}`} />
@@ -140,6 +141,7 @@ export function HermesSettings({ provider, update }: AgentSettingsProps) {
           }
         />
       </SettingsSection>
+      {connected && provider.status === "ready" ? <HermesDeliveries /> : null}
       <ModelsSection
         provider={provider}
         selectedModel={settings.model}

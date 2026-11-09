@@ -1,5 +1,5 @@
 {
-  "name": "@otter-mail/contracts",
+  "name": "@otter/contracts",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,11 +8,13 @@
     "./relay": "./src/relay.ts",
     "./agent-tokens": "./src/agent-tokens.ts",
     "./chats": "./src/chats.ts",
+    "./scheduled": "./src/scheduled.ts",
     "./demo": "./src/demo.ts",
     "./mail": "./src/mail.ts",
     "./todoist": "./src/todoist.ts",
     "./openrouter": "./src/openrouter.ts",
-    "./extensions": "./src/extensions.ts"
+    "./extensions": "./src/extensions.ts",
+    "./dev-data": "./src/dev-data.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

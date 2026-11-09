@@ -21,7 +21,7 @@ import {
   TagIcon,
   Trash2Icon,
 } from "lucide-react";
-import { AgentIcon } from "./agent-icon";
+import { AgentIcon } from "../agent/agent-icon";
 import { IconBtn, HintTooltip, cn } from "./ui";
 import { getAccountDisplayName } from "./account-style";
 import { useQueries } from "@tanstack/react-query";
@@ -224,8 +224,7 @@ export function SidebarControl({
           <PaneIcon side="left" open={sidebarOpen} className="size-4" />
         </IconBtn>
       </HintTooltip>
-      {/* Under the window's tabs, history sits by them (window-tabs.tsx). */}
-      {features.windowTabs ? null : <HistoryControls />}
+      <HistoryControls />
     </div>
   );
 }
@@ -247,7 +246,6 @@ export function PanelControl({ open, onToggle }: { open: boolean; onToggle: () =
 }
 
 export function PanelControlSlot() {
-  if (features.windowTabs) return null;
   return (
     <span
       aria-hidden
@@ -257,7 +255,6 @@ export function PanelControlSlot() {
 }
 
 export function TitlebarInset() {
-  if (features.windowTabs) return null;
   return (
     <span
       aria-hidden
@@ -289,7 +286,6 @@ export function WindowTitle({ className }: { className?: string }) {
 }
 
 export function SidebarTitle() {
-  if (features.windowTabs) return null;
   return <div className="drag-region h-(--workspace-topbar-height) shrink-0 web:hidden" />;
 }
 

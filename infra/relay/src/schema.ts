@@ -16,9 +16,9 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import type { ImapSettings, MailProviderKind } from "@otter-mail/contracts/mail";
-import type { AliasPictures } from "@otter-mail/contracts/relay";
-import type { Chat, ChatProvider, ChatTab } from "@otter-mail/contracts/chats";
+import type { ImapSettings, MailProviderKind } from "@otter/contracts/mail";
+import type { AliasPictures } from "@otter/contracts/relay";
+import type { Chat, ChatProvider, ChatTab } from "@otter/contracts/chats";
 
 const createdAt = () =>
   integer({ mode: "timestamp_ms" })
@@ -234,9 +234,30 @@ export const chats = sqliteTable(
     updatedAt: integer({ mode: "timestamp_ms" }).notNull(),
     snoozedUntil: integer(),
     settledAt: integer(),
+    pinnedAt: integer(),
+    returnedAt: integer(),
     deletedAt: integer({ mode: "timestamp_ms" }),
   },
   (t) => [primaryKey({ columns: [t.userId, t.id] })],
+);
+
+/**
+ * An agent's gateway allowed to tell the account's devices it has something for them
+ * (agent-channels.ts). Only the token's hash is kept.
+ */
+export const agentChannels = sqliteTable(
+  "agent_channels",
+  {
+    id: text().primaryKey(),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: text().notNull().unique(),
+    label: text().notNull(),
+    createdAt: integer({ mode: "timestamp_ms" }).notNull(),
+    lastUsedAt: integer({ mode: "timestamp_ms" }),
+  },
+  (t) => [index("agent_channels_user_idx").on(t.userId)],
 );
 
 export const jwks = sqliteTable("jwks", {

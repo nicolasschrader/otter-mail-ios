@@ -44,12 +44,6 @@ export interface UpdateState {
 export interface BridgeFeatures {
   windowControls: "left" | "right" | null;
   historyButtons: boolean;
-  windowTabs: boolean;
-  /**
-   * Window tabs pulled off the strip into windows of their own, and between
-   * windows (moving and hiding windows, which Wayland doesn't allow).
-   */
-  tabWindows: boolean;
   launchAtLogin: boolean;
   dockBadge: boolean;
   defaultMailApp: boolean;
@@ -106,7 +100,7 @@ export interface OtterDevice {
 export const OTTER_ACCOUNT_STATE_CHANNEL = "otter:state";
 
 export const GMAIL_SETTINGS_PERMISSION =
-  "Otter Mail needs permission to change this account's Gmail settings. Sign in to it again to allow it.";
+  "Otter needs permission to change this account's Gmail settings. Sign in to it again to allow it.";
 
 export type ChatChange = {
   title: string;

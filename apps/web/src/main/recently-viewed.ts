@@ -11,9 +11,10 @@ import { getAccountDisplayName } from "./mail/account-style";
 import { senderLabel } from "./mail/address";
 import { workspaceOf } from "./extensions/workspaces";
 import { CALENDAR_SPACE, CHATS_SPACE, isViewSpaceId } from "./mail/spaces";
+import { SCHEDULED_TASKS } from "./agent/agent-scheduled";
 import { SEARCH_MAILBOX } from "./mail/gmail-query";
 import { useLabels, useMessage } from "./mail/hooks";
-import { isBlank, useChats } from "./mail/chat-store";
+import { isBlank, useChats } from "./agent/chat-store";
 import { folderName, labelDisplayName } from "./mail/label-names";
 import { capabilitiesOf } from "./mail/capabilities";
 import type { AliasMailboxEntry } from "./mail/alias-mailboxes";
@@ -153,6 +154,8 @@ export function useRecordRecentlyViewed({
     };
   } else if (composing) {
     place = { href, context: "Mail", title: "New message", icon: "compose" };
+  } else if (mailbox === CHATS_SPACE && label === SCHEDULED_TASKS) {
+    place = { href, context: "Agent", title: "Scheduled", icon: "chat" };
   } else if (messageId) {
     if (message && message.id === messageId) {
       place = {

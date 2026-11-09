@@ -85,11 +85,12 @@ function skillStep(name: string): ToolStep {
 }
 
 export function mcpStep(server: string, tool: string, args: unknown): ToolStep {
-  const ours = server.replace(/_/g, "-") === OTTER_TOOLS_SERVER;
+  // Agents set up before the rename to Otter, and their transcripts, call it otter-mail.
+  const ours = [OTTER_TOOLS_SERVER, "otter-mail"].includes(server.replace(/_/g, "-"));
   return {
     kind: "tool",
     title: (ours && toolTitle(tool)) || sentence(tool),
-    source: ours ? "Otter Mail" : titled(server),
+    source: ours ? "Otter" : titled(server),
     ...withDetail(argsDetail(args)),
   };
 }
@@ -205,11 +206,29 @@ export function hermesStep(name: string, args: unknown): ToolStep {
 }
 
 export function openClawStep(name: string, args: unknown): ToolStep {
+  // Runtimes that call OpenClaw's tools over MCP (claude-cli) name them with its server's prefix.
+  if (name.startsWith("mcp__openclaw__"))
+    return openClawStep(name.slice("mcp__openclaw__".length), args);
   const wrapped = args as { id?: unknown; args?: unknown } | null;
   if (name === "tool_call" && typeof wrapped?.id === "string")
     return openClawStep(wrapped.id, wrapped.args);
-  const command = (args as { command?: unknown } | null)?.command;
-  if ((name === "bash" || name === "exec") && typeof command === "string")
+  const arg = (key: string) => {
+    const value = (args as Record<string, unknown> | null)?.[key];
+    return typeof value === "string" ? value : "";
+  };
+  const command = arg("command");
+  if ((name === "bash" || name === "exec") && command)
     return commandStep(command.replace(/^(\S*\/)?bash -l?c /, "").replace(/^(['"])(.*)\1$/s, "$2"));
+  const path = arg("path") || arg("file_path");
+  if (name === "read" && path) return readStep(path);
+  if ((name === "write" || name === "edit") && path) return editStep([path]);
+  if (name === "web_search") return webSearchStep(arg("query"));
+  if (name === "web_fetch" && arg("url")) return fetchStep(arg("url"));
+  if (name === "sessions_spawn")
+    return {
+      kind: "tool",
+      title: arg("label") ? `Started ${arg("label")}` : "Started a subagent",
+      ...withDetail(arg("task")),
+    };
   return genericStep(name, args);
 }

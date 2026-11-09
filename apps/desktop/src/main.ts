@@ -2,8 +2,8 @@ import { app, BrowserWindow, Menu, ipcMain, nativeTheme, shell } from "electron"
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { NativeThemeInfo, ThemeSource } from "@otter-mail/contracts";
-import type { AppSettings, ErrorReportsConfig } from "@otter-mail/core";
+import type { NativeThemeInfo, ThemeSource } from "@otter/contracts";
+import type { AppSettings, ErrorReportsConfig } from "@otter/core";
 
 import { invokeBackend, setDockBadgeEnabled, startBackend, stopBackend } from "./backend-host.js";
 import { registerHandlers } from "./handlers/index.js";
@@ -12,11 +12,12 @@ import { setErrorReportsAllowed, setReportId, startErrorReports } from "./error-
 import { logger, logToFile } from "./logger.js";
 import { hostOS } from "./os/index.js";
 import type { AppMenuItems } from "./os/types.js";
-import { configureAppPaths } from "./paths.js";
+import { configureAppPaths, nameApp } from "./paths.js";
 import { focusedBrowserPage, setupBrowser } from "./services/browser.js";
 import { embedDriveContent } from "./services/drive-content.js";
 import { parseMailtoUrl, setPendingMailto } from "./services/mailto-target.js";
 import { initUpdates } from "./updates.js";
+import { stepHistory } from "./windows/history-buttons.js";
 import { setSettingsTarget } from "./windows/settings-window.js";
 import {
   allowWindows,
@@ -250,20 +251,12 @@ function setupApplicationMenu(): void {
       {
         label: "Back",
         accelerator: "CommandOrControl+[",
-        click: () => {
-          const page = focusedBrowserPage();
-          if (page) page.navigationHistory.goBack();
-          else focusedAppWindow()?.webContents.send("nav:back");
-        },
+        click: () => stepHistory(focusedAppWindow(), focusedBrowserPage(), "back"),
       },
       {
         label: "Forward",
         accelerator: "CommandOrControl+]",
-        click: () => {
-          const page = focusedBrowserPage();
-          if (page) page.navigationHistory.goForward();
-          else focusedAppWindow()?.webContents.send("nav:forward");
-        },
+        click: () => stepHistory(focusedAppWindow(), focusedBrowserPage(), "forward"),
       },
     ],
     mailbox: [
@@ -315,6 +308,7 @@ app.on("will-quit", () => {
 });
 
 void app.whenReady().then(async () => {
+  nameApp();
   logger.info("main", "App ready", {
     version: app.getVersion(),
     packaged: app.isPackaged,

@@ -11,8 +11,8 @@ import { prepareTodoistPopup, closeTodoistPopup, authorizeTodoistPopup } from ".
  * invokes the channel, and the backend's request picks up what they return.
  */
 
-import type { MeResponse, OutlookSignInResult } from "@otter-mail/contracts/relay";
-import type { DesktopBridge, NativeThemeInfo, ThemeSource } from "@otter-mail/contracts";
+import type { MeResponse, OutlookSignInResult } from "@otter/contracts/relay";
+import type { DesktopBridge, NativeThemeInfo, ThemeSource } from "@otter/contracts";
 
 import { connectBackend } from "./backend";
 import { detectLanguage, hasBuiltInTranslator, translate } from "./translator";
@@ -23,10 +23,10 @@ import {
   type PageEffect,
   type PageRequests,
 } from "./protocol";
+import { RELAY_URL } from "./relay";
 
-const RELAY_URL = import.meta.env.VITE_RELAY_URL || "https://relay.mail.otterware.app";
 const THEME_SOURCE_KEY = "otter:theme-source";
-const TITLE = __DEMO__ ? "Otter Mail (demo)" : "Otter Mail";
+const TITLE = __DEMO__ ? "Otter (demo)" : "Otter";
 if (__DEMO__) document.title = TITLE;
 
 type Listener = (params: unknown) => void;
@@ -203,6 +203,10 @@ const backend = connectBackend({
 let settingsTarget: unknown = null;
 
 const pageChannels: Record<string, (params: unknown) => unknown> = {
+  "window:open": (params) => {
+    const href = (params as { href?: unknown } | undefined)?.href;
+    if (typeof href === "string" && href.startsWith("/")) window.open(href, "_blank", "noopener");
+  },
   "window:openSettings": (params) => {
     settingsTarget = params;
     emit("settings:open");
@@ -297,8 +301,6 @@ export const webBridge: DesktopBridge = {
   features: {
     windowControls: null,
     historyButtons: false,
-    windowTabs: false,
-    tabWindows: false,
     launchAtLogin: false,
     dockBadge: false,
     defaultMailApp: false,

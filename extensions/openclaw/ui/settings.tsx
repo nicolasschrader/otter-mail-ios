@@ -12,10 +12,11 @@ import {
   useSetProvidersState,
   type AgentSettingsProps,
   type ProviderSnapshot,
-} from "@otter-mail/web/extension-kit";
+} from "@otter/web/extension-kit";
 import { useEffect, useState } from "react";
 
 import { openClawApi } from "./api";
+import { OpenClawDeliveries } from "./deliveries";
 
 const SITE_ORIGIN = window.desktopBridge.platform === "web" ? location.origin : null;
 
@@ -23,7 +24,7 @@ const gatewayHost = (address: string) =>
   address
     .trim()
     .replace(/^[a-z]+:\/\//i, "")
-    .replace(/[/:].*$/, "");
+    .replace(/\/.*$/, "");
 
 function setupCodeUrl(code: string): string {
   try {
@@ -46,11 +47,13 @@ export function OpenClawSettings({ provider, update }: AgentSettingsProps) {
   const {
     url: savedUrl,
     pairingRequest: openclawPairingRequest,
-    questions: openclawQuestions,
+    fullAccess: openclawFullAccess,
+    owner: openclawOwner,
   } = provider.settings as ProviderSnapshot["settings"] & {
     url: string;
     pairingRequest: string | null;
-    questions: { allowed: boolean | null; request: string | null };
+    fullAccess: { allowed: boolean | null; request: string | null };
+    owner: boolean | null;
   };
   const [asking, setAsking] = useState(false);
   const connected = provider.status === "ready";
@@ -63,13 +66,26 @@ export function OpenClawSettings({ provider, update }: AgentSettingsProps) {
     return () => clearInterval(timer);
   }, [openclawPairingRequest]);
 
-  const allowQuestions = async () => {
+  const allowFullAccess = async () => {
     setAsking(true);
     try {
-      setState(await openClawApi.agentAllowOpenClawQuestions());
+      setState(await openClawApi.agentAllowOpenClawFullAccess());
     } catch (error) {
       toast.error(
         `Could not ask the gateway: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const allowOwner = async () => {
+    setAsking(true);
+    try {
+      setState(await openClawApi.agentAllowOpenClawOwner());
+    } catch (error) {
+      toast.error(
+        `Could not change the gateway's settings: ${error instanceof Error ? error.message : String(error)}`,
       );
     } finally {
       setAsking(false);
@@ -116,7 +132,7 @@ export function OpenClawSettings({ provider, update }: AgentSettingsProps) {
           </SettingsRow>
           {SITE_ORIGIN ? (
             <SettingsRow
-              title="2. Allow Otter Mail on the web"
+              title="2. Allow Otter on the web"
               description="Browsers may only connect from sites the gateway allows. This keeps the gateway's own Control UI allowed; add any other sites you allowed before."
             >
               <Command
@@ -214,33 +230,45 @@ export function OpenClawSettings({ provider, update }: AgentSettingsProps) {
         {openclawPairingRequest ? (
           <SettingsRow
             title={`Approve this ${device}`}
-            description={`The gateway is waiting for you to approve this ${device}. Run this on its computer; Otter Mail connects as soon as you do.`}
+            description={`The gateway is waiting for you to approve this ${device}. Run this on its computer; Otter connects as soon as you do.`}
           >
             <Command value={`openclaw devices approve ${openclawPairingRequest}`} />
           </SettingsRow>
         ) : null}
-        {connected && openclawQuestions.allowed === false ? (
+        {connected && openclawFullAccess.allowed === false ? (
           <SettingsRow
-            title="Answer its questions"
+            title="Full access"
             description={
-              openclawQuestions.request
-                ? "The gateway is waiting for you to approve it. Run this on its computer; its questions show up in the chat once you do."
-                : `OpenClaw sometimes stops to ask you something. This ${device} was paired before it could answer; allowing it asks the gateway for that, and you approve it there.`
+              openclawFullAccess.request
+                ? "The gateway is waiting for you to approve it. Run this on its computer; Otter reconnects with full access once you do."
+                : `This ${device} was paired with less than OpenClaw's own apps have, so the agent won't use your devices (its nodes tool) for what you ask here, and its questions may not reach you. Allowing it asks the gateway for full access, and you approve it there.`
             }
             control={
-              openclawQuestions.request ? null : (
-                <Btn size="sm" disabled={asking} onClick={() => void allowQuestions()}>
+              openclawFullAccess.request ? null : (
+                <Btn size="sm" disabled={asking} onClick={() => void allowFullAccess()}>
                   {asking ? "Asking…" : "Allow"}
                 </Btn>
               )
             }
           >
-            {openclawQuestions.request ? (
-              <Command value={`openclaw devices approve ${openclawQuestions.request}`} />
+            {openclawFullAccess.request ? (
+              <Command value={`openclaw devices approve ${openclawFullAccess.request}`} />
             ) : null}
           </SettingsRow>
         ) : null}
+        {connected && openclawOwner === false ? (
+          <SettingsRow
+            title="Manage every scheduled task"
+            description="A chat can only see and change the scheduled tasks it made, and the agent doesn't know which Otter chats it can post to. Allowing this lists Otter as one of the gateway's owners (commands.ownerAllowFrom), as you would your own Telegram account, so any chat can manage them all, and lets Otter's plugin tell the agent where it can deliver: this chat, or a new chat each time."
+            control={
+              <Btn size="sm" disabled={asking} onClick={() => void allowOwner()}>
+                {asking ? "Allowing…" : "Allow"}
+              </Btn>
+            }
+          />
+        ) : null}
       </SettingsSection>
+      {connected ? <OpenClawDeliveries /> : null}
       {connected ? (
         <ModelsSection
           provider={provider}

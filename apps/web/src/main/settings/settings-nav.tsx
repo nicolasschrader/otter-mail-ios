@@ -28,8 +28,8 @@ import {
   Settings2Icon,
   XIcon,
 } from "lucide-react";
-import { AgentIcon } from "../mail/agent-icon";
-import { changelogUrl } from "@otter-mail/shared/changelog";
+import { AgentIcon } from "../agent/agent-icon";
+import { changelogUrl } from "@otter/shared/changelog";
 import { openLink } from "../browser/store";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { mailApi, type SettingsPane } from "../mail/api";
@@ -50,6 +50,7 @@ import {
 } from "./settings-search";
 import { requestProblemReport } from "../support/report-problem";
 import { hasIntegrations } from "../extensions/registry";
+import { PLACE } from "../place-menu";
 
 const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPane, ComponentType<{ className?: string }>>
@@ -213,6 +214,7 @@ export function SettingsNav({
                     tabIndex={-1}
                     onMouseMove={() => setActiveResultIndex(index)}
                     onClick={() => openResult(item)}
+                    {...PLACE}
                     className={cn(
                       ROW,
                       "h-auto min-h-11 items-start py-1.5 [&>svg]:mt-0.5",
@@ -252,6 +254,7 @@ export function SettingsNav({
                 <button
                   type="button"
                   onClick={() => onSelect(section.id)}
+                  {...PLACE}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     ROW,
@@ -320,7 +323,7 @@ function DefaultMailRow() {
   }, [refreshForEffect]);
   if (isDefault !== false) return null;
   return (
-    <HintTooltip label="Use Otter Mail for email links">
+    <HintTooltip label="Use Otter for email links">
       <button
         type="button"
         onClick={async () => {

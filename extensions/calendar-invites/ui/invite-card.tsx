@@ -6,7 +6,7 @@ import {
   cn,
   openLink,
   isModClick,
-} from "@otter-mail/web/extension-kit";
+} from "@otter/web/extension-kit";
 import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarIcon, CheckIcon, ExternalLinkIcon, MapPinIcon } from "lucide-react";
@@ -87,7 +87,7 @@ export function InviteCard({ accountId, messageId }: { accountId: string; messag
       if (next) qc.setQueryData(inviteKey(accountId, messageId), next);
       toast.success(
         next?.calendarAccess === false
-          ? `${DONE[response]} — reply sent to the organizer`
+          ? `${DONE[response]}, reply sent to the organizer`
           : `${DONE[response]}`,
       );
     },
@@ -186,7 +186,7 @@ export function InviteCard({ accountId, messageId }: { accountId: string; messag
           {!invite.calendarAccess ? (
             <span className="text-xs text-muted-foreground">
               {calendar
-                ? "Answers are emailed to the organizer — re-add this account to update your calendar too."
+                ? "Answers are emailed to the organizer. Re-add this account to update your calendar too."
                 : "Answers are emailed to the organizer."}
             </span>
           ) : null}

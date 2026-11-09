@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -40,6 +40,7 @@ import {
   type BrowserTab,
 } from "./store";
 import { shortcutText } from "../keybindings/keys";
+import { FindBar, isFindKey } from "../agent/chat-find";
 
 type Webview = HTMLElement & {
   getWebContentsId(): number;
@@ -51,16 +52,11 @@ type Webview = HTMLElement & {
   reload(): void;
   stop(): void;
   openDevTools(): void;
+  findInPage(text: string, options?: { forward?: boolean; findNext?: boolean }): number;
+  stopFindInPage(action: "clearSelection" | "keepSelection" | "activateSelection"): void;
 };
 
 const PARTITION = "persist:browser";
-
-/**
- * Where a page that isn't showing waits: off to the side, still paintable. A
- * macOS webview hidden outright can come back blank (Otter Code's
- * HostedBrowserWebview), and moving it keeps its size, so nothing reflows.
- */
-const OFFSCREEN: CSSProperties = { transform: "translateX(-100000px)", pointerEvents: "none" };
 
 const SUGGESTED = [
   { name: "Google", url: "https://www.google.com/" },
@@ -69,7 +65,7 @@ const SUGGESTED = [
   { name: "Chrome Web Store", url: CHROME_WEB_STORE_URL },
 ];
 
-function faviconFor(url: string): string {
+export function faviconFor(url: string): string {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostOf(url))}&sz=64`;
 }
 
@@ -90,38 +86,7 @@ export function BrowserTabIcon({ tab }: { tab: BrowserTab }) {
   return <GlobeIcon className="size-3.5" />;
 }
 
-export function BrowserPages({
-  tabs,
-  activeId,
-  className,
-}: {
-  tabs: BrowserTab[];
-  activeId: string | null;
-  className?: string;
-}) {
-  const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
-  if (activeId && !shown.has(activeId)) setShown(new Set(shown).add(activeId));
-  return (
-    <div
-      className={cn("relative min-h-0 flex-1 overflow-hidden bg-canvas", className)}
-      style={activeId ? undefined : OFFSCREEN}
-    >
-      {tabs.map((tab) =>
-        shown.has(tab.id) ? (
-          <div
-            key={tab.id}
-            className="absolute inset-0 flex flex-col"
-            style={tab.id === activeId ? undefined : OFFSCREEN}
-          >
-            <BrowserPage tab={tab} active={tab.id === activeId} />
-          </div>
-        ) : null,
-      )}
-    </div>
-  );
-}
-
-function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
+export function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
   const [view, setView] = useState<Webview | null>(null);
   const [pageId, setPageId] = useState<number | null>(null);
   // The address the page opens at; later ones go through loadURL (a new src
@@ -130,6 +95,7 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
   const [history, setHistory] = useState({ back: false, forward: false });
   const [failure, setFailure] = useState<string | null>(null);
   const [crashed, setCrashed] = useState(false);
+  const [find, setFind] = useState<number | null>(null);
   const addressRequest = useBrowser((s) =>
     s.addressFocus?.tabId === tab.id ? s.addressFocus.seq : 0,
   );
@@ -208,6 +174,9 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
       window.desktopBridge.on("browser:closeTab", (params) => {
         if (mine(params)) closeTab(tab.id);
       }),
+      window.desktopBridge.on("browser:find", (params) => {
+        if (mine(params)) setFind((key) => (key ?? 0) + 1);
+      }),
     ];
     return () => offs.forEach((off) => off());
   }, [pageId, tab.id]);
@@ -220,7 +189,15 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
 
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+      <div
+        className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3"
+        onKeyDown={(e) => {
+          if (!view || !isFindKey(e.nativeEvent)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setFind((key) => (key ?? 0) + 1);
+        }}
+      >
         <div className="flex shrink-0 items-center rounded-full bg-foreground/[0.06] p-0.5">
           <HintTooltip label="Back" hint={shortcutText("mod+[")} side="bottom">
             <IconBtn
@@ -264,7 +241,7 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
         </div>
         <AddressBar
           url={tab.url}
-          focusRequest={addressRequest}
+          focusRequest={active ? addressRequest : 0}
           onNavigate={navigate}
           onSiteDataCleared={() => view?.reload()}
         />
@@ -285,6 +262,18 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
         ) : (
           <StartPage onNavigate={navigate} />
         )}
+        {view && find !== null ? (
+          <div className="absolute top-3 right-3 z-10 w-72 max-w-[calc(100%-1.5rem)]">
+            <PageFind
+              view={view}
+              focusKey={find}
+              onClose={() => {
+                setFind(null);
+                view.focus();
+              }}
+            />
+          </div>
+        ) : null}
         {failure || crashed ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-canvas p-6 text-center">
             <TriangleAlertIcon className="mb-1 size-6 text-muted-foreground" />
@@ -304,6 +293,54 @@ function BrowserPage({ tab, active }: { tab: BrowserTab; active: boolean }) {
   );
 }
 
+/** Find in the page, by Chromium (⌘F / Ctrl+F in a tab). */
+function PageFind({
+  view,
+  focusKey,
+  onClose,
+}: {
+  view: Webview;
+  focusKey: number;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState({ at: -1, total: 0 });
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const { activeMatchOrdinal, matches } = (
+        event as Event & { result: { activeMatchOrdinal: number; matches: number } }
+      ).result;
+      setFound({ at: activeMatchOrdinal - 1, total: matches });
+    };
+    view.addEventListener("found-in-page", listener);
+    return () => {
+      view.removeEventListener("found-in-page", listener);
+      view.stopFindInPage("keepSelection");
+    };
+  }, [view]);
+  return (
+    <FindBar
+      label="Find in page"
+      focusKey={focusKey}
+      query={query}
+      onQuery={(value) => {
+        setQuery(value);
+        if (value) view.findInPage(value, { findNext: true });
+        else {
+          view.stopFindInPage("clearSelection");
+          setFound({ at: -1, total: 0 });
+        }
+      }}
+      at={found.at}
+      total={found.total}
+      onStep={(by) => {
+        if (query) view.findInPage(query, { forward: by > 0, findNext: false });
+      }}
+      onClose={onClose}
+    />
+  );
+}
+
 function AddressBar({
   url,
   focusRequest,
@@ -317,8 +354,12 @@ function AddressBar({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<string | null>(null);
+  // A request made while the page was hidden waits until it shows, and is answered once.
+  const answered = useRef(0);
   useEffect(() => {
-    if (focusRequest) inputRef.current?.focus();
+    if (!focusRequest || focusRequest === answered.current) return;
+    answered.current = focusRequest;
+    inputRef.current?.focus();
   }, [focusRequest]);
   const editing = draft !== null;
   const origin = URL.parse(url)?.origin;

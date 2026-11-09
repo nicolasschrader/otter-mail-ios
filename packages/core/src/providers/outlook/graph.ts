@@ -34,7 +34,7 @@ export class GraphError extends Error {
     detail: string,
   ) {
     super(
-      `Microsoft Graph error: ${status}${code ? ` ${code}` : ""}${detail ? ` — ${detail}` : ""}`,
+      `Microsoft Graph error: ${status}${code ? ` ${code}` : ""}${detail ? `: ${detail}` : ""}`,
     );
     this.name = "GraphError";
   }
@@ -87,15 +87,15 @@ export function errorKind(err: unknown): ErrorKind | null {
 
 export function describeError(err: unknown): string {
   if (err instanceof GraphError) {
-    if (err.throttled) return "Outlook is limiting requests right now — retrying shortly";
+    if (err.throttled) return "Outlook is limiting requests right now. Retrying shortly";
     if (err.status === 401) return OUTLOOK_SIGNED_OUT_MESSAGE;
     if (err.status === 403) {
-      return "Outlook refused access to this mailbox — sign in to it again to allow Otter Mail";
+      return "Outlook refused access to this mailbox. Sign in to it again to allow Otter";
     }
-    if (err.status >= 500) return "Outlook is having trouble right now — retrying shortly";
+    if (err.status >= 500) return "Outlook is having trouble right now. Retrying shortly";
     return err.message.replace(/^Microsoft Graph error: /, "Outlook error ").slice(0, 240);
   }
-  if (isNetworkError(err)) return "Can't reach Outlook — retrying when the connection is back";
+  if (isNetworkError(err)) return "Can't reach Outlook. Retrying when the connection is back";
   const text = String(err);
   if (text.includes(OUTLOOK_SIGNED_OUT_MESSAGE)) return OUTLOOK_SIGNED_OUT_MESSAGE;
   return text.length > 240 ? `${text.slice(0, 240)}…` : text;
@@ -104,6 +104,9 @@ export function describeError(err: unknown): string {
 let tierContext: AsyncContext<Lane> | null = null;
 export const tier = (): AsyncContext<Lane> => (tierContext ??= platform().asyncContext<Lane>());
 const RANK = { user: 0, sync: 1, backfill: 2, prefetch: 3 } as const;
+
+// Background work leaves one slot free, so what the user opens (a calendar, a message) never waits on sync.
+const limitFor = (rank: number) => (rank === RANK.user ? MAX_IN_FLIGHT : MAX_IN_FLIGHT - 1);
 
 type Slots = { inFlight: number; waiting: { rank: number; start: () => void }[] };
 const slots = new Map<string, Slots>();
@@ -120,18 +123,24 @@ async function takeSlot(accountId: string): Promise<() => void> {
   if (lane && isCoolingDown(accountId)) {
     await sleep((cooldownUntil.get(accountId) ?? 0) - Date.now());
   }
-  if (s.inFlight >= MAX_IN_FLIGHT || s.waiting.length > 0) {
+  if (s.inFlight >= limitFor(rank) || (s.waiting[0] && s.waiting[0].rank <= rank)) {
     await new Promise<void>((resolve) => {
       const at = s.waiting.findIndex((w) => w.rank > rank);
       const entry = { rank, start: resolve };
       if (at < 0) s.waiting.push(entry);
       else s.waiting.splice(at, 0, entry);
     });
+  } else {
+    s.inFlight++;
   }
-  s.inFlight++;
   return () => {
     s.inFlight--;
-    s.waiting.shift()?.start();
+    const next = s.waiting[0];
+    if (next && s.inFlight < limitFor(next.rank)) {
+      s.waiting.shift();
+      s.inFlight++;
+      next.start();
+    }
   };
 }
 

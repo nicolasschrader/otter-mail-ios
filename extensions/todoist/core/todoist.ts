@@ -1,9 +1,4 @@
-import {
-  broadcast,
-  platform,
-  listAccounts,
-  getMessageLabelIds,
-} from "@otter-mail/core/extension-kit";
+import { broadcast, platform, listAccounts, getMessageLabelIds } from "@otter/core/extension-kit";
 import {
   todoistTaskInput,
   todoistTaskUpdate,
@@ -13,7 +8,7 @@ import {
   type TodoistReminder,
   type TodoistPage,
   type TodoistProject,
-} from "@otter-mail/contracts/todoist";
+} from "@otter/contracts/todoist";
 
 import {
   todoistAccessToken,
@@ -169,8 +164,10 @@ export async function createTodoistTask(input: unknown): Promise<void> {
     const message = account && getMessageLabelIds(account.id, p.email.messageId);
     if (!account || !message)
       throw new Error("This email is no longer available. Reopen it and try again.");
+    // The address every app version can open: mail.otterware.app redirects to Otter's, and the
+    // web app sends this older path to /mail/….
     const link = `https://mail.otterware.app/${encodeURIComponent(account.id)}/INBOX/${encodeURIComponent(p.email.messageId)}`;
-    description = `${description}${description ? "\n\n" : ""}[Open conversation in Otter Mail](${link})`;
+    description = `${description}${description ? "\n\n" : ""}[Open conversation in Otter](${link})`;
   }
   await command("item_add", p.requestId, {
     content: p.content,

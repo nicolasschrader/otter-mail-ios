@@ -9,6 +9,8 @@ export interface ChatStep {
   title: string;
   detail?: string;
   source?: string;
+  /** The agent compacting its context: running until its output, which is empty unless it failed. */
+  compaction?: true;
 }
 
 export type ChatTurnItem =
@@ -31,6 +33,14 @@ export interface ChatSentAttachment {
   thumb?: string;
 }
 
+/**
+ * A turn no message of yours started: an automation's result (its job's name and schedule while
+ * the job exists), or a message the agent sent you itself.
+ */
+export type ChatDelivery =
+  | { kind: "automation"; jobId?: string; name?: string; schedule?: string }
+  | { kind: "message"; from?: string };
+
 export interface ChatTurn {
   id: string;
   role: "user" | "assistant";
@@ -43,6 +53,9 @@ export interface ChatTurn {
   attachments?: ChatSentAttachment[];
   citations?: { text: string; comment?: string }[];
   error?: string;
+  /** The chat was forked from another after this turn. */
+  forked?: boolean;
+  delivered?: ChatDelivery;
   startedAt?: number;
   finishedAt?: number;
 }
@@ -59,6 +72,10 @@ export interface ChatTab {
   title: string;
   ref: ChatTabRef;
   addedAt: number;
+  /** What the agent made (a draft, a file, an event), not what it read. */
+  made?: boolean;
+  /** Closed in the panel: still among what the chat used and made, to open again. */
+  closedAt?: number | null;
 }
 
 export interface Chat {
@@ -75,8 +92,21 @@ export interface Chat {
   /** Out of the list until then, unless the agent needs you or finishes sooner. */
   snoozedUntil?: number | null;
   settledAt?: number | null;
+  pinnedAt?: number | null;
+  /** When you last made it, wrote in it or brought it back: where it sits in the list. */
+  returnedAt?: number | null;
   tabs: ChatTab[];
   turns: ChatTurn[];
+  /** Where its turns are read up to in the agent's session, on agents that number what they write. */
+  cursor?: string | null;
+}
+
+/** A chat listed for one of its messages: `chats:search`. */
+export interface ChatMessageMatch {
+  id: string;
+  turnId: string;
+  role: ChatTurn["role"];
+  snippet: string;
 }
 
 export type ChatSummary = Omit<Chat, "turns"> & { deletedAt: number | null };

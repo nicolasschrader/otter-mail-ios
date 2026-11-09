@@ -4,10 +4,14 @@ import {
   type DragEvent as ReactDragEvent,
   type ReactNode,
 } from "react";
-import { ChevronDownIcon, PlusIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronsUpDownIcon, PlusIcon } from "lucide-react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
+import type { KeybindingCommand } from "../keybindings/commands";
+
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./menu";
 import { HintTooltip, UnreadPill, cn } from "./ui";
+import { PLACE } from "../place-menu";
 
 export type RowDragProps = {
   draggable?: boolean;
@@ -25,12 +29,15 @@ export function NewRow({
   label,
   selected = false,
   tour,
+  place = false,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
   selected?: boolean;
   tour?: string;
+  /** Goes to a place (not a dialog): it opens in a new window too. */
+  place?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -38,6 +45,7 @@ export function NewRow({
       <button
         type="button"
         onClick={onClick}
+        {...(place ? PLACE : {})}
         aria-current={selected ? "page" : undefined}
         className={`${SIDEBAR_ROW} px-(--sidebar-row-content-inset) ${
           selected
@@ -91,6 +99,7 @@ export function SkRow({
   dragProps,
   dropActive,
   dot,
+  place = false,
 }: {
   icon: ReactNode;
   title: string;
@@ -102,6 +111,8 @@ export function SkRow({
   dragProps?: RowDragProps;
   dropActive?: boolean;
   dot?: boolean;
+  /** Goes to a place: it opens in a new window too. */
+  place?: boolean;
 }) {
   const style: CSSProperties = { paddingLeft: 10 + depth * 16 };
   return (
@@ -110,6 +121,7 @@ export function SkRow({
       onClick={onClick}
       style={style}
       {...dragProps}
+      {...(place ? PLACE : {})}
       className={[
         SIDEBAR_ROW,
         "pr-(--sidebar-row-content-inset)",
@@ -234,11 +246,85 @@ export function SectionAddButton({ label, onClick }: { label: string; onClick: (
   );
 }
 
+export type SidebarSwitcherItem = {
+  id: string;
+  label: string;
+  /** A picture or mark, `size-5 rounded-md`. */
+  icon: ReactNode;
+  /** After the name in the menu, muted: an alias's address. */
+  detail?: string;
+  accelerator?: string;
+  /** Something new there: a dot in the menu, and on the button when it isn't the one shown. */
+  dot?: boolean;
+};
+
+/** The sidebar's switcher between mailboxes, drives…: the one shown, and a menu of the rest. */
+export function SidebarSwitcher({
+  items,
+  selectedId,
+  onSelect,
+  tour,
+}: {
+  items: SidebarSwitcherItem[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  tour?: string;
+}) {
+  const selected = items.find((item) => item.id === selectedId) ?? items[0];
+  if (!selected) return null;
+  const elsewhere = items.some((item) => item.id !== selected.id && item.dot);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-tour={tour}
+          className={`${SIDEBAR_ROW} h-8 px-1.5 text-sidebar-foreground hover:bg-sidebar-row-hover data-[state=open]:bg-sidebar-row-hover`}
+        >
+          {selected.icon}
+          <span className="min-w-0 truncate">{selected.label}</span>
+          {elsewhere ? (
+            <span
+              aria-label="New elsewhere"
+              className="size-1.5 shrink-0 rounded-full bg-sidebar-foreground"
+            />
+          ) : null}
+          <ChevronsUpDownIcon className="ms-auto size-3.5 shrink-0 text-sidebar-muted-foreground" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-(--radix-dropdown-menu-trigger-width)">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            icon={item.icon}
+            accelerator={item.accelerator}
+            onSelect={() => onSelect(item.id)}
+          >
+            <span className={item.id === selected.id ? "font-medium" : undefined}>
+              {item.label}
+            </span>
+            {item.detail ? (
+              <span className="ms-1.5 text-muted-foreground">{item.detail}</span>
+            ) : null}
+            {item.dot ? (
+              <span
+                aria-label="New"
+                className="ms-1.5 inline-block size-1.5 rounded-full bg-foreground align-middle"
+              />
+            ) : null}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export type SidebarPickerItem = {
   id: string;
   label: string;
   icon: ReactNode;
   hint?: string;
+  shortcut?: KeybindingCommand;
   /** Added to the tooltip: "Mail · in iCloud". */
   detail?: string;
   dot?: boolean;
@@ -266,7 +352,7 @@ export function SidebarPicker({
   };
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-0.5" data-tour={tour}>
-      {items.map(({ id, label, icon, hint, detail, dot = false }) => {
+      {items.map(({ id, label, icon, hint, shortcut, detail, dot = false }) => {
         const selected = id === selectedId;
         const dropHere = drop?.id === id ? drop : null;
         return (
@@ -274,13 +360,17 @@ export function SidebarPicker({
             key={id}
             label={detail ? `${label} · ${detail}` : label}
             hint={hint}
+            shortcut={shortcut}
             disabled={selected || dragged !== null}
+            // Above it are the title bar and the window's buttons.
+            side="bottom"
           >
             <button
               type="button"
               aria-label={label}
               aria-current={selected ? "page" : undefined}
               onClick={() => onSelect(id)}
+              {...PLACE}
               draggable={onMove ? true : undefined}
               onDragStart={
                 onMove

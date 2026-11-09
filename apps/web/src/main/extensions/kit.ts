@@ -1,12 +1,13 @@
 export type * from "./types";
 export { useOpenWorkspace } from "./workspaces";
 export { NavGlyph } from "../mail/app-icons";
-export { ChatMarkdown as Markdown } from "../mail/chat-markdown";
+export { ChatMarkdown as Markdown } from "../agent/chat-markdown";
 export {
   NewRow as SidebarAction,
   Section as SidebarSection,
   SidebarBody,
   SidebarPicker,
+  SidebarSwitcher,
   SkRow as SidebarRow,
 } from "../mail/sidebar-ui";
 export { useCommandHandlers } from "../keybindings/dispatch";
@@ -20,7 +21,7 @@ export { ipc, task } from "~/lib/ipc";
 export { openLink } from "../browser/store";
 export { features } from "../features";
 export { isModClick } from "../keybindings/keys";
-export { useSetProvidersState } from "../mail/agent-providers";
+export { useSetProvidersState } from "../agent/agent-providers";
 export { mailApi } from "../mail/api";
 export type { ProviderSnapshot } from "../mail/api";
 export { useCapabilities } from "../mail/capabilities";
@@ -61,4 +62,4 @@ export {
 } from "../settings/agent-settings-kit";
 export { osNames } from "../os-names";
 export { htmlToText } from "../mail/text";
-export { AgentIcon } from "../mail/agent-icon";
+export { AgentIcon } from "../agent/agent-icon";

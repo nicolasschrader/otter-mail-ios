@@ -15,6 +15,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useMatch, useNavigate, useRouter } from "@tanstack/react-router";
+import { placeHref as hrefOf } from "./places";
 import { ArrowLeftIcon } from "lucide-react";
 import { EmptyState } from "~/components/ui/empty-state";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,14 +29,16 @@ import { MessageReader } from "./mail/message-reader";
 import { NewMessageView } from "./mail/new-message-view";
 import { CommandPalette } from "./mail/command-palette";
 import { BrowserPanel } from "./browser/browser-panel";
-import { ChatBar } from "./mail/chat-bar";
-import { ChatWindow } from "./mail/chat-window";
-import { ChatWorkspace, type ChatPanelControl } from "./mail/chat-workspace";
-import { CALENDAR_MODES, CalendarView, calendarAccounts } from "./calendar/calendar-view";
+import { PageHost } from "./browser/page-host";
+import { ChatBar } from "./agent/chat-bar";
+import { ChatWindow } from "./agent/chat-window";
+import { ChatWorkspace, type ChatPanelControl } from "./agent/chat-workspace";
+import { SCHEDULED_TASKS, ScheduledTasksView } from "./agent/agent-scheduled";
+import { CALENDAR_MODES, CalendarView } from "./calendar/calendar-view";
 import type { CalendarMode } from "./calendar/dates";
-import { newChat, showChat, undockChat, useChatEvents, useChats } from "./mail/chat-store";
-import { useMailChatContext } from "./mail/chat-context";
-import { useChatProvider } from "./mail/agent-providers";
+import { newChat, showChat, useChatEvents, useChats } from "./agent/chat-store";
+import { useMailChatContext } from "./agent/chat-context";
+import { useChatProvider } from "./agent/agent-providers";
 import { SEARCH_MAILBOX } from "./mail/gmail-query";
 import { searchTabId, searchTitle, type SearchTab } from "./mail/search-tabs";
 import {
@@ -51,7 +54,6 @@ import { SettingsNav } from "./settings/settings-nav";
 import { isTypingTarget } from "./mail/keyboard";
 import { cn, HintTooltip, IconBtn } from "./mail/ui";
 import { useMailLayout } from "./theme/interface-settings";
-import { FloatingReader } from "./mail/floating-reader";
 import { usePanelAnimationSettings, usePanelPresence } from "./panel-animations";
 import {
   keybindingContext,
@@ -84,7 +86,7 @@ import {
 } from "./mail/undo";
 import { getAccountColor, getAccountContrastColor } from "./mail/account-style";
 import { mailApi, type ChatChange, type MailtoTarget, type SettingsPane } from "./mail/api";
-import type { QuoteContext } from "./mail/chat-context";
+import type { QuoteContext } from "./agent/chat-context";
 import type { MailAccount, MessageSummary, MailView } from "./mail/types";
 import {
   useMailViews,
@@ -111,17 +113,9 @@ import {
   spansMailboxes as spanning,
 } from "./mail/spaces";
 import { useSignInAlerts } from "./mail/sync-health";
-import { useRecordRecentlyViewed, type RecentIcon } from "./recently-viewed";
-import { iconForHref, takeNewTabClick, watchNewTabClicks } from "./new-tab-click";
-import {
-  addTab,
-  closeTab as closeWindowTab,
-  followLocation,
-  nameTab,
-  selectTab as selectWindowTab,
-  useWindowTabs,
-  WindowTabsBar,
-} from "./window-tabs";
+import { useRecordRecentlyViewed } from "./recently-viewed";
+import { takeNewWindowClick, watchNewWindowClicks } from "./new-window-click";
+import { PlaceMenu } from "./place-menu";
 import { SetupFlow } from "./onboarding/setup";
 import {
   newTab,
@@ -142,6 +136,8 @@ import {
 } from "./onboarding/onboarding";
 
 const READER_MIN_WIDTH = 360;
+// Auto layout: below this, the reader beside the list is too narrow to read in.
+const AUTO_SPLIT_READER_WIDTH = 560;
 const BROWSER_OPEN_WIDTH = 720;
 const FRAME_INSET = 4;
 
@@ -162,8 +158,15 @@ const sameLoc = (a: MailLoc, b: MailLoc | null) =>
   a.focusId === b.focusId;
 
 function useRouteMailLoc(): MailLoc | null {
-  const message = useMatch({ from: "/mail/$mailbox/$label/$messageId", shouldThrow: false });
-  const list = useMatch({ from: "/mail/$mailbox/$label", shouldThrow: false });
+  const mailboxMessage = useMatch({
+    from: "/mail/mail/$mailbox/$label/$messageId",
+    shouldThrow: false,
+  });
+  const spaceItem = useMatch({ from: "/mail/$space/$label/$messageId", shouldThrow: false });
+  const mailboxList = useMatch({ from: "/mail/mail/$mailbox/$label", shouldThrow: false });
+  const spaceList = useMatch({ from: "/mail/$space/$label", shouldThrow: false });
+  const message = mailboxMessage ?? spaceItem;
+  const list = mailboxList ?? spaceList;
   if (message) {
     const { mailbox, label, messageId } = message.params;
     const { account, message: focusId } = message.search;
@@ -224,6 +227,7 @@ function useStoredWidth(
   dir: 1 | -1 = 1,
   room?: () => number,
   cssVar?: string,
+  onDrag?: (width: number | null) => void,
 ) {
   const [width, setWidth] = useState(() => {
     const saved = Number(localStorage.getItem(key));
@@ -262,6 +266,7 @@ function useStoredWidth(
       if (paneRef.current) paneRef.current.style.width = `${latest}px`;
       if (frameRef.current) frameRef.current.style.width = `${latest}px`;
       if (cssVar) document.documentElement.style.setProperty(cssVar, `${latest}px`);
+      onDrag?.(latest);
     };
     const move = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
@@ -292,6 +297,7 @@ function useStoredWidth(
       apply();
       widthRef.current = latest;
       setWidth(latest);
+      onDrag?.(null);
       localStorage.setItem(key, String(latest));
     };
     const up = (ev: PointerEvent) => {
@@ -314,6 +320,8 @@ function useStoredWidth(
 
   return { width: shown, start, widen, paneRef, frameRef };
 }
+
+type PaneWidths = { sidebar: number; list: number; browser: number };
 
 function PaneResizer({ onPointerDown }: { onPointerDown: (e: ReactPointerEvent) => void }) {
   return (
@@ -378,7 +386,9 @@ function MailHome() {
   const selectedLabelId = mailLoc?.label ?? "INBOX";
   // A workspace's item (a document) is its own, never a message the mail would load.
   const inWorkspace = workspaceOf(selectedAccountId) !== undefined;
-  const selectedMessageId = inWorkspace ? null : (mailLoc?.messageId ?? null);
+  // Agents' only item is a scheduled task (/agents/scheduled/<task>), never a message.
+  const selectedMessageId =
+    inWorkspace || selectedAccountId === CHATS_SPACE ? null : (mailLoc?.messageId ?? null);
   const workspaceItem = inWorkspace ? (mailLoc?.messageId ?? null) : null;
   const readerAccountId = mailLoc?.account ?? null;
   const focusedMessageId = mailLoc?.focusId ?? null;
@@ -445,42 +455,19 @@ function MailHome() {
         if (closeBrowserTabRef.current?.()) return;
         if (closeWorkspaceTabRef.current?.()) return;
         if (closeChatWindowRef.current()) return;
-        if (features.windowTabs) {
-          const { tabs, activeId } = useWindowTabs.getState();
-          const next = tabs.length > 1 ? closeWindowTab(activeId) : null;
-          if (next) {
-            void router.navigate({ href: next, replace: true });
-            return;
-          }
-        }
         void mailApi.closeMainWindow();
       }),
-    [router],
+    [],
   );
 
   const go = (to: Partial<MailLoc>, replace = false) => {
     if (!mailLoc) return;
     const next = { ...mailLoc, ...to };
-    const params = { mailbox: next.mailbox, label: next.label };
-    const resetScroll =
-      !floatingLayout ||
-      !!settingsRoute ||
-      next.mailbox !== mailLoc.mailbox ||
-      next.label !== mailLoc.label;
-    if (!next.messageId) {
-      void navigate({ to: "/$mailbox/$label", params, replace, resetScroll });
-      return;
-    }
-    void navigate({
-      to: "/$mailbox/$label/$messageId",
-      params: { ...params, messageId: next.messageId },
-      search: {
-        account: next.account && next.account !== next.mailbox ? next.account : undefined,
-        message: next.focusId ?? undefined,
-      },
-      replace,
-      resetScroll,
+    const href = hrefOf(next.mailbox, next.label, next.messageId, {
+      account: next.account && next.account !== next.mailbox ? next.account : undefined,
+      message: next.focusId ?? undefined,
     });
+    void navigate({ href, replace });
   };
   const closeMessage = () => go({ messageId: null });
   const correct = (to: Partial<MailLoc>) => {
@@ -522,13 +509,9 @@ function MailHome() {
   const isCalendar = space?.kind === "calendar";
   const workspace = space?.kind === "workspace" ? workspaceOf(space.id) : undefined;
   // Turning one off re-reads where we are (spaceOf drops it).
-  useWorkspaces();
+  const workspaces = useWorkspaces();
   const ownsMain = isChats || isCalendar || workspace !== undefined;
-  const mailLayout = useMailLayout();
-  const fullInbox = mailLayout === "full" && !ownsMain;
-  const floatingLayout = mailLayout === "floating" && !ownsMain;
-  const wideInbox = fullInbox || floatingLayout;
-  const [mailWorkspace, setMailWorkspace] = useState<HTMLDivElement | null>(null);
+  const mailLayoutSetting = useMailLayout();
   const viewSpace = space?.kind === "view" ? space.view : null;
   const spansMailboxes = spanning(space);
 
@@ -538,18 +521,12 @@ function MailHome() {
   useExternalMailChanges();
   useBrowserEvents();
   useEffect(() => {
-    const unwatch = watchNewTabClicks();
+    const unwatch = watchNewWindowClicks();
     const unblock = router.history.block({
       blockerFn: ({ nextLocation }) => {
-        const click = takeNewTabClick();
-        if (!click) return false;
-        const { href } = nextLocation;
-        if (!features.windowTabs) {
-          window.open(href, "_blank", "noopener");
-          return true;
-        }
-        addTab(href, { background: !click.show, title: click.title, icon: iconForHref(href) });
-        return !click.show;
+        if (!takeNewWindowClick()) return false;
+        void mailApi.openWindow(nextLocation.href);
+        return true;
       },
       enableBeforeUnload: false,
     });
@@ -560,6 +537,11 @@ function MailHome() {
   }, [router]);
   useChatEvents();
 
+  // Panes resize outside React while dragged; this re-renders only when Auto's choice flips.
+  const [dragSplit, setDragSplit] = useState<boolean | null>(null);
+  const splitFitsRef = useRef<(dragged: Partial<PaneWidths>) => boolean>(() => true);
+  const dragAutoLayout = (pane: keyof PaneWidths, width: number | null) =>
+    setDragSplit(width === null ? null : splitFitsRef.current({ [pane]: width }));
   const {
     width: sidebarWidth,
     start: sidebarStart,
@@ -573,12 +555,15 @@ function MailHome() {
     1,
     undefined,
     "--workspace-sidebar-width",
+    (width) => dragAutoLayout("sidebar", width),
   );
   const {
     width: listWidth,
     start: listStart,
     paneRef: listPaneRef,
-  } = useStoredWidth("gmail:pane:list", 380, 280, 640);
+  } = useStoredWidth("gmail:pane:list", 380, 280, 640, 1, undefined, undefined, (width) =>
+    dragAutoLayout("list", width),
+  );
   const [browserOpen, setBrowserOpen] = useState(
     () => features.browser && localStorage.getItem("gmail:browser-open") === "1",
   );
@@ -596,7 +581,7 @@ function MailHome() {
     window.innerWidth -
     FRAME_INSET -
     (sidebarOpen ? sidebarWidth : 0) -
-    (wideInbox ? 0 : listWidth) -
+    (mailLayoutSetting === "full" ? 0 : listWidth) -
     READER_MIN_WIDTH;
   const {
     width: browserWidth,
@@ -604,10 +589,31 @@ function MailHome() {
     widen: widenBrowser,
     paneRef: browserPaneRef,
     frameRef: browserFrameRef,
-  } = useStoredWidth("gmail:pane:browser", 340, 280, 1200, -1, browserRoom);
+  } = useStoredWidth("gmail:pane:browser", 340, 280, 1200, -1, browserRoom, undefined, (width) =>
+    dragAutoLayout("browser", width),
+  );
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings(settingsRoute ? "settings" : "mail");
   const browserVisible = browserOpen && !settingsRoute && !isChats;
+  const windowWidth = useSyncExternalStore(onWindowResize, () => window.innerWidth);
+  const splitFits = ({ sidebar, list, browser }: PaneWidths) =>
+    windowWidth -
+      FRAME_INSET -
+      (sidebarOpen ? sidebar : 0) -
+      list -
+      (browserVisible ? browser : 0) >=
+    AUTO_SPLIT_READER_WIDTH;
+  const paneWidths = { sidebar: sidebarWidth, list: listWidth, browser: browserWidth };
+  useLayoutEffect(() => {
+    splitFitsRef.current = (dragged) => splitFits({ ...paneWidths, ...dragged });
+  });
+  const mailLayout =
+    mailLayoutSetting !== "auto"
+      ? mailLayoutSetting
+      : (dragSplit ?? splitFits(paneWidths))
+        ? "split"
+        : "full";
+  const fullInbox = mailLayout === "full" && !ownsMain;
   const sidebarPresent = usePanelPresence(
     sidebarOpen,
     panelAnimationsActive,
@@ -682,10 +688,8 @@ function MailHome() {
     setChatWindow(true);
   };
   const chatWindowShown = chatWindowOpen && !isChats && !settingsRoute;
-  const closeChat = () => {
-    undockChat(useChats.getState().activeId);
-    setChatWindow(false);
-  };
+  const chatBarShown = !isChats || settingsRoute;
+  const closeChat = () => setChatWindow(false);
   useLayoutEffect(() => {
     closeChatWindowRef.current = () => {
       if (!chatWindowShown) return false;
@@ -709,9 +713,8 @@ function MailHome() {
       openChat();
     }
   };
-  const closeChatTab = (id: string) => {
+  const chatShelved = (id: string) => {
     if (chatWindowShown && activeChatId === id) closeChat();
-    else undockChat(id);
   };
 
   const mailBeforeChats = useRef<MailLoc | null>(null);
@@ -780,7 +783,7 @@ function MailHome() {
   const chatsLabel = isChats ? selectedLabelId : null;
   useEffect(() => {
     if (chatsLabel === NEW_CHAT) showNewChat.current();
-    else if (chatsLabel) showChat(chatsLabel);
+    else if (chatsLabel && chatsLabel !== SCHEDULED_TASKS) showChat(chatsLabel);
   }, [chatsLabel, showNewChat]);
   const startNewChat = () => {
     if (isChats && !settingsRoute) {
@@ -962,9 +965,10 @@ function MailHome() {
     },
     "agent.newChat": () => startNewChat(),
     "mode.mail": () => switchMode("mail"),
-    "mode.calendar": () => {
-      if (calendarAccounts(accounts).length === 0) return false;
-      switchMode("calendar");
+    "mode.calendar": () => switchMode("calendar"),
+    "mode.drive": () => {
+      if (!workspaces.some((w) => w.id === "drive")) return false;
+      switchMode("workspace:drive");
     },
     "mode.agent": () => switchMode("agent"),
     "browser.toggle": () => toggleBrowser(),
@@ -1005,11 +1009,8 @@ function MailHome() {
   const goForEffect = useLatest(go);
   useEffect(() => {
     if (!onIndex || !hasMail) return;
-    const { tabs, activeId } = useWindowTabs.getState();
-    const tab = features.windowTabs ? tabs.find((t) => t.id === activeId) : undefined;
-    if (tab) void navigate({ href: tab.href, replace: true });
-    else goForEffect.current({}, true);
-  }, [onIndex, hasMail, goForEffect, navigate]);
+    goForEffect.current({}, true);
+  }, [onIndex, hasMail, goForEffect]);
 
   useEffect(() => {
     if (!initialized || !selectedAccountId) return;
@@ -1019,7 +1020,8 @@ function MailHome() {
 
   // ⌘[ / ⌘] (the menu accelerators, main.ts "Go"; a DOM keydown never
   // arrives for them because the webview consumes it) and the mouse's
-  // back/forward buttons move through the window's history. A browser does
+  // back/forward buttons (main's history-buttons.ts, which sees them in a
+  // message's iframe too) move through the window's history. A browser does
   // all of this itself.
   useEffect(() => {
     const back = () => {
@@ -1034,21 +1036,9 @@ function MailHome() {
     };
     const unsubBack = window.desktopBridge.on("nav:back", back);
     const unsubForward = window.desktopBridge.on("nav:forward", forward);
-    const mouse = (e: MouseEvent) => {
-      if (e.button === 3) {
-        e.preventDefault();
-        back();
-      } else if (e.button === 4) {
-        e.preventDefault();
-        forward();
-      }
-    };
-    const handlesMouse = window.desktopBridge.platform !== "web";
-    if (handlesMouse) window.addEventListener("mouseup", mouse);
     return () => {
       unsubBack();
       unsubForward();
-      if (handlesMouse) window.removeEventListener("mouseup", mouse);
     };
   }, [router]);
 
@@ -1356,14 +1346,12 @@ function MailHome() {
   };
 
   const openMessage = (owner: string, messageId: string, alias?: string) => {
-    // A workspace's item isn't a message: mail opens in its own mailbox. An alias mailbox lists
-    // only its own mail, so other mail leaves it.
+    // Agents', Calendar's and a workspace's items aren't messages: mail opens in its own mailbox.
+    // An alias mailbox lists only its own mail, so other mail leaves it.
     const mailbox = alias && aliases.some((a) => a.id === alias) ? alias : owner;
     const switching = alias
       ? mailbox !== space?.id
-      : (!spansMailboxes && owner !== effectiveAccountId) ||
-        workspace !== undefined ||
-        aliasSpace !== null;
+      : (!spansMailboxes && owner !== effectiveAccountId) || ownsMain || aliasSpace !== null;
     setAutoFocusDraft(true);
     go({
       ...(switching ? { mailbox, label: "INBOX" } : {}),
@@ -1438,7 +1426,7 @@ function MailHome() {
     (title: string | null) => setWorkspaceTitle(title ? { href: locationHref, title } : null),
     [locationHref],
   );
-  const place = useRecordRecentlyViewed({
+  useRecordRecentlyViewed({
     ready: initialized,
     href: locationHref,
     workspaceTitle: workspaceTitle?.href === locationHref ? workspaceTitle.title : null,
@@ -1452,39 +1440,10 @@ function MailHome() {
     aliases,
     views,
   });
-  const routed = routeLoc !== null || settingsRoute !== null || composeOpen;
-  const placeKey = place ? JSON.stringify([place.title, place.icon]) : null;
-  const placeHref = place?.href ?? null;
-  useEffect(() => {
-    if (!features.windowTabs || !initialized || !routed) return;
-    followLocation(locationHref);
-    if (!placeKey || placeHref !== locationHref) return;
-    const [title, icon] = JSON.parse(placeKey) as [string, RecentIcon];
-    nameTab(locationHref, title, icon);
-  }, [initialized, routed, locationHref, placeKey, placeHref]);
-  const showWindowTab = (href: string | null) => {
-    if (!href) return;
-    void navigate({ href, replace: true });
-  };
-  const newWindowTab = () => {
-    const mailbox =
-      space?.kind === "mailbox" || space?.kind === "alias" ? space.id : firstRealAccountId;
-    if (!mailbox) return;
-    const { href } = router.buildLocation({
-      to: "/$mailbox/$label",
-      params: { mailbox, label: "INBOX" },
-    });
-    addTab(href);
-    showWindowTab(href);
-  };
   const hasListTarget = effectiveAccountId != null && !ownsMain;
   const showMain =
-    !!settingsRoute ||
-    !wideInbox ||
-    !hasListTarget ||
-    (fullInbox && !!selectedMessageId) ||
-    composeOpen;
-  const listVisible = hasListTarget && !settingsRoute && !composeOpen && (!wideInbox || !showMain);
+    !!settingsRoute || !fullInbox || !hasListTarget || !!selectedMessageId || composeOpen;
+  const listVisible = hasListTarget && !settingsRoute && !composeOpen && (!fullInbox || !showMain);
 
   const readerOwnsBand =
     !settingsRoute && !(composeOpen && composeAccountId) && !!readerAccount && !!selectedMessageId;
@@ -1553,7 +1512,6 @@ function MailHome() {
       settingsOpen={settingsRoute !== null}
       composing={composeOpen}
       onGo={goToSpace}
-      onMoveTab={mailboxes.move}
       onMode={switchMode}
       onSelectChat={(id) => go({ label: id }, true)}
       onNewChat={startNewChat}
@@ -1563,10 +1521,6 @@ function MailHome() {
       }}
       onNewView={() => openViewEditor("new")}
       onEditView={openViewEditor}
-      onOpenPalette={() => {
-        sidebarPeek.close();
-        setPaletteOpen(true);
-      }}
       onOpenSettings={(pane = lastPaneRef.current) => openSettings({ pane })}
       searches={searchTabs
         .filter((t) => t.mailbox === searchMailbox && t.parent)
@@ -1585,30 +1539,26 @@ function MailHome() {
   );
   return (
     <>
+      <PlaceMenu />
       <div
         className="surface-grain flex h-full flex-col bg-sidebar-surface text-foreground"
         data-panel-animations={panelAnimationsActive ? "true" : "false"}
         data-mail-layout={ownsMain ? "split" : mailLayout}
         style={{ "--panel-animation-duration": `${panelAnimationDurationMs}ms` } as CSSProperties}
       >
-        {features.windowTabs ? (
-          <WindowTabsBar
-            sidebarOpen={sidebarOpen}
-            onSelect={(id) => showWindowTab(selectWindowTab(id))}
-            onClose={(id) => showWindowTab(closeWindowTab(id))}
-            onShow={showWindowTab}
-            onNew={newWindowTab}
-          />
-        ) : null}
         <div className="flex min-h-0 flex-1">
           {/* The frame's width round the cards (the right edge is the last
               card's own gap), so they float with every corner rounded. */}
-          <div className="relative isolate flex min-w-0 flex-1 pb-8 pl-1">
-            <div
-              ref={setMailWorkspace}
-              data-mail-workspace=""
-              className="relative flex min-h-0 min-w-0 flex-1"
-            >
+          <div
+            className={cn(
+              "relative isolate flex min-w-0 flex-1 pl-1",
+              chatBarShown ? "pb-8" : "pb-(--workspace-frame-inset)",
+            )}
+          >
+            {/* Inside the frame's stacking: what floats over a page (the agent's window, resize
+                handles, the cards' edges) stays over it. */}
+            {features.browser ? <PageHost /> : null}
+            <div data-mail-workspace="" className="relative flex min-h-0 min-w-0 flex-1">
               {peeking ? (
                 <SidebarPeekCard width={sidebarWidth} onHover={sidebarPeek.hover}>
                   {sidebar}
@@ -1631,7 +1581,7 @@ function MailHome() {
                     style={{ width: sidebarOpen ? sidebarWidth : 0 }}
                     className={cn(
                       PANE_FRAME,
-                      "-mb-8",
+                      chatBarShown ? "-mb-8" : "-mb-(--workspace-frame-inset)",
                       sidebarOpen && "[[data-panel-animations=true]_&]:starting:w-0!",
                       !sidebarOpen && "pointer-events-none",
                     )}
@@ -1653,10 +1603,8 @@ function MailHome() {
                         </>
                       ) : (
                         <>
-                          {/* The traffic lights and the pinned toggle sit over its band (or the tabs' row). */}
-                          {features.windowTabs ? null : (
-                            <div className="drag-region h-(--workspace-topbar-height) shrink-0" />
-                          )}
+                          {/* The traffic lights and the pinned toggle sit over its band. */}
+                          <div className="drag-region h-(--workspace-topbar-height) shrink-0" />
                           {sidebar}
                         </>
                       )}
@@ -1672,9 +1620,9 @@ function MailHome() {
                     scroll position, selection and next-message shortcuts stay. */}
                     <div
                       ref={listPaneRef}
-                      style={{ width: wideInbox ? undefined : listWidth }}
+                      style={{ width: fullInbox ? undefined : listWidth }}
                       className={cn(
-                        wideInbox ? `${PANE_LIST} min-w-0 flex-1` : `${PANE_LIST} shrink-0`,
+                        fullInbox ? `${PANE_LIST} min-w-0 flex-1` : `${PANE_LIST} shrink-0`,
                         !listVisible && "invisible absolute inset-0",
                       )}
                       inert={!listVisible}
@@ -1682,22 +1630,7 @@ function MailHome() {
                     >
                       <MessageList
                         headerLeading={sidebarOpen ? null : titlebarInset}
-                        headerTrailing={wideInbox ? titleTrailing : undefined}
-                        renderFloatingReader={
-                          floatingLayout && !composeOpen
-                            ? (navigation, title) => (
-                                <FloatingReader
-                                  container={mailWorkspace}
-                                  messageId={selectedMessageId ?? ""}
-                                  title={title}
-                                  navigation={navigation}
-                                  onClose={closeMessage}
-                                >
-                                  {renderReader(null, null)}
-                                </FloatingReader>
-                              )
-                            : undefined
-                        }
+                        headerTrailing={fullInbox ? titleTrailing : undefined}
                         accountId={(spansMailboxes ? firstRealAccountId : effectiveAccountId) ?? ""}
                         alias={aliasSpace?.id}
                         labelId={selectedLabelId}
@@ -1737,7 +1670,7 @@ function MailHome() {
                         }
                       />
                     </div>
-                    {wideInbox ? null : <PaneResizer onPointerDown={listStart} />}
+                    {fullInbox ? null : <PaneResizer onPointerDown={listStart} />}
                   </>
                 ) : null}
                 <div
@@ -1783,7 +1716,15 @@ function MailHome() {
                         onMode={(mode) => go({ label: mode }, true)}
                       />
                     ) : isChats ? (
-                      selectedLabelId !== NEW_CHAT ? (
+                      selectedLabelId === SCHEDULED_TASKS ? (
+                        <ScheduledTasksView
+                          taskKey={mailLoc?.messageId ?? null}
+                          onOpenTask={(key) => go({ messageId: key })}
+                          titleLeading={sidebarOpen ? null : titlebarInset}
+                          titleTrailing={titleTrailing}
+                          onSelectChat={(id) => go({ label: id }, true)}
+                        />
+                      ) : selectedLabelId !== NEW_CHAT ? (
                         <ChatWorkspace
                           key={selectedLabelId}
                           chatId={selectedLabelId}
@@ -1795,6 +1736,7 @@ function MailHome() {
                           onPanelOpen={setChatPanelOpen}
                           onNavigate={openChatChange}
                           onSelectChat={(id) => go({ label: id }, true)}
+                          onOpenTask={(key) => go({ label: SCHEDULED_TASKS, messageId: key })}
                         />
                       ) : null
                     ) : readerAccount ? (
@@ -1843,33 +1785,41 @@ function MailHome() {
                 onClearQuote={() => setPendingQuote(null)}
                 onOpenChange={openChatChange}
                 onOpenWorkspace={openWorkspace}
+                onOpenTask={(key) => {
+                  setChatWindow(false);
+                  go({
+                    mailbox: CHATS_SPACE,
+                    label: SCHEDULED_TASKS,
+                    messageId: key,
+                    account: null,
+                    focusId: null,
+                  });
+                }}
                 onMinimize={() => setChatWindow(false)}
-                onClose={closeChat}
+                onShelve={closeChat}
                 inputRef={chatInputRef}
               />
             ) : null}
-            {/* The bottom bar: under the cards, right of the sidebar, which runs on down beside it. */}
-            <div
-              className="absolute bottom-0 right-0 z-40"
-              style={{
-                left: sidebarOpen
-                  ? "calc(var(--workspace-sidebar-width) + var(--workspace-frame-inset))"
-                  : 0,
-              }}
-            >
-              <ChatBar
-                shownId={
-                  isChats && !settingsRoute
-                    ? selectedLabelId
-                    : chatWindowShown
-                      ? activeChatId
-                      : null
-                }
-                onSelect={selectChat}
-                onCloseTab={closeChatTab}
-                onNewChat={startNewChat}
-              />
-            </div>
+            {/* The bottom bar: under the cards, right of the sidebar, which runs on down beside it.
+                The Agent space has none: its sidebar is the list of chats. */}
+            {chatBarShown ? (
+              <div
+                className="absolute bottom-0 right-0 z-40"
+                style={{
+                  left: sidebarOpen
+                    ? "calc(var(--workspace-sidebar-width) + var(--workspace-frame-inset))"
+                    : 0,
+                }}
+              >
+                <ChatBar
+                  shownId={chatWindowShown ? activeChatId : null}
+                  onSelect={selectChat}
+                  onShelve={chatShelved}
+                  onNewChat={startNewChat}
+                  onOpenAgents={() => switchMode("agent")}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

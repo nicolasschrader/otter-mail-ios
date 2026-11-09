@@ -1,4 +1,4 @@
-import type { AgentSettings } from "@otter-mail/core/extension-kit";
+import type { AgentSettings } from "@otter/core/extension-kit";
 
 export type HermesSettings = AgentSettings & {
   baseUrl: string;
@@ -7,6 +7,8 @@ export type HermesSettings = AgentSettings & {
   reasoningEffort: string;
   serviceTier: string;
   sessions?: boolean;
+  /** Jobs whose results stay on Hermes rather than coming to Otter (comma-separated ids). */
+  mutedJobs?: string;
 };
 
 export const HERMES_DEFAULTS: HermesSettings = {

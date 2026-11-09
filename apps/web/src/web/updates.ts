@@ -1,5 +1,5 @@
-import type { DesktopBridge, UpdateChannel, UpdateState } from "@otter-mail/contracts";
-import { releaseChannel } from "@otter-mail/shared/release-channel";
+import type { DesktopBridge, UpdateChannel, UpdateState } from "@otter/contracts";
+import { releaseChannel } from "@otter/shared/release-channel";
 
 const CHECK_EVERY_MS = 30 * 60_000;
 
@@ -38,7 +38,7 @@ async function check(): Promise<UpdateState> {
           message: null,
         });
   } catch {
-    return set({ status: "error", message: "Couldn't reach mail.otterware.app." });
+    return set({ status: "error", message: "Couldn't reach otter.otterware.app." });
   }
 }
 

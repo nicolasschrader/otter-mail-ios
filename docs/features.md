@@ -41,58 +41,57 @@ from GitHub Releases. Everything in the Mac column works the same, except:
 
 ## Mailboxes & accounts
 
-Settings › Connections lists every account you've connected and what each gives Otter Mail:
+Settings › Connections lists every account you've connected and what each gives Otter:
 Google and Microsoft (Mail · Calendar), IMAP (Mail), then other services (Todoist: Tasks). Add
 account offers each kind.
 
-| Feature                                                                                                     | Mac                | Web                                 | iPhone                  |
-| ----------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------- | ----------------------- |
-| Add a Gmail mailbox (Google sign-in)                                                                        | ✓ (loopback OAuth) | ✓ (popup; tokens kept by the relay) | ✓ (PKCE)                |
-| Add an IMAP mailbox, servers discovered                                                                     | ✓                  | ✓ (no domain autoconfig file: CORS) | ✓                       |
-| Add an Outlook mailbox (Microsoft sign-in)                                                                  | ✓ (loopback OAuth) | ✓ (popup; tokens kept by the relay) | ✓ (PKCE)                |
-| Provider icons in mailbox settings (Gmail, Outlook, iCloud, IMAP)                                           | ✓                  | ✓                                   | ✓ (iCloud's: IMAP's)    |
-| IMAP through the relay tunnel                                                                               | — (direct)         | ✓ (TLS 1.3 servers only)            | — (direct)              |
-| Several mailboxes: on/off, reorder (drag the sidebar's tabs; alias mailboxes anywhere)                      | ✓                  | ✓                                   | ✓ (aliases by parent)   |
-| One sidebar: mailbox tabs, Search or ask (⌘K)                                                               | ✓                  | ✓                                   | — (bar menu)            |
-| Modes at the sidebar's foot: Mail, Calendar, Agent (G M, G C, G A); each its own sidebar, back where it was | ✓                  | ✓                                   | —                       |
-| ⌘-click a place (folder, conversation, chat, mode, Settings): a new tab behind; ⌘⇧ shows it                 | ✓ (window tab)     | ✓ (browser tab)                     | —                       |
-| Window tabs (Linear's): mail, chats and Settings, ⌘W closes; drag one out for a window of its own           | ✓                  | — (the browser's tabs)              | —                       |
-| Sidebar: each mailbox opens to its folders and labels; views                                                | ✓                  | ✓                                   | — (bar menu)            |
-| Sidebar hidden: hover the window's edge to peek                                                             | ✓                  | ✓                                   | —                       |
-| Rename and color a mailbox (synced)                                                                         | ✓                  | ✓                                   | ✓                       |
-| Own mailbox for a Send from address (IMAP): a tab, filtered folders, name, color, signature; synced         | ✓                  | ✓                                   | ✓ (made on Mac, web)    |
-| A message Bcc'd to two of your addresses: a copy in each alias mailbox, shown once elsewhere                | ✓                  | ✓                                   | ✓                       |
-| The parent without its alias mailboxes' mail (a switch; synced)                                             | ✓                  | ✓                                   | —                       |
-| Google profile picture per mailbox                                                                          | ✓ (kept current)   | ✓ (kept current)                    | —                       |
-| Your own picture for a mailbox (Settings › Connections; synced, over Google's)                              | ✓                  | ✓                                   | shown                   |
-| Your own picture for an alias mailbox (its settings; synced with its parent)                                | ✓                  | ✓                                   | shown                   |
-| Remove a mailbox (unlinks it everywhere)                                                                    | ✓                  | ✓                                   | ✓                       |
-| Mailbox linked elsewhere shows "signed out"                                                                 | ✓                  | ✓                                   | ✓                       |
-| Sync health at the foot of the sidebar, Sync now                                                            | ✓                  | ✓                                   | ✓ (tap to sync)         |
-| Refused sign-in: toast and card to sign in again                                                            | ✓                  | ✓                                   | ✓ (banner on the list)  |
-| Missing permission (calendar, Gmail signatures): "Needs permission", Settings › Access, an Allow button     | ✓                  | ✓                                   | —                       |
-| Demo mailbox                                                                                                | —                  | `pnpm dev:fake` only                | TestFlight / Xcode only |
+| Feature                                                                                                                                                  | Mac                | Web                                 | iPhone                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ----------------------------------- | ----------------------- |
+| Add a Gmail mailbox (Google sign-in)                                                                                                                     | ✓ (loopback OAuth) | ✓ (popup; tokens kept by the relay) | ✓ (PKCE)                |
+| Add an IMAP mailbox, servers discovered                                                                                                                  | ✓                  | ✓ (no domain autoconfig file: CORS) | ✓                       |
+| Add an Outlook mailbox (Microsoft sign-in)                                                                                                               | ✓ (loopback OAuth) | ✓ (popup; tokens kept by the relay) | ✓ (PKCE)                |
+| Provider icons in mailbox settings (Gmail, Outlook, iCloud, IMAP)                                                                                        | ✓                  | ✓                                   | ✓ (iCloud's: IMAP's)    |
+| IMAP through the relay tunnel                                                                                                                            | — (direct)         | ✓ (TLS 1.3 servers only)            | — (direct)              |
+| Several mailboxes: on/off, reorder (drag the sidebar's tabs; alias mailboxes anywhere)                                                                   | ✓                  | ✓                                   | ✓ (aliases by parent)   |
+| One sidebar: mailbox tabs                                                                                                                                | ✓                  | ✓                                   | — (bar menu)            |
+| Modes at the sidebar's foot: Mail, Calendar, Drive, Agent (G M, G C, G D, G A); each its own sidebar, back where it was; drag to reorder (this computer) | ✓                  | ✓                                   | —                       |
+| ⌘-click a place (folder, conversation, chat, mode, Settings), or right-click → Open in New Window: a new window                                          | ✓                  | ✓ (browser window)                  | —                       |
+| Sidebar: each mailbox opens to its folders and labels; views                                                                                             | ✓                  | ✓                                   | — (bar menu)            |
+| Sidebar hidden: hover the window's edge to peek                                                                                                          | ✓                  | ✓                                   | —                       |
+| Rename and color a mailbox (synced)                                                                                                                      | ✓                  | ✓                                   | ✓                       |
+| Own mailbox for a Send from address (IMAP): a tab, filtered folders, name, color, signature; synced                                                      | ✓                  | ✓                                   | ✓ (made on Mac, web)    |
+| A message Bcc'd to two of your addresses: a copy in each alias mailbox, shown once elsewhere                                                             | ✓                  | ✓                                   | ✓                       |
+| The parent without its alias mailboxes' mail (a switch; synced)                                                                                          | ✓                  | ✓                                   | —                       |
+| Google profile picture per mailbox                                                                                                                       | ✓ (kept current)   | ✓ (kept current)                    | —                       |
+| Your own picture for a mailbox (Settings › Connections; synced, over Google's)                                                                           | ✓                  | ✓                                   | shown                   |
+| Your own picture for an alias mailbox (its settings; synced with its parent)                                                                             | ✓                  | ✓                                   | shown                   |
+| Remove a mailbox (unlinks it everywhere)                                                                                                                 | ✓                  | ✓                                   | ✓                       |
+| Mailbox linked elsewhere shows "signed out"                                                                                                              | ✓                  | ✓                                   | ✓                       |
+| Sync health at the foot of the sidebar, Sync now                                                                                                         | ✓                  | ✓                                   | ✓ (tap to sync)         |
+| Refused sign-in: toast and card to sign in again                                                                                                         | ✓                  | ✓                                   | ✓ (banner on the list)  |
+| Missing permission (calendar, Gmail signatures): "Needs permission", Settings › Access, an Allow button                                                  | ✓                  | ✓                                   | —                       |
+| Demo mailbox                                                                                                                                             | —                  | `pnpm dev:fake` only                | TestFlight / Xcode only |
 
 ## Reading
 
-| Feature                                                                                | Mac                                                                 | Web                                                                 | iPhone                                                              |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Conversations, earlier messages collapsed                                              | ✓                                                                   | ✓                                                                   | ✓                                                                   |
-| A link for each mailbox, conversation and Settings page; Back / Forward                | ✓ (⌘[ ⌘], mouse buttons)                                            | ✓ (the browser's; a reload keeps your place)                        | —                                                                   |
-| HTML mail, inline (cid) images                                                         | ✓                                                                   | ✓                                                                   | ✓                                                                   |
-| Remote images                                                                          | load; broken ones proxied by backend                                | load; proxy only where CORS lets                                    | load                                                                |
-| Remote-image blocking                                                                  | —                                                                   | —                                                                   | —                                                                   |
-| Select and copy message text: a word, a sentence, any range                            | ✓                                                                   | ✓                                                                   | ✓                                                                   |
-| Phone numbers in a message: click for Call, Send Message, Copy                         | ✓ (Linux: Copy)                                                     | ✓ (Call and Message on a Mac)                                       | ✓ (the system's: tap to call, hold for more)                        |
-| Quoted text collapsed                                                                  | ✓ (HTML and plain text)                                             | ✓                                                                   | plain text only                                                     |
-| Attachments                                                                            | preview in app, save, open in default app, drag out to Finder       | preview in app, save                                                | Quick Look, save / share                                            |
-| Unsubscribe (one-click, web, mailto)                                                   | ✓                                                                   | ✓                                                                   | ✓                                                                   |
-| Conversation summary (people, files, list)                                             | ✓                                                                   | ✓                                                                   | —                                                                   |
-| Sender hover card (write, search, ask)                                                 | ✓                                                                   | ✓                                                                   | —                                                                   |
-| Sign-in code card (the code a verification email carries; Copy & trash)                | ✓                                                                   | ✓                                                                   | Copy; in the reader, Catch up and the list                          |
-| Gmail category chips                                                                   | Gmail                                                               | Gmail                                                               | —                                                                   |
-| Folders: Inbox, Starred or Flagged, Sent, Drafts, Important, All, Archive, Junk, Trash | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive) | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive) | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive) |
-| Print, show original                                                                   | —                                                                   | —                                                                   | —                                                                   |
+| Feature                                                                                | Mac                                                                      | Web                                                                 | iPhone                                                              |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Conversations, earlier messages collapsed                                              | ✓                                                                        | ✓                                                                   | ✓                                                                   |
+| A link for each mailbox, conversation and Settings page; Back / Forward                | ✓ (⌘[ ⌘], mouse buttons, Logi Options+'s swipes)                         | ✓ (the browser's; a reload keeps your place)                        | —                                                                   |
+| HTML mail, inline (cid) images                                                         | ✓                                                                        | ✓                                                                   | ✓                                                                   |
+| Remote images                                                                          | load; broken ones proxied by backend                                     | load; proxy only where CORS lets                                    | load                                                                |
+| Remote-image blocking                                                                  | —                                                                        | —                                                                   | —                                                                   |
+| Select and copy message text: a word, a sentence, any range                            | ✓                                                                        | ✓                                                                   | ✓                                                                   |
+| Phone numbers in a message: click for Call, Send Message, Copy                         | ✓ (Linux: Copy)                                                          | ✓ (Call and Message on a Mac)                                       | ✓ (the system's: tap to call, hold for more)                        |
+| Quoted text collapsed                                                                  | ✓ (HTML and plain text)                                                  | ✓                                                                   | plain text only                                                     |
+| Attachments                                                                            | preview in app (⌘F finds), save, open in default app, drag out to Finder | preview in app (⌘F finds), save                                     | Quick Look, save / share                                            |
+| Unsubscribe (one-click, web, mailto)                                                   | ✓                                                                        | ✓                                                                   | ✓                                                                   |
+| Conversation summary (people, files, list)                                             | ✓                                                                        | ✓                                                                   | —                                                                   |
+| Sender hover card (write, search, ask)                                                 | ✓                                                                        | ✓                                                                   | —                                                                   |
+| Sign-in code card (the code a verification email carries; Copy & trash)                | ✓                                                                        | ✓                                                                   | Copy; in the reader, Catch up and the list                          |
+| Gmail category chips                                                                   | Gmail                                                                    | Gmail                                                               | —                                                                   |
+| Folders: Inbox, Starred or Flagged, Sent, Drafts, Important, All, Archive, Junk, Trash | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive)      | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive) | ✓ (Gmail: Starred, Important, All; Outlook, IMAP: Flagged, Archive) |
+| Print, show original                                                                   | —                                                                        | —                                                                   | —                                                                   |
 
 ## Organizing
 
@@ -121,7 +120,7 @@ its folder. Deleting an Outlook folder moves it and its mail to Deleted Items.
 
 ## Extensions
 
-Sign-in codes, Calendar invites, Translation, Todoist, Otter Drive and the agents (the Otter Mail agent, Hermes,
+Sign-in codes, Calendar invites, Translation, Todoist, Otter Drive and the agents (the Otter agent, Hermes,
 OpenClaw, Claude, Codex) are built-in extensions (`extensions/`). Settings lists them by kind,
 under "Extensions": Agents (with chat's own settings above them), Integrations (hidden while it has
 none) and Features, each row with its switch; a service you sign in to (Todoist, Otter Drive) is a connection,
@@ -151,7 +150,7 @@ support search, today, overdue, 7 days, priorities and labels with `&` / `|`.
 | Labels, project sections, shared-project assignees                | ✓            | ✓   | —      |
 | Edit tasks, move projects/sections, reschedule or clear due dates | ✓            | ✓   | —      |
 | Add/remove timed reminders from the task editor                   | ✓            | ✓   | —      |
-| Clickable link back to the email in Otter Mail                    | ✓ (web link) | ✓   | —      |
+| Clickable link back to the email in Otter                         | ✓ (web link) | ✓   | —      |
 | Browse active tasks by project, load more, refresh                | ✓            | ✓   | —      |
 | Today & overdue, Upcoming (7 days), search and Todoist filters    | ✓            | ✓   | —      |
 | Complete tasks (recurring tasks advance to their next occurrence) | ✓            | ✓   | —      |
@@ -206,7 +205,7 @@ it, replaces its keys, chooses where new uploads go, disconnects it), transferri
 and deleting it once empty. New shared drive… makes one; Agents shows the otterdrive CLI's setup and
 your API keys (create, copy once, revoke). "Save to Otter Drive…" in a message's menu saves an
 attachment, or the email as a page, into the drive you pick. The sign-in and the switches stay on
-this device (this browser, on the web: Drive's API answers mail.otterware.app with a token, never
+this device (this browser, on the web: Drive's API answers otter.otterware.app with a token, never
 cookies).
 
 | Feature                                             | Mac | Web | iPhone |
@@ -234,22 +233,24 @@ them, transcripts included (step outputs clipped, image thumbnails left on the d
 them); without an Otter account they stay on the device. Claude and Codex run on one Mac: their
 chats read the same everywhere and continue on that Mac.
 
-| Feature                                                                 | Mac                 | Web                  | iPhone                                     |
-| ----------------------------------------------------------------------- | ------------------- | -------------------- | ------------------------------------------ |
-| Small window over the mail (⌘I), the mail on screen as its context      | ✓                   | ✓                    | — (a sheet)                                |
-| Bottom bar: minimized chats as tabs (working, waiting, finished), Agent | ✓                   | ✓                    | —                                          |
-| Chat history from the bottom bar                                        | ✓                   | ✓                    | the Agent tab (chats: swipe from the left) |
-| AI workspace (Agent in the sidebar): recent chats, the chat, its tabs   | ✓                   | ✓                    | the Agent tab                              |
-| Chats sorted like Otter Code's: Snoozed, Settled (synced)               | ✓                   | ✓                    | —                                          |
-| Open the small window's chat in the workspace (⌘⇧F, and back)           | ✓                   | ✓                    | —                                          |
-| Tabs: conversations and drafts it was given, read or made; files        | ✓                   | ✓                    | —                                          |
-| Tabs: pages it read, events it made, links clicked in it                | ✓                   | — (links: a new tab) | —                                          |
-| The tab showing is the next message's context                           | ✓                   | ✓                    | —                                          |
-| Tabs: reorder by dragging, Control + Tab for the last one, × closes     | ✓                   | ✓                    | —                                          |
-| Synced through the Otter account: chats, transcripts, tabs              | ✓ (offline: queued) | ✓                    | ✓ (no tabs)                                |
-| Claude and Codex chats: read everywhere, continued on their Mac         | ✓                   | ✓ (read)             | ✓ (read)                                   |
-| Another agent's chat (Hermes, OpenClaw, OpenRouter): continued          | ✓                   | ✓                    | ✓ (that agent picked)                      |
-| ⌘K: go to a chat, new chat; Recently viewed                             | ✓                   | ✓                    | —                                          |
+| Feature                                                                                         | Mac                 | Web                  | iPhone                                     |
+| ----------------------------------------------------------------------------------------------- | ------------------- | -------------------- | ------------------------------------------ |
+| Small window over the mail (⌘I), the mail on screen as its context                              | ✓                   | ✓                    | — (a sheet)                                |
+| Bottom bar: minimized chats as tabs (working, waiting, finished), Agent                         | ✓                   | ✓                    | —                                          |
+| Chat history from the bottom bar                                                                | ✓                   | ✓                    | the Agent tab (chats: swipe from the left) |
+| AI workspace (Agent in the sidebar): recent chats, the chat, its tabs                           | ✓                   | ✓                    | the Agent tab                              |
+| Chats sorted like Otter Code's: Snoozed, Settled (synced)                                       | ✓                   | ✓                    | —                                          |
+| Open the small window's chat in the workspace (⌘⇧F, and back)                                   | ✓                   | ✓                    | —                                          |
+| Tabs: conversations and drafts it was given, read or made; files                                | ✓                   | ✓                    | —                                          |
+| Tabs: pages it read, events it made, links clicked in it                                        | ✓                   | — (links: a new tab) | —                                          |
+| The tab showing is the next message's context                                                   | ✓                   | ✓                    | —                                          |
+| Tabs: reorder by dragging, Control + Tab for the last one, × closes                             | ✓                   | ✓                    | —                                          |
+| Chat details (also in the small window): agent, session, Scheduled tasks, what it made and read | ✓                   | ✓                    | —                                          |
+| Chat details beside the chat when there's room, else a popover; ⌘F finds in the chat            | ✓                   | ✓                    | —                                          |
+| Synced through the Otter account: chats, transcripts, tabs                                      | ✓ (offline: queued) | ✓                    | ✓ (no tabs)                                |
+| Claude and Codex chats: read everywhere, continued on their Mac                                 | ✓                   | ✓ (read)             | ✓ (read)                                   |
+| Another agent's chat (Hermes, OpenClaw, OpenRouter): continued                                  | ✓                   | ✓                    | ✓ (that agent picked)                      |
+| ⌘K: go to a chat, new chat; Recently viewed                                                     | ✓                   | ✓                    | —                                          |
 
 ## Composing & sending
 
@@ -282,12 +283,12 @@ Snooze is available in the reader toolbar and a conversation's right-click menu.
 pending actions: cancel a send to restore its
 contents to Drafts, or return a snoozed conversation to Inbox early. A failed or interrupted
 send stays there for review; check Sent before sending again, since delivery may be uncertain.
-So does a send from the composer whose answer never came and that Otter Mail couldn't find in
+So does a send from the composer whose answer never came and that Otter couldn't find in
 Sent ("May have been sent — check Sent before sending again."); its draft stays, and cancelling
 restores nothing twice. On Mac and web, Send sends the composer's saved draft itself (Gmail's
 drafts.send, Outlook's draft, IMAP then deleting its versions), so no draft is left beside the
 sent mail; an Outlook scheduled send is that draft, held by Outlook.
-These are Otter Mail actions, separate from Gmail's own scheduled and snoozed folders.
+These are Otter actions, separate from Gmail's own scheduled and snoozed folders.
 
 ## Search
 
@@ -347,7 +348,7 @@ its own; Settings is in each section's ⋯.
 | Delete an event (Delete key or the panel)                                                                                                                                         | ✓   | ✓   | ✓ (the editor) |
 | Scroll sideways day by day; ‹ › and Today glide; any day can lead the week                                                                                                        | ✓   | ✓   | —      |
 | Teammates' calendars over yours (⌘P to add, Esc to clear): Outlook with titles they share, Gmail busy times                                                                       | ✓   | ✓   | —      |
-| Keys: T today, D / W / M view, J / K or ← → to step                                                                                                                               | ✓   | ✓   | —      |
+| Keys: ← → to step                                                                                                                                                                 | ✓   | ✓   | —      |
 | Settings → Calendar (follows your Otter account): start of week, weekends, declined events, 12 / 24-hour, a meeting on new events by mailbox                                      | ✓   | ✓   | Read   |
 
 ## Tasks (iPhone)
@@ -385,16 +386,17 @@ the Todoist integration above, which is a Todoist account's tasks.
 
 ## Notifications & live mail
 
-| Feature                                                    | Mac                                         | Web                     | iPhone                                                               |
-| ---------------------------------------------------------- | ------------------------------------------- | ----------------------- | -------------------------------------------------------------------- |
-| New-mail notifications (Off / Inbox / All), click opens it | ✓                                           | ✓ (browser)             | ✓ (verified APNs for connected Gmail, Outlook, IMAP; local fallback) |
-| Mail for an alias mailbox: named after it, opens there     | ✓ (copies of one message: once)             | ✓                       | ✓ (copies of one message: once)                                      |
-| Sign-in codes in notifications                             | ✓ (Copy & trash button; Linux: in the text) | in the text             | —                                                                    |
-| Gmail push via relay                                       | ✓ (with an Otter account)                   | ✓                       | ✓ (WebSocket + verified APNs)                                        |
-| Outlook push via relay (Graph subscription)                | ✓ (with an Otter account)                   | ✓                       | ✓ (WebSocket + verified APNs)                                        |
-| IMAP IDLE                                                  | ✓ (while running)                           | ✓ (while a tab is open) | while open; server watcher for connected APNs                        |
-| Background sync                                            | ✓ (15 s – 15 min, or manual)                | ✓ (while a tab is open) | BGAppRefresh, ≥ 15 min                                               |
-| Unread badge                                               | Dock                                        | tab title, app badge    | app icon                                                             |
+| Feature                                                        | Mac                                         | Web                     | iPhone                                                               |
+| -------------------------------------------------------------- | ------------------------------------------- | ----------------------- | -------------------------------------------------------------------- |
+| New-mail notifications (Off / Inbox / All), click opens it     | ✓                                           | ✓ (browser)             | ✓ (verified APNs for connected Gmail, Outlook, IMAP; local fallback) |
+| Mail for an alias mailbox: named after it, opens there         | ✓ (copies of one message: once)             | ✓                       | ✓ (copies of one message: once)                                      |
+| Sign-in codes in notifications                                 | ✓ (Copy & trash button; Linux: in the text) | in the text             | —                                                                    |
+| An agent waiting on you (approval, question), app not in front | ✓                                           | ✓ (browser)             | —                                                                    |
+| Gmail push via relay                                           | ✓ (with an Otter account)                   | ✓                       | ✓ (WebSocket + verified APNs)                                        |
+| Outlook push via relay (Graph subscription)                    | ✓ (with an Otter account)                   | ✓                       | ✓ (WebSocket + verified APNs)                                        |
+| IMAP IDLE                                                      | ✓ (while running)                           | ✓ (while a tab is open) | while open; server watcher for connected APNs                        |
+| Background sync                                                | ✓ (15 s – 15 min, or manual)                | ✓ (while a tab is open) | BGAppRefresh, ≥ 15 min                                               |
+| Unread badge                                                   | Dock                                        | tab title, app badge    | app icon                                                             |
 
 iPhone APNs alerts require a per-mailbox background-notification connection. Gmail uses a
 server metadata grant; Outlook uses a separate basic-mail grant; IMAP uses an explicitly enabled,
@@ -437,7 +439,7 @@ On iPhone, a glass bar under the list holds Threads (Catch up across every mailb
 | Unread messages on a soft background, in every mail layout                                                       | ✓   | ✓   | ✓                                                                          |
 | Keyboard navigation highlights rows; Enter opens (optional open with arrows)                                     | ✓   | ✓   | —                                                                          |
 | Configurable delay before keyboard previews are marked read (2 seconds by default); clicks mark read immediately | ✓   | ✓   | —                                                                          |
-| Mail layouts: Split view, Full inbox, Floating                                                                   | ✓   | ✓   | —                                                                          |
+| Mail layouts: Auto, Split view, Full inbox                                                                       | ✓   | ✓   | —                                                                          |
 | Floating reader: move, snap, resize, minimize, expand                                                            | ✓   | ✓   | —                                                                          |
 | Keyboard shortcuts, rebindable (incl. move to label)                                                             | ✓   | ✓   | —                                                                          |
 | Command palette (⌘K)                                                                                             | ✓   | ✓   | —                                                                          |
@@ -464,27 +466,32 @@ optional fix PRs. See [support.md](support.md); error reports, [error-reports.md
 
 ## Agents
 
-| Feature                                                   | Mac                                                                     | Web                                           | iPhone                                              |
-| --------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
-| Providers                                                 | OpenRouter, Claude, Codex, Hermes, OpenClaw                             | OpenRouter, Hermes, OpenClaw                  | OpenRouter, Hermes, OpenClaw                        |
-| Chat, models, steer / stop, tool approval, history        | ✓                                                                       | ✓                                             | ✓                                                   |
-| Select and copy chat text                                 | ✓                                                                       | ✓                                             | —                                                   |
-| Cite part of a reply, with a comment, in the next message | ✓                                                                       | ✓                                             | —                                                   |
-| Changes after each agent turn, linking to results         | ✓ (Otter Mail tools)                                                    | ✓ (OpenRouter)                                | —                                                   |
-| Turn an agent off                                         | ✓                                                                       | ✓ (each)                                      | ✓ (each; their buttons go)                          |
-| Chat about a conversation (pointers, not mail)            | ✓ (also selections, quotes)                                             | ✓                                             | ✓ (a thread)                                        |
-| Attach images and files to a chat                         | ✓                                                                       | ✓                                             | —                                                   |
-| Assistant progress messages retained in the work toggle   | ✓                                                                       | ✓                                             | —                                                   |
-| Click sent context pills to reopen a conversation         | ✓                                                                       | ✓                                             | —                                                   |
-| Preview images and files linked in agent replies          | ✓ (local Claude/Codex files, OpenClaw session files, inline/web images) | ✓ (OpenClaw session files, inline/web images) | —                                                   |
-| Queued follow-ups                                         | ✓                                                                       | ✓                                             | —                                                   |
-| Mail tools (OpenRouter; Claude, Codex on Mac)             | ✓ (every mailbox)                                                       | ✓ (OpenRouter)                                | ✓ (OpenRouter; read, search, draft, send, organize) |
-| Calendar tools (OpenRouter; Claude, Codex on Mac)         | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
-| Theme tools: make, change and wear themes                 | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
-| View tools: make, change and delete views                 | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
-| Tools for other agents on the Mac (MCP, token)            | ✓ (Claude Code, Cursor, …)                                              | —                                             | —                                                   |
+| Feature                                                                                                                                                                                                                                                        | Mac                                                                     | Web                                           | iPhone                                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------- |
+| Providers                                                                                                                                                                                                                                                      | OpenRouter, Claude, Codex, Hermes, OpenClaw                             | OpenRouter, Hermes, OpenClaw                  | OpenRouter, Hermes, OpenClaw                        |
+| Chat, models, steer / stop, tool approval, history                                                                                                                                                                                                             | ✓                                                                       | ✓                                             | ✓                                                   |
+| Select and copy chat text                                                                                                                                                                                                                                      | ✓                                                                       | ✓                                             | —                                                   |
+| Cite part of a reply or of a file it made (PDFs too), with a comment                                                                                                                                                                                           | ✓                                                                       | ✓                                             | —                                                   |
+| Changes after each agent turn, linking to results                                                                                                                                                                                                              | ✓ (Otter tools)                                                         | ✓ (OpenRouter)                                | —                                                   |
+| Turn an agent off                                                                                                                                                                                                                                              | ✓                                                                       | ✓ (each)                                      | ✓ (each; their buttons go)                          |
+| Chat about a conversation (pointers, not mail)                                                                                                                                                                                                                 | ✓ (also selections, quotes)                                             | ✓                                             | ✓ (a thread)                                        |
+| Attach images and files to a chat                                                                                                                                                                                                                              | ✓                                                                       | ✓                                             | —                                                   |
+| Assistant progress messages retained in the work toggle                                                                                                                                                                                                        | ✓                                                                       | ✓                                             | —                                                   |
+| Click sent context pills to reopen a conversation                                                                                                                                                                                                              | ✓                                                                       | ✓                                             | —                                                   |
+| Preview images and files linked in agent replies                                                                                                                                                                                                               | ✓ (local Claude/Codex files, OpenClaw session files, inline/web images) | ✓ (OpenClaw session files, inline/web images) | —                                                   |
+| Queued follow-ups                                                                                                                                                                                                                                              | ✓                                                                       | ✓                                             | —                                                   |
+| Fork a chat from a reply (OpenClaw)                                                                                                                                                                                                                            | ✓                                                                       | ✓                                             | —                                                   |
+| Watch the agent's browser live (OpenClaw)                                                                                                                                                                                                                      | ✓                                                                       | ✓                                             | —                                                   |
+| Scheduled tasks of every agent (a page under New chat in the Agents sidebar): list, filter by agent and status, create, edit, pause, run now, delete, past runs; results to Otter, any channel the agent has, or a webhook (OpenClaw; Hermes: to Otter or not) | ✓                                                                       | ✓                                             | —                                                   |
+| Take control of the agent's browser (OpenClaw)                                                                                                                                                                                                                 | ✓                                                                       | ✓                                             | —                                                   |
+| See the agent's pointer in its browser (OpenClaw)                                                                                                                                                                                                              | ✓                                                                       | ✓                                             | —                                                   |
+| Mail tools (OpenRouter; Claude, Codex on Mac)                                                                                                                                                                                                                  | ✓ (every mailbox)                                                       | ✓ (OpenRouter)                                | ✓ (OpenRouter; read, search, draft, send, organize) |
+| Calendar tools (OpenRouter; Claude, Codex on Mac)                                                                                                                                                                                                              | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
+| Theme tools: make, change and wear themes                                                                                                                                                                                                                      | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
+| View tools: make, change and delete views                                                                                                                                                                                                                      | ✓                                                                       | ✓ (OpenRouter)                                | —                                                   |
+| Tools for other agents on the Mac (MCP, token)                                                                                                                                                                                                                 | ✓ (Claude Code, Cursor, …)                                              | —                                             | —                                                   |
 
-OpenRouter runs on Otter Mail's server with the AI SDK on Mac, web and iPhone. Connect an
+OpenRouter runs on Otter's server with the AI SDK on Mac, web and iPhone. Connect an
 OpenRouter API key in Settings › Agents while signed in to your Otter account; the key is
 sealed on the server, never synced into preferences or sent back to the apps. Available models
 come from OpenRouter's account-specific catalog and must support tools. Usage draws from
@@ -501,7 +508,7 @@ follow-ups queue on Mac/web; steering is available with Hermes. The iPhone waits
 OpenRouter turn to finish before another question. `pnpm dev:fake` runs the same agent runtime
 on the local Vite server, with a private browser session and server-side key storage.
 
-Claude and Codex get Otter Mail's own tools (an MCP server in the Mac app's backend), so they
+Claude and Codex get Otter's own tools (an MCP server in the Mac app's backend), so they
 need no mail CLI: search, read and sort mail, download attachments, save drafts and send, in
 any mailbox (Gmail, IMAP or Outlook), and list, add, change and answer events in Google Calendar or Outlook's calendar. A tool
 that changes a mailbox asks first unless the chat has full access; drafts don't ask. They can
@@ -512,7 +519,9 @@ OpenClaw connects to the user's gateway over its WebSocket, as OpenClaw's own ap
 `wss://<computer>.<tailnet>.ts.net`, with Tailscale Serve). Each install is a device with its own
 key: a setup code from `openclaw qr` (or the gateway token) introduces it once, the user
 approves it on the gateway (`openclaw devices approve`), and Settings › Agents walks through
-those steps. Each device pairs on its own; the Hermes connection instead follows the Otter
+those steps. It asks for what OpenClaw's own apps hold, `operator.admin` included,
+so the gateway counts what you send as the owner's: the agent uses your paired devices (its
+`nodes` tool: a Mac's shell, screen and computer use) for what you ask in Otter. Each device pairs on its own; the Hermes connection instead follows the Otter
 account. The web app also
 needs its site in the gateway's `gateway.controlUi.allowedOrigins`. Each chat is a gateway
 session, so the gateway's other conversations can be resumed; the gateway's agents are the models
@@ -524,10 +533,69 @@ on the next launch, showing what it did meanwhile and streaming the rest (the ch
 the gateway is out of reach). The token and device key stay on the device. The iPhone pairs the
 same way (Settings › Agents, a setup code), and picks a reply back up when it comes back to the
 foreground or is opened again. When OpenClaw stops to ask something (its `ask_user`), the
-question takes the composer's place, with its options and room for an answer of your own; a
-device paired before this asks the gateway for that permission from Settings › Agents. A message
+question takes the composer's place, with its options and room for an answer of your own. A
+device paired with fewer permissions asks the gateway for full access from Settings › Agents. A message
 sent while it works steers the run, or, when the runtime can't take it mid-turn, runs right after
-it, and the chat follows that too.
+it, and the chat follows that too. When the agent hands off to wait for its subagents
+(`sessions_yield`), the turn waits with it and shows the reply their completion brings, also
+after a relaunch. A reply the agent writes on its own later (a background command or subagent
+finishing, a scheduled job) appears in its chat as a turn of its own, including those written
+while the app was closed. Tool steps show the tool's output.
+
+Otter is also an OpenClaw channel, `otter` (the gateway plugin in `extensions/openclaw/gateway`,
+set up from Settings › Agents › OpenClaw on Mac and web). What an agent delivers to it (a
+scheduled job's `--announce --channel otter --to chat:new`, the message tool, a forwarded
+approval) is kept on the gateway, in the chat it names, and notifies when no window is in front. The plugin sends the relay only a pointer (which agent, which
+session, an approval's or question's id), never the text, with a token made in Settings; the
+relay passes it to the account's open devices, which read the delivery from the gateway.
+Like Slack's threads and channel posts, a delivery either goes to one of Otter's chats
+(`--to chat:<session key>`, kept in that session) or starts a new chat each time
+(`--to chat:new`, named for its scheduled task and day: "Morning brief · Sat, Nov 8"); those are
+the only targets (what's sent to the owner, `otter:owner`, starts a chat too). A chat no device
+has yet starts one. A chat open in the app also catches up when the gateway says its session changed,
+so a scheduled job's result written straight into it shows up without a pointer. Each chat
+remembers how far it has read its session (by the gateway's row numbers), so what arrived while
+no device was looking shows up, in its place, even after you've written in the chat since; a
+chat read for the first time catches up on the day's deliveries. What no
+message of yours started carries a one-line header: "Scheduled · Morning brief · 9:00 AM" (its
+schedule on hover, while the job exists; a finished one-shot is just "Scheduled"), or "Sent by
+Rowan" for what the agent sent with its message tool; its notification names the scheduled task.
+Something new from the agent in a settled or snoozed chat (a scheduled task still running) brings
+the chat back.
+
+With the plugin installed, what you send goes through it, as a message on the `otter` channel
+from its owner (`otter.chat.send`, which needs full access) instead of `chat.send`, once
+Settings › Agents › OpenClaw's "Manage every scheduled task" adds `otter:owner` to the gateway's
+`commands.ownerAllowFrom` (and `plugins.entries.otter.hooks.allowConversationAccess`, so the
+plugin can tell the agent, in an Otter chat, about these targets). OpenClaw lets a configured channel owner manage every scheduled task
+from any chat, as from its Control UI; a `chat.send` turn sees only the scheduled tasks its own chat
+made. Scheduled tasks made from a chat then deliver back to it over the channel. Without the
+plugin, or before that, sends stay `chat.send`.
+
+Hermes connects to its API server (port 8642, usually served on the tailnet), with its
+`API_SERVER_KEY`, and the connection follows the Otter account. Each chat is a Hermes session,
+which Hermes names itself from the first message (renaming a chat in Otter renames the session),
+and each message is a run in it (`/v1/runs`), which belongs to Hermes, not the app: the reply is
+followed over the run's event stream, picked up again from where it was when the connection
+drops, and from its start on the next launch when the app quit during it (this device keeps the
+run's id for a day; another device shows what the session holds). Replies, tool steps, steering,
+stopping and command approvals (also answered elsewhere) come through.
+
+Otter is also a Hermes platform, `otter` (the plugin in `extensions/hermes/gateway`, set up from
+Settings › Agents › Hermes on Mac and web). What Hermes sends to it (a scheduled task's
+`deliver: otter`, its send_message tool) is kept on Hermes as a session of its own (`otter:new`, a
+new chat each time) or in the chat it names (`otter:<session id>`), and the plugin tells the
+relay only a pointer, as OpenClaw's does, so the account's devices read it at once. What Hermes
+writes into one of your chats on its own (a delivery to it, a background task finishing) shows up
+there as a turn of its own, also when no device was looking (each chat remembers how far it read
+its session). Without the plugin, a scheduled task whose results stay on Hermes
+(`deliver: local`) brings each run that said something (not `[SILENT]`) to Otter as a new chat,
+read once a minute. Either way the chat is "Morning brief · Sat, Nov 8", with the
+"Scheduled · Morning brief" header and a notification. The Scheduled page sends a task's results
+to Otter (through the plugin when Hermes has it), to another of Hermes's connected platforms
+(Telegram, Slack…, to a chat you name), or leaves them on Hermes (Otter's own setting, synced
+with the account: Hermes has no "nowhere"). Its past runs are its cron sessions, each with its
+transcript.
 
 Other agents on the Mac (Claude Code or Codex in a terminal, Cursor, …) get the same tools from
 that server while the app is open, with a token made in Settings › Agents (its address stays the
@@ -547,6 +615,7 @@ other sites, so the web app opens links in a new browser tab as before.
 | Feature                                                                    | Mac | Web | iPhone |
 | -------------------------------------------------------------------------- | --- | --- | ------ |
 | Pages as tabs in the panel: back, forward, reload, address and search      | ✓   | —   | —      |
+| ⌘F finds in the page                                                       | ✓   | —   | —      |
 | ⌘W closes a page, returning to the last tab viewed; the last closes it     | ✓   | —   | —      |
 | Drag to reorder tabs, Control + Tab for the last one                       | ✓   | —   | —      |
 | Links in mail and chat open in a tab or the default browser; ⌘-click flips | ✓   | —   | —      |
@@ -560,11 +629,11 @@ other sites, so the web app opens links in a new browser tab as before.
 | Native messaging (an extension talking to its Mac app, e.g. 1Password's)   | ✓   | —   | —      |
 
 Extensions install through electron-chrome-web-store (MIT) and run on Electron's extension
-support, plus Otter Mail's own layer for what Chrome has and Electron doesn't
+support, plus Otter's own layer for what Chrome has and Electron doesn't
 (`apps/desktop/src/services/extensions.ts` and its preload): `chrome.action`, the rest of
 `chrome.tabs`, `chrome.windows`, `contextMenus`, `notifications`, `webNavigation`, `commands`,
 `permissions`, native messaging, and simple `downloads` and `privacy`. To connect 1Password to
-its desktop app on Mac, add Otter Mail in 1Password's Settings › Browser › Add Browser. It then
+its desktop app on Mac, add Otter in 1Password's Settings › Browser › Add Browser. It then
 shares the desktop app's unlock, including Touch ID. Camera, microphone, location and
 notifications are refused to pages.
 

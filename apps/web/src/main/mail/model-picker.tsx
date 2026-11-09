@@ -17,7 +17,7 @@ import type {
   ProviderSnapshot,
   RuntimeMode,
 } from "./api";
-import { AgentAvatar, ProviderIcon, isProviderUsable } from "./agent-providers";
+import { AgentAvatar, ProviderIcon, isProviderUsable } from "../agent/agent-providers";
 import { modelKey, toggleFavorite, useModelPrefs } from "./model-prefs";
 import {
   DropdownMenu,
@@ -105,7 +105,7 @@ function describeProvider(p: ProviderSnapshot): string {
   if (isProviderUsable(p)) return p.displayName;
   const kind =
     p.status === "error" ? "Unavailable" : p.status === "warning" ? "Limited" : "Not ready";
-  return p.message ? `${p.displayName} — ${kind}. ${p.message}` : `${p.displayName} — ${kind}.`;
+  return p.message ? `${p.displayName}: ${kind}. ${p.message}` : `${p.displayName}: ${kind}.`;
 }
 
 function ModelPickerRail({
