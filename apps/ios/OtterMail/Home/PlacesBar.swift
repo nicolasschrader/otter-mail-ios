@@ -16,7 +16,6 @@ struct PlacesBar: View {
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
     let onThreads: () -> Void
-    let onAllNew: () -> Void
     let onCalendar: () -> Void
     let onTasks: () -> Void
     let onMenu: () -> Void
@@ -81,42 +80,35 @@ struct PlacesBar: View {
         .padding(.bottom, 4)
     }
 
-    /** Threads, All new, Mail, Calendar (when any mailbox has one), Tasks, and ⌃⌄ for what's in front. */
+    /** Threads, Mail (its conversations or All new), Calendar (when any mailbox has one), Tasks, and ⌃⌄ for what's in front. */
     private var tabs: some View {
         let mailbox = store.mailbox(for: place.scope)
         let mail = section == .mail
-        let hasCalendar = !CalendarStore.sources(store.shownMailboxes).isEmpty
-        // Six tabs and the agent's button fit a 390pt-wide iPhone only at the 44pt touch minimum.
-        let width: CGFloat = hasCalendar ? 44 : 56
         return HStack(spacing: 0) {
-            Button(action: onThreads) { tabLabel("rectangle.stack", width: width, selected: section == .threads) }
+            Button(action: onThreads) { tabLabel("rectangle.stack", selected: section == .threads) }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Threads")
                 .accessibilityHint("Catches up on every mailbox")
-            Button(action: onAllNew) { tabLabel("tray.2", width: width, selected: section == .allNew) }
-                .buttonStyle(.plain)
-                .accessibilityLabel("All new")
-                .accessibilityHint("Lists every mailbox's incoming mail, one message at a time")
             Button { onPlace(Place(scope: place.scope, folder: .inbox)) } label: {
-                tabLabel(Folder.inbox.symbol(in: mailbox), width: width, selected: mail && place.folder == .inbox,
+                tabLabel(Folder.inbox.symbol(in: mailbox), selected: section == .allNew || mail && place.folder == .inbox,
                          dot: store.badge(in: .inbox, scope: place.scope) > 0)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Mail")
-            if hasCalendar {
-                Button(action: onCalendar) { tabLabel("calendar", width: width, selected: section == .calendar) }
+            if !CalendarStore.sources(store.shownMailboxes).isEmpty {
+                Button(action: onCalendar) { tabLabel("calendar", selected: section == .calendar) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Calendar")
             }
             Button(action: onTasks) {
                 let open = session.tasks.tasks.count(where: { !$0.done })
-                tabLabel("checklist", width: width, selected: section == .tasks, badge: open)
+                tabLabel("checklist", selected: section == .tasks, badge: open)
                     .accessibilityLabel(open > 0 ? "Tasks, \(open) open" : "Tasks")
             }
             .buttonStyle(.plain)
             // ⌃⌄ opens what the one in front is scoped by, in the same panel for each.
             Button(action: onMenu) {
-                tabLabel("chevron.up.chevron.down", width: width, selected: scopeLit)
+                tabLabel("chevron.up.chevron.down", selected: scopeLit)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(scopeLabel)
@@ -145,7 +137,7 @@ struct PlacesBar: View {
         }
     }
 
-    private func tabLabel(_ symbol: String, width: CGFloat, selected: Bool, dot: Bool = false, badge: Int = 0) -> some View {
+    private func tabLabel(_ symbol: String, selected: Bool, dot: Bool = false, badge: Int = 0) -> some View {
         Image(systemName: symbol)
                 .font(.system(size: 19, weight: .medium))
                 .symbolVariant(selected ? .fill : .none)
@@ -164,7 +156,7 @@ struct PlacesBar: View {
                         Circle().fill(palette.focus).frame(width: 9, height: 9).offset(x: 6, y: -4)
                     }
                 }
-                .frame(width: width, height: 48)
+                .frame(width: 56, height: 48)
                 .background(selected ? palette.text.opacity(0.1) : .clear, in: .capsule)
                 .contentShape(.capsule)
                 .accessibilityAddTraits(selected ? .isSelected : [])

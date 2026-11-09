@@ -7,7 +7,7 @@ struct Place: Hashable {
     var folder: Folder = .inbox
 }
 
-/** What the home screen shows above the bar, in the bar's order: Catch up, all new mail, the mail, the calendar, tasks. */
+/** What the home screen shows above the bar, in the bar's order: Catch up, the mail (its conversations or All new), the calendar, tasks. */
 enum HomeSection: Hashable {
     case threads, allNew, mail, calendar, tasks
 }
@@ -104,7 +104,7 @@ struct HomeView: View {
             }
         case .allNew:
             NavigationStack(path: $allNewPath) {
-                withPlaces(AllNewView(onTitle: { setMenu(open: !menuOpen) }, onSettings: openSettings))
+                withPlaces(AllNewView(onTitle: { setMenu(open: !menuOpen) }, onSettings: openSettings, onConversations: { show(.mail) }))
                     .navigationDestination(for: AllNew.Opened.self) { opened in
                         let path = Binding(
                             get: { allNewPath.map(\.thread) },
@@ -126,6 +126,7 @@ struct HomeView: View {
                     onSettings: openSettings,
                     onSearch: { setMenu(open: false); searchOpen = true },
                     onCatchUp: { show(.threads) },
+                    onAllNew: { show(.allNew) },
                     onResume: { draft = $0 }
                 ))
                 .navigationDestination(for: String.self) { id in
@@ -195,7 +196,6 @@ struct HomeView: View {
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onThreads: { show(.threads) },
-                            onAllNew: { show(.allNew) },
                             onCalendar: { show(.calendar) },
                             onTasks: { show(.tasks) },
                             onMenu: { setMenu(open: !menuOpen) },

@@ -142,7 +142,7 @@ struct ThreadView: View {
                         .disabled(unsubscribing)
                     }
                     Divider()
-                    ThreadActions(thread: thread, onGone: { leave(thread) })
+                    ThreadActions(thread: acted(thread), onGone: { leave(thread) })
                 }
             }
         }
@@ -196,6 +196,11 @@ struct ThreadView: View {
 
     private func shown(_ mailbox: Mailbox) -> Mailbox {
         store.alias(place.scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
+    }
+
+    private func acted(_ thread: MailThread) -> MailThread {
+        guard let message, let picked = thread.messages.first(where: { $0.id == message }) else { return thread }
+        return thread.acted(on: picked)
     }
 
     @ViewBuilder

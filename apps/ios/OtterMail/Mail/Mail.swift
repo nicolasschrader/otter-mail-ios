@@ -245,6 +245,19 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
         let labels = message.labels ?? self.labels
         return labels.contains("INBOX") && !labels.contains("SPAM") && !labels.contains("TRASH")
     }
+
+    /**
+     * The conversation as a menu for one of its messages acts on it: in the inbox, Spam, Trash or
+     * Archive as that message is, so one beside a trashed message isn't offered Delete forever, but
+     * with the conversation's own labels, since toggling a label acts on the whole conversation.
+     */
+    func acted(on message: Message) -> MailThread {
+        guard let own = message.labels else { return self }
+        let places: Set<String> = ["INBOX", "SPAM", "TRASH", "ARCHIVE"]
+        var acted = self
+        acted.labels = labels.subtracting(places).union(own.intersection(places))
+        return acted
+    }
 }
 
 nonisolated enum Folder: Hashable {
