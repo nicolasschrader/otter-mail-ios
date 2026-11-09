@@ -212,23 +212,42 @@ struct AliasMailboxTests {
             message("to-studio", to: [studio], deliveredTo: studio, hoursAgo: 2),
             message("to-me", to: [me], deliveredTo: me, hoursAgo: 1),
         ])
-        let store = store([both, copies])
-        store.setAliasMailInParent(false, parent)
-        let entries = AllNew.entries(
-            inboxes: store.shownScopes.map { (scope: $0.email, threads: store.inboxMail(scope: $0.email)) },
-            mine: [parent: Set(store.addresses(of: parent))],
-            receives: { store.receives($0, in: $1) }
-        )
+        let toParent = thread("parent", ["INBOX"], [message("p", to: [parent], deliveredTo: parent)])
+        let store = store([both, copies, toParent])
+        let entries = {
+            AllNew.entries(
+                inboxes: store.shownScopes.map { (scope: $0.email, threads: store.inboxMail(scope: $0.email)) },
+                mine: [parent: Set(store.addresses(of: parent))],
+                receives: { store.receives($0, in: $1) }
+            )
+        }
+        let check = {
+            let entries = entries()
+            #expect(entries.filter { $0.thread.id == "open-day" }.count == 1)
+            #expect(entries.first { $0.message.id == "p" }?.scope == self.parent)
+            let toMe = try #require(entries.first { $0.message.id == "to-me" })
+            let toStudio = try #require(entries.first { $0.message.id == "to-studio" })
+            #expect(store.mailbox(for: toMe.scope)?.email == self.me)
+            #expect(store.mailbox(for: toStudio.scope)?.displayName == "Studio")
+            #expect(toMe.opened.scope == self.me)
+            #expect(toStudio.opened.scope == self.studio)
+            #expect(store.reply(to: toMe.thread, in: toMe.opened.scope, all: false)?.address == self.me)
+            #expect(store.reply(to: toStudio.thread, in: toStudio.opened.scope, all: false)?.address == self.studio)
+        }
 
-        #expect(entries.filter { $0.thread.id == "open-day" }.count == 1)
-        let toMe = try #require(entries.first { $0.message.id == "to-me" })
-        let toStudio = try #require(entries.first { $0.message.id == "to-studio" })
-        #expect(store.mailbox(for: toMe.scope)?.email == me)
-        #expect(store.mailbox(for: toStudio.scope)?.displayName == "Studio")
-        #expect(toMe.opened.scope == me)
-        #expect(toStudio.opened.scope == studio)
-        #expect(store.reply(to: toMe.thread, in: toMe.opened.scope, all: false)?.address == me)
-        #expect(store.reply(to: toStudio.thread, in: toStudio.opened.scope, all: false)?.address == studio)
+        // The parent comes first and keeps its alias mailboxes' mail in its own list.
+        #expect(store.shownScopes.map(\.email).first == parent)
+        #expect(store.preferences.aliasMailApart.isEmpty)
+        try check()
+        store.setAliasMailInParent(false, parent)
+        try check()
+        store.move(from: [0], to: 3)
+        #expect(store.shownScopes.map(\.email).last == parent)
+        try check()
+
+        // A turned-off alias mailbox's mail is listed under the parent.
+        store.setOn(false, store.alias(studio)!)
+        #expect(entries().first { $0.message.id == "to-studio" }?.scope == parent)
     }
 
     @Test func iCloudIsAppleSMailServer() {

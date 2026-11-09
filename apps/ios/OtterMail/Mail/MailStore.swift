@@ -369,12 +369,15 @@ final class MailStore {
         }
     }
 
-    /** Whether `message` came in to `scope`'s inbox: an alias mailbox's to it, a mailbox's to none of the alias mailboxes kept apart. */
+    /**
+     * Whether `message` came in to `scope`'s inbox: an alias mailbox's to it, a mailbox's to none of
+     * its shown alias mailboxes, whether or not its own list keeps their mail.
+     */
     func receives(_ message: Message, in scope: String) -> Bool {
         let alias = aliasScope(scope)
         let others = Set(addresses(of: alias?.source ?? scope).dropFirst())
         if let alias { return Self.isFor(message, alias.email, in: .inbox, others: others) }
-        return !aliasesApart(from: scope).contains { Self.isFor(message, $0, in: .inbox, others: others) }
+        return !shownAliases(of: scope).contains { Self.isFor(message, $0.id, in: .inbox, others: others) }
     }
 
     func belonging(to scope: String) -> (MailThread) -> Bool {
