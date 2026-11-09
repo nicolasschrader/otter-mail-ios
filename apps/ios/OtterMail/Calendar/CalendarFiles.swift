@@ -16,6 +16,7 @@ nonisolated final class CalendarFiles: Sendable {
     struct Saved: Codable, Equatable {
         var calendars: [EventCalendar] = []
         var windows: [EventWindow: [CalendarEvent]] = [:]
+        var fetched: [EventWindow: Date] = [:]
     }
 
     private func file(_ account: String) -> URL { folder.appending(path: "\(account.lowercased()).json") }

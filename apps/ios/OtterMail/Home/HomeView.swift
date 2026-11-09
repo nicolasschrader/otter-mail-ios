@@ -60,6 +60,9 @@ struct HomeView: View {
             .onChange(of: store.shownScopes.map(\.email), initial: true) { _, shown in
                 if !shown.contains(place.scope) { place = Place(scope: shown.first ?? "") }
             }
+            .onChange(of: CalendarStore.sources(store.shownMailboxes).map(\.email)) { _, _ in
+                calendar.follow(CalendarStore.sources(store.shownMailboxes), demo: store.isDemo)
+            }
             .onChange(of: section) { _, shown in
                 if shown != .tasks { openingTask = nil }
             }

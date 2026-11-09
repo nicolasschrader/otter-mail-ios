@@ -394,6 +394,56 @@ struct EventEditingTests {
         #expect(store.isGone(TaskEvent(standup, scope: .series)))
     }
 
+    /** Saved windows that overlap show the newest copy of each event: an older month doesn't bring back one gone or changed since. */
+    @MainActor @Test func anOlderSavedMonthDoesntBringBackWhatANewerAgendaDropped() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let month = dates.window(.month, anchor: at(9, 0))
+        let yesterday = dates.window(.agenda, anchor: at(8, 9))
+        let today = dates.window(.agenda, anchor: at(9, 9))
+        let cancelled = CalendarEvent(eventId: "cancelled", calendar: mine, title: "Dentist", start: at(10, 15), end: at(10, 16))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(10, 12), end: at(10, 13))
+        var renamed = lunch
+        renamed.title = "Team lunch"
+        files.save(CalendarFiles.Saved(
+            calendars: [mine],
+            windows: [month: [lunch, cancelled], yesterday: [renamed]],
+            fetched: [month: at(8, 8), yesterday: at(8, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: defaults, files: files)
+        await store.load(today, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: today)?.map(\.title) == ["Team lunch"])
+    }
+
+    /** A mailbox removed takes its saved events with it at once, the ones a task's link would open included. */
+    @MainActor @Test func aRemovedMailboxsEventsGoAtOnce() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        files.save(CalendarFiles.Saved(calendars: [mine], windows: [window: [lunch]]), account: robin)
+
+        let store = CalendarStore(defaults: defaults, files: files)
+        await store.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.find(TaskEvent(lunch, scope: .occurrence)) != nil)
+
+        store.follow([], demo: false)
+        #expect(store.find(TaskEvent(lunch, scope: .occurrence)) == nil)
+        #expect(store.lists.isEmpty)
+        #expect(files.load(robin) == CalendarFiles.Saved())
+    }
+
     /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */
     @Test func aCancelledEventWithoutTimesIsGone() throws {
         let cancelled = #"{"id":"abc","status":"cancelled"}"#

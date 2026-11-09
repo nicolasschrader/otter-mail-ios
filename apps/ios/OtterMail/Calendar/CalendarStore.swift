@@ -38,6 +38,8 @@ final class CalendarStore {
     /** Each window's events by mailbox, so one mailbox failing a refresh keeps what it had. */
     @ObservationIgnored private var parts: [EventWindow: [String: [CalendarEvent]]] = [:]
     @ObservationIgnored private var loadedAt: [EventWindow: Date] = [:]
+    /** When each mailbox's part of a window was last fetched, kept on disk, so the newest saved copy of an event wins. */
+    @ObservationIgnored private var fetchedAt: [EventWindow: [String: Date]] = [:]
     @ObservationIgnored private var accounts: [String] = []
     /** Mailboxes whose calendar list is asked for again on their next fetch. */
     @ObservationIgnored private var stale: Set<String> = []
@@ -203,8 +205,12 @@ final class CalendarStore {
             .prefix(Self.savedWindows)
         for account in accounts {
             var windows: [EventWindow: [CalendarEvent]] = [:]
-            for window in nearest { windows[window] = parts[window]?[account] }
-            files.save(CalendarFiles.Saved(calendars: lists[account] ?? [], windows: windows), account: account)
+            var fetched: [EventWindow: Date] = [:]
+            for window in nearest {
+                windows[window] = parts[window]?[account]
+                fetched[window] = fetchedAt[window]?[account]
+            }
+            files.save(CalendarFiles.Saved(calendars: lists[account] ?? [], windows: windows, fetched: fetched), account: account)
         }
     }
 
@@ -220,6 +226,7 @@ final class CalendarStore {
         }
         for (window, events) in saved.windows where parts[window]?[account] == nil {
             parts[window, default: [:]][account] = events.filter { !isGone($0) }
+            fetchedAt[window, default: [:]][account] = saved.fetched[window]
             restored.insert(window)
         }
     }
@@ -229,16 +236,30 @@ final class CalendarStore {
         gone.contains(TaskEvent(event, scope: .occurrence).key) || gone.contains(TaskEvent(event, scope: .series).key)
     }
 
-    /** A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day). */
+    /**
+     * A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day):
+     * each event's newest copy, and none from an older window where a newer one had nothing.
+     */
     private func fill(_ window: EventWindow) {
         guard cache[window] == nil else { return }
         let overlapping = restored.filter { $0.from < window.to && $0.to > window.from }
         guard !overlapping.isEmpty else { return }
         var byAccount: [String: [CalendarEvent]] = [:]
         for account in accounts {
+            let stamp = { (saved: EventWindow) -> Date in self.fetchedAt[saved]?[account] ?? .distantPast }
+            let newest = overlapping.filter { parts[$0]?[account] != nil }.sorted { stamp($0) > stamp($1) }
             var seen: Set<String> = []
-            byAccount[account] = overlapping.flatMap { parts[$0]?[account] ?? [] }
-                .filter { $0.end > window.from && $0.start < window.to && seen.insert($0.id).inserted }
+            var kept: [CalendarEvent] = []
+            for (index, saved) in newest.enumerated() {
+                let newer = newest[..<index]
+                kept += (parts[saved]?[account] ?? []).filter { event in
+                    event.end > window.from && event.start < window.to
+                        && !newer.contains { event.end > $0.from && event.start < $0.to }
+                        && seen.insert(event.id).inserted
+                }
+            }
+            byAccount[account] = kept
+            fetchedAt[window, default: [:]][account] = newest.last.map(stamp)
         }
         parts[window] = byAccount
         cache[window] = Self.merged(byAccount, accounts: accounts)
@@ -393,6 +414,12 @@ final class CalendarStore {
         return found
     }
 
+    /** The calendar's mailboxes changed: a removed one's events go at once, not on the calendar's next load. */
+    func follow(_ sources: [Mailbox], demo: Bool) {
+        self.demo = demo
+        adopt(sources.map(\.email))
+    }
+
     /**
      * A different set of mailboxes keeps what the ones still there had, shows what a new one
      * had on disk, forgets a removed one's, and asks again for all of them.
@@ -411,6 +438,7 @@ final class CalendarStore {
         for (window, byAccount) in parts {
             let left = byAccount.filter { !removed.contains($0.key) }
             parts[window] = left
+            fetchedAt[window] = fetchedAt[window]?.filter { !removed.contains($0.key) }
             let merged = Self.merged(left, accounts: next)
             if cache[window] != merged { cache[window] = merged }
         }
@@ -430,6 +458,7 @@ final class CalendarStore {
             switch result {
             case .success(let found):
                 byAccount[account] = found
+                fetchedAt[window, default: [:]][account] = .now
                 reached = true
             case .failure:
                 complete = false
