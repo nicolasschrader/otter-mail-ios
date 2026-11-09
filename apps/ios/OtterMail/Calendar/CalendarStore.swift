@@ -196,14 +196,17 @@ final class CalendarStore {
         replace(event, with: nil)
     }
 
-    /** An event's copy in every window, changed or gone, as api.ts's replace patches the cache. */
+    /**
+     * An event's copy in every window, changed or gone, as api.ts's replace patches the cache,
+     * and in the windows it moved to, so none of them says it isn't there.
+     */
     private func replace(_ event: CalendarEvent, with next: CalendarEvent?) {
         let account = event.calendar.account
         for (window, byAccount) in parts {
-            guard let mine = byAccount[account], mine.contains(where: { $0.id == event.id }) else { continue }
+            guard let mine = byAccount[account] else { continue }
             var kept = mine.filter { $0.id != event.id }
             if let next, Self.holds(window, next, days: days) { kept.append(next) }
-            parts[window]?[account] = kept
+            if kept != mine { parts[window]?[account] = kept }
         }
         settle()
     }
@@ -293,26 +296,29 @@ final class CalendarStore {
     }
 
     /**
-     * A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day).
-     * They agree already (`restore`, `spread`), so each event is taken from the newest that has it.
+     * A window's part for each mailbox without one, shown from that mailbox's saved windows it overlaps
+     * (the agenda starts anew each day). They agree already (`restore`, `spread`), so each event is
+     * taken from the newest that has it.
      */
     private func fill(_ window: EventWindow) {
-        guard cache[window] == nil else { return }
+        let missing = accounts.filter { parts[window]?[$0] == nil }
         let overlapping = restored.filter { $0.from < window.to && $0.to > window.from }
-        guard !overlapping.isEmpty else { return }
-        var byAccount: [String: [CalendarEvent]] = [:]
-        for account in accounts {
+        guard !missing.isEmpty, !overlapping.isEmpty else { return }
+        var filled = false
+        for account in missing {
             let copies = overlapping
                 .compactMap { saved in parts[saved]?[account].map { (events: $0, fetched: fetchedAt[saved]?[account] ?? .distantPast) } }
                 .sorted { $0.fetched > $1.fetched }
+            guard !copies.isEmpty else { continue }
             var seen: Set<String> = []
-            byAccount[account] = copies.flatMap { saved in
+            parts[window, default: [:]][account] = copies.flatMap { saved in
                 saved.events.filter { Self.holds(window, $0, days: days) && seen.insert($0.id).inserted }
             }
             fetchedAt[window, default: [:]][account] = copies.map(\.fetched).min()
+            filled = true
         }
-        parts[window] = byAccount
-        cache[window] = Self.merged(byAccount, accounts: accounts)
+        guard filled else { return }
+        cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts)
     }
 
     /**
@@ -362,7 +368,7 @@ final class CalendarStore {
         force: Bool = false
     ) async {
         self.demo = demo
-        zone = dates.calendar.timeZone
+        follow(dates)
         adopt(sources.map(\.email), dates: dates)
         if force {
             loadedAt.removeAll()
@@ -411,9 +417,36 @@ final class CalendarStore {
         }
     }
 
+    /**
+     * The phone moved to another zone with the store kept: the events in memory are drawn there as
+     * `restore` draws saved ones, each all-day event on its own days, every window keeping the zone
+     * its days were drawn in, and shown in the new zone's windows until those are fetched.
+     */
+    private func follow(_ dates: CalendarDates) {
+        let here = dates.calendar.timeZone
+        guard here != zone else { return }
+        let old = zone
+        zone = here
+        for (window, byAccount) in parts {
+            parts[window] = byAccount.mapValues { $0.map { CalendarCache.moved($0, from: old, to: dates.calendar) } }
+            let there = zones[window].flatMap(TimeZone.init(identifier:)) ?? old
+            if there == here {
+                zones[window] = nil
+                days[window] = nil
+            } else {
+                zones[window] = there.identifier
+                days[window] = CalendarCache.days(window, from: there, to: dates.calendar)
+            }
+            restored.insert(window)
+            if cache[window] != nil { cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts) }
+        }
+        loadedAt.removeAll()
+    }
+
     /** The windows either side, fetched ahead as `useCalendarEvents` prefetches them; failures wait for the real load. */
     func prefetch(_ windows: [EventWindow], sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async {
         guard sources.map(\.email) == accounts, !lists.isEmpty || demo else { return }
+        follow(dates)
         let asked = sources.filter { !denied.contains($0.email) && lists[$0.email] != nil }
         guard !asked.isEmpty else { return }
         for window in windows where !Self.isFresh(loadedAt[window]) {
