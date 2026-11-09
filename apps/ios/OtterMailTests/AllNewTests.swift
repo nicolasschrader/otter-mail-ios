@@ -177,6 +177,30 @@ struct AllNewTests {
         #expect(!store.removedThreads.contains("t"))
     }
 
+    @Test func aConversationPartlyInTheTrashAndPartlyInJunkIsntDeletedForever() async throws {
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["TRASH", "SPAM"], messages: [
+            message("old", from: "ann", at: .now - 10, unread: false, labels: ["TRASH"]),
+            message("new", from: "bob", at: .now, unread: false, labels: ["SPAM"]),
+        ])
+        let store = try store([thread])
+        let provider = synced(store)
+
+        #expect(!thread.trashed)
+        #expect(!thread.deletable)
+        store.deleteForever("t")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(store.thread("t") != nil)
+        #expect(provider.changes.isEmpty)
+    }
+
+    @Test func aConversationWhollyInJunkIsDeletable() {
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["SPAM"], messages: [
+            message("old", from: "ann", at: .now - 10, unread: false, labels: ["SPAM"]),
+            message("new", from: "bob", at: .now, unread: false, labels: ["SPAM"]),
+        ])
+        #expect(thread.deletable)
+    }
+
     @Test func aConversationWhollyInTheTrashIsDeletedForever() async throws {
         let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["TRASH"], messages: [
             message("old", from: "ann", at: .now - 10, unread: false, labels: ["TRASH"]),

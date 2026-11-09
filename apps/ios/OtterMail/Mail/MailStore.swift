@@ -629,7 +629,7 @@ final class MailStore {
         }
     }
 
-    /** Only a conversation wholly in the trash or junk: Gmail deletes the whole of it, inbox mail beside a trashed message too. */
+    /** Only a conversation wholly in the trash, or wholly in junk: Gmail deletes the whole of it, whatever folder each message is in. */
     func deleteForever(_ id: String) {
         commitPendingAction()
         guard let thread = thread(id), thread.deletable else { return }

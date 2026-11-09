@@ -242,13 +242,10 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
 
     /**
      * Whether Delete forever may take it: deleting removes the whole conversation from the server,
-     * so every message has to be in the trash or junk, not only one beside mail still in the inbox.
+     * so every message has to be in the trash, or every one in junk, not one beside mail elsewhere.
      */
     var deletable: Bool {
-        messages.allSatisfy { message in
-            let labels = message.labels ?? self.labels
-            return labels.contains("TRASH") || labels.contains("SPAM")
-        }
+        trashed || messages.allSatisfy { ($0.labels ?? labels).contains("SPAM") }
     }
 
     /** Whether `message` itself is in the inbox, not only the conversation it's in. */
