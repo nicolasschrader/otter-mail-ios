@@ -6,12 +6,12 @@ import Foundation
  * Dates, and an all-day event from local midnight to the midnight after its
  * last day, which is how Google writes it.
  */
-nonisolated struct CalendarEvent: Identifiable, Hashable {
-    enum Status: String {
+nonisolated struct CalendarEvent: Identifiable, Hashable, Codable {
+    enum Status: String, Codable {
         case confirmed, tentative, cancelled
     }
 
-    enum Response: String {
+    enum Response: String, Codable {
         case needsAction, accepted, declined, tentative
 
         var title: String {
@@ -43,7 +43,7 @@ nonisolated struct CalendarEvent: Identifiable, Hashable {
         }
     }
 
-    struct Attendee: Identifiable, Hashable {
+    struct Attendee: Identifiable, Hashable, Codable {
         var person: Person
         var response: Response = .needsAction
         /** A room rather than a guest (Google's `resource`). */
@@ -123,7 +123,7 @@ nonisolated struct EventTiming: Hashable {
 }
 
 /** One of the account's calendars (core's CalendarInfo). */
-nonisolated struct EventCalendar: Identifiable, Hashable {
+nonisolated struct EventCalendar: Identifiable, Hashable, Codable {
     var id: String
     var name: String
     var color: String? = nil

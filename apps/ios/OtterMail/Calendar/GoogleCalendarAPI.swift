@@ -35,10 +35,10 @@ nonisolated struct GoogleCalendarAPI: EventWriter {
         return GoogleEvents.sorted(found)
     }
 
-    /** A window's events, every page of them: a long agenda of a busy calendar is more than one. */
+    /** A window's events, every page of them: a long agenda of a busy calendar is more than one. Its all-day events are days in `zone`'s zone. */
     @concurrent
-    func events(on calendar: EventCalendar, in window: EventWindow) async throws -> [CalendarEvent] {
-        let times = EventTimes()
+    func events(on calendar: EventCalendar, in window: EventWindow, zone: Calendar = .current) async throws -> [CalendarEvent] {
+        let times = EventTimes(calendar: zone)
         var found: [CalendarEvent] = []
         var pageToken: String?
         repeat {

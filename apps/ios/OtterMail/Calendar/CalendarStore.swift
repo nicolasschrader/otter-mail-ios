@@ -6,9 +6,9 @@ import Observation
  * has one, merged as the Mac and web apps merge them (calendar-view.tsx's
  * calendarAccounts and useCalendarLists), and their events kept per window as
  * React Query keeps them (`useCalendarEvents`): a window shown before is shown
- * again at once, and asked of Google again in the background once it's older
- * than `freshFor`. HomeView holds it, so it outlives switching to Mail and
- * back. Google Calendar for a Gmail mailbox, the pretend one in the demo. A
+ * again at once, after a restart too (`CalendarCache`), and asked of Google
+ * again in the background once it's older than `freshFor`. HomeView holds it,
+ * so it outlives switching to Mail and back. Google Calendar for a Gmail mailbox, the pretend one in the demo. A
  * mailbox signed in from before the app asked for calendar access is `denied`,
  * and the others still load; only when every one is does the screen end in
  * `noAccess`, where it offers signing in again (core's NoCalendarAccess).
@@ -38,6 +38,8 @@ final class CalendarStore {
     /** Each window's events by mailbox, so one mailbox failing a refresh keeps what it had. */
     @ObservationIgnored private var parts: [EventWindow: [String: [CalendarEvent]]] = [:]
     @ObservationIgnored private var loadedAt: [EventWindow: Date] = [:]
+    /** When each mailbox's part of a window was last fetched, kept on disk, so the newest saved copy of an event wins. */
+    @ObservationIgnored private var fetchedAt: [EventWindow: [String: Date]] = [:]
     @ObservationIgnored private var accounts: [String] = []
     /** Mailboxes whose calendar list is asked for again on their next fetch. */
     @ObservationIgnored private var stale: Set<String> = []
@@ -48,16 +50,48 @@ final class CalendarStore {
     @ObservationIgnored private var demoAnswers: [String: CalendarEvent.Response] = [:]
     /** Task links Google answered for with nothing, or whose event was deleted here, by `TaskEvent.key`; kept across restarts. */
     private var gone: Set<String> {
-        didSet { if gone != oldValue { goneDefaults.set(gone.sorted(), forKey: Self.goneKey) } }
+        didSet { if gone != oldValue { defaults.set(gone.sorted(), forKey: Self.goneKey) } }
     }
-    @ObservationIgnored private let goneDefaults: UserDefaults
+    @ObservationIgnored private let defaults: UserDefaults
     private static let goneKey = "calendar.goneLinks"
+    @ObservationIgnored private let disk: CalendarCache
+    /** The demo's pretend events are made again on every load, so they aren't kept on disk. */
+    @ObservationIgnored private var demo = false
+    /** The windows read back from disk, that a window not saved itself is shown from. */
+    @ObservationIgnored private var restored: Set<EventWindow> = []
+    /** Where the phone is, the zone the events in memory are drawn in. */
+    @ObservationIgnored private var zone = TimeZone.current
+    /** Restored windows drawn in another zone, by that zone, and as the same days here: what their all-day events are compared with. */
+    @ObservationIgnored private var zones: [EventWindow: String] = [:]
+    @ObservationIgnored private var days: [EventWindow: EventWindow] = [:]
+    /** How many windows each mailbox keeps on disk, the nearest to now. */
+    static let savedWindows = 12
+    /** The mailboxes kept on this device, as last seen; one gone from them takes its events with it. */
+    @ObservationIgnored private var onDevice: Set<String>
+    @ObservationIgnored private nonisolated(unsafe) var watching: (any NSObjectProtocol)?
 
-    init(defaults: UserDefaults = .standard) {
-        goneDefaults = defaults
+    init(defaults: UserDefaults = .standard, cache: CalendarCache = .live) {
+        self.defaults = defaults
         gone = Set(defaults.stringArray(forKey: Self.goneKey) ?? [])
+        disk = cache
+        onDevice = CalendarCache.mailboxes(in: defaults)
+        // A mailbox removed, or the account signed out, is forgotten at once, the calendar's screens shown or not.
+        // Heard as Session writes, not later on the main queue: signing out lets go of this store right after.
+        watching = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: defaults, queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self.forgetRemoved() }
+            } else {
+                Task { @MainActor in self.forgetRemoved() }
+            }
+        }
     }
 
+    deinit {
+        if let watching { NotificationCenter.default.removeObserver(watching) }
+    }
 
     /** The mailboxes the calendar is read from: calendar-view.tsx's calendarAccounts. */
     nonisolated static func sources(_ mailboxes: [Mailbox]) -> [Mailbox] {
@@ -111,6 +145,7 @@ final class CalendarStore {
             parts[window]?[account] = mine.map { Self.answerKey($0) == key ? Self.answered($0, response) : $0 }
             cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts)
         }
+        save()
     }
 
     /** Where an event's changes go: the demo's stand-in, or the mailbox's Google Calendar. */
@@ -132,7 +167,7 @@ final class CalendarStore {
         let made = try await writer.create(draft.input(dates: dates), on: draft.calendar, notify: false)
         if demo { demoEdits.made.append(made) }
         let account = made.calendar.account
-        for (window, byAccount) in parts where made.end > window.from && made.start < window.to {
+        for (window, byAccount) in parts where Self.holds(window, made, days: days) {
             parts[window]?[account] = (byAccount[account] ?? []) + [made]
         }
         settle()
@@ -161,14 +196,17 @@ final class CalendarStore {
         replace(event, with: nil)
     }
 
-    /** An event's copy in every window, changed or gone, as api.ts's replace patches the cache. */
+    /**
+     * An event's copy in every window, changed or gone, as api.ts's replace patches the cache,
+     * and in the windows it moved to, so none of them says it isn't there.
+     */
     private func replace(_ event: CalendarEvent, with next: CalendarEvent?) {
         let account = event.calendar.account
         for (window, byAccount) in parts {
-            guard let mine = byAccount[account], mine.contains(where: { $0.id == event.id }) else { continue }
+            guard let mine = byAccount[account] else { continue }
             var kept = mine.filter { $0.id != event.id }
-            if let next, next.end > window.from, next.start < window.to { kept.append(next) }
-            parts[window]?[account] = kept
+            if let next, Self.holds(window, next, days: days) { kept.append(next) }
+            if kept != mine { parts[window]?[account] = kept }
         }
         settle()
     }
@@ -180,6 +218,168 @@ final class CalendarStore {
             if cache[window] != merged { cache[window] = merged }
         }
         loadedAt.removeAll()
+        save()
+    }
+
+    /** Every mailbox's calendars and its part of the windows nearest to now, written over what it had on disk. */
+    private func save() {
+        guard !demo else { return }
+        let now = Date.now
+        let nearest = parts.keys
+            .sorted { abs($0.from.timeIntervalSince(now)) < abs($1.from.timeIntervalSince(now)) }
+            .prefix(Self.savedWindows)
+        for account in accounts {
+            var windows: [EventWindow: [CalendarEvent]] = [:]
+            var fetched: [EventWindow: Date] = [:]
+            var drawn: [EventWindow: String] = [:]
+            for window in nearest {
+                windows[window] = parts[window]?[account]
+                fetched[window] = fetchedAt[window]?[account]
+                drawn[window] = zones[window]
+            }
+            disk.save(
+                CalendarCache.Saved(
+                    calendars: lists[account] ?? [], windows: windows, fetched: fetched, timeZone: zone.identifier, zones: drawn
+                ),
+                account: account
+            )
+        }
+    }
+
+    /**
+     * A mailbox's calendars and events as they were last saved, less any deleted since, in the windows
+     * not loaded yet, each up to date with the newer saved windows; its all-day events on their own
+     * days where the phone is now. A window keeps the zone its days were drawn in, saved again or not,
+     * so its all-day events are compared with those days. Its calendar list is asked of Google again on its next fetch.
+     */
+    private func restore(_ account: String, dates: CalendarDates) {
+        let saved = disk.load(account)
+        if lists[account] == nil, !saved.calendars.isEmpty {
+            lists[account] = saved.calendars
+            stale.insert(account)
+        }
+        let here = dates.calendar.timeZone
+        let zone = TimeZone(identifier: saved.timeZone) ?? here
+        var drawn: [EventWindow: (zone: String, days: EventWindow)] = [:]
+        for window in saved.windows.keys {
+            let there = saved.zones[window].flatMap(TimeZone.init(identifier:)) ?? zone
+            if there != here { drawn[window] = (there.identifier, CalendarCache.days(window, from: there, to: dates.calendar)) }
+        }
+        let copies = saved.windows.map { window, events in
+            (
+                window: window,
+                events: events.filter { !isGone($0) }.map { CalendarCache.moved($0, from: zone, to: dates.calendar) },
+                fetched: saved.fetched[window] ?? .distantPast
+            )
+        }
+        let restoredDays = drawn.mapValues { $0.days }
+        for window in saved.windows.keys where parts[window]?[account] == nil {
+            parts[window, default: [:]][account] = Self.newest(in: window, of: copies, days: restoredDays)
+            fetchedAt[window, default: [:]][account] = saved.fetched[window]
+            restored.insert(window)
+            if let other = drawn[window] {
+                zones[window] = other.zone
+                days[window] = other.days
+            }
+        }
+    }
+
+    /** Whether an event falls in a window; an all-day one in a window drawn in another zone, by that window's days here. */
+    nonisolated static func holds(_ window: EventWindow, _ event: CalendarEvent, days: [EventWindow: EventWindow] = [:]) -> Bool {
+        let bounds = event.allDay ? days[window] ?? window : window
+        return event.end > bounds.from && event.start < bounds.to
+    }
+
+    /** Deleted here, or Google said its series is gone. */
+    private func isGone(_ event: CalendarEvent) -> Bool {
+        gone.contains(TaskEvent(event, scope: .occurrence).key) || gone.contains(TaskEvent(event, scope: .series).key)
+    }
+
+    /**
+     * A window's part for each mailbox without one, shown from that mailbox's saved windows it overlaps
+     * (the agenda starts anew each day), or whose days here do, for one drawn in another zone. They
+     * agree already (`restore`, `spread`), so each event is taken from the newest that has it.
+     */
+    private func fill(_ window: EventWindow) {
+        let missing = accounts.filter { parts[window]?[$0] == nil }
+        let overlapping = restored.filter { saved in
+            [saved, days[saved] ?? saved].contains { $0.from < window.to && $0.to > window.from }
+        }
+        guard !missing.isEmpty, !overlapping.isEmpty else { return }
+        var filled = false
+        for account in missing {
+            let copies = overlapping
+                .compactMap { saved in parts[saved]?[account].map { (events: $0, fetched: fetchedAt[saved]?[account] ?? .distantPast) } }
+                .sorted { $0.fetched > $1.fetched }
+            guard !copies.isEmpty else { continue }
+            var seen: Set<String> = []
+            parts[window, default: [:]][account] = copies.flatMap { saved in
+                saved.events.filter { Self.holds(window, $0, days: days) && seen.insert($0.id).inserted }
+            }
+            fetchedAt[window, default: [:]][account] = copies.map(\.fetched).min()
+            filled = true
+        }
+        guard filled else { return }
+        cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts)
+    }
+
+    /**
+     * A window shown here that a window drawn in another zone has the same bounds as (Kiritimati's
+     * Nov 12 is Honolulu's Nov 11): its all-day events fill the days they're on here first, and it
+     * keeps only what falls in it as this zone's window, with the all-day events of saved windows
+     * whose days here it is. Either may have a part of its own already, saved as another zone's day:
+     * that one is claimed first, so what it's given and the days it's saved with agree.
+     */
+    private func claim(_ window: EventWindow, after claiming: Set<EventWindow> = []) {
+        guard let other = days[window], other != window else { return }
+        if !claiming.contains(other) { claim(other, after: claiming.union([window])) }
+        fill(other)
+        take(window, into: other)
+        zones[window] = nil
+        days[window] = nil
+        for saved in restored where saved != window {
+            if let here = days[saved], here.from < window.to, here.to > window.from { take(saved, into: window) }
+        }
+        parts[window] = parts[window]?.mapValues { $0.filter { Self.holds(window, $0) } }
+        for shown in [window, other] where cache[shown] != nil {
+            cache[shown] = Self.merged(parts[shown] ?? [:], accounts: accounts)
+        }
+    }
+
+    /** A window's all-day events that are on the days of `target` here, added to each mailbox's part `target` has. */
+    private func take(_ window: EventWindow, into target: EventWindow) {
+        for (account, events) in parts[window] ?? [:] {
+            guard let theirs = parts[target]?[account] else { continue }
+            let ids = Set(theirs.map(\.id))
+            let moving = events.filter { $0.allDay && Self.holds(target, $0) && !ids.contains($0.id) }
+            if !moving.isEmpty { parts[target]?[account] = theirs + moving }
+        }
+    }
+
+    /**
+     * A window from the saved copies: each event's newest copy, and none from an older window where a
+     * newer one had nothing or moved it elsewhere, any window. The window's own copy wins a tie.
+     * `days` are the windows drawn in another zone, as `holds` takes them.
+     */
+    nonisolated static func newest(
+        in window: EventWindow,
+        of copies: [(window: EventWindow, events: [CalendarEvent], fetched: Date)],
+        days: [EventWindow: EventWindow] = [:]
+    ) -> [CalendarEvent] {
+        let newest = copies
+            .sorted { ($0.fetched, $0.window == window ? 1 : 0) > ($1.fetched, $1.window == window ? 1 : 0) }
+        var seen: Set<String> = []
+        var kept: [CalendarEvent] = []
+        for (index, saved) in newest.enumerated() {
+            let newer = newest[..<index]
+            kept += saved.events.filter { event in
+                holds(window, event, days: days)
+                    && !newer.contains { holds($0.window, event, days: days) }
+                    && !seen.contains(event.id)
+            }
+            seen.formUnion(saved.events.map(\.id))
+        }
+        return kept
     }
 
     nonisolated static func answered(_ event: CalendarEvent, _ response: CalendarEvent.Response) -> CalendarEvent {
@@ -202,7 +402,10 @@ final class CalendarStore {
         dates: CalendarDates = CalendarDates(),
         force: Bool = false
     ) async {
-        adopt(sources.map(\.email))
+        self.demo = demo
+        follow(dates)
+        let here = zone
+        adopt(sources.map(\.email), dates: dates)
         if force {
             loadedAt.removeAll()
             stale = Set(accounts)
@@ -211,6 +414,8 @@ final class CalendarStore {
         // Every load, a cached one included, leaves the one before it to be dropped when it lands.
         generation += 1
         let mine = generation
+        claim(window)
+        fill(window)
         let kept = cache[window]
         if kept != nil {
             if state != .ready { state = .ready }
@@ -234,7 +439,7 @@ final class CalendarStore {
                 failures.append(error)
             }
         }
-        let reached = absorb(results, for: window)
+        let reached = absorb(results, for: window, fetchedIn: here)
         guard mine == generation else { return }
         // A refresh that fails leaves the events already up, as React Query keeps its data.
         if kept == nil { for error in failures { ErrorReports.capture(error, scope: "calendar") } }
@@ -249,15 +454,43 @@ final class CalendarStore {
         }
     }
 
+    /**
+     * The phone moved to another zone with the store kept: the events in memory are drawn there as
+     * `restore` draws saved ones, each all-day event on its own days, every window keeping the zone
+     * its days were drawn in, and shown in the new zone's windows until those are fetched.
+     */
+    private func follow(_ dates: CalendarDates) {
+        let here = dates.calendar.timeZone
+        guard here != zone else { return }
+        let old = zone
+        zone = here
+        for (window, byAccount) in parts {
+            parts[window] = byAccount.mapValues { $0.map { CalendarCache.moved($0, from: old, to: dates.calendar) } }
+            let there = zones[window].flatMap(TimeZone.init(identifier:)) ?? old
+            if there == here {
+                zones[window] = nil
+                days[window] = nil
+            } else {
+                zones[window] = there.identifier
+                days[window] = CalendarCache.days(window, from: there, to: dates.calendar)
+            }
+            restored.insert(window)
+            if cache[window] != nil { cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts) }
+        }
+        loadedAt.removeAll()
+    }
+
     /** The windows either side, fetched ahead as `useCalendarEvents` prefetches them; failures wait for the real load. */
     func prefetch(_ windows: [EventWindow], sources: [Mailbox], demo: Bool, google: GoogleAuth, dates: CalendarDates) async {
         guard sources.map(\.email) == accounts, !lists.isEmpty || demo else { return }
+        follow(dates)
+        let here = zone
         let asked = sources.filter { !denied.contains($0.email) && lists[$0.email] != nil }
         guard !asked.isEmpty else { return }
         for window in windows where !Self.isFresh(loadedAt[window]) {
             let results = await fetch(window, from: asked, demo: demo, google: google, dates: dates)
             guard sources.map(\.email) == accounts else { return }
-            absorb(results, for: window)
+            absorb(results, for: window, fetchedIn: here)
         }
     }
 
@@ -284,7 +517,7 @@ final class CalendarStore {
         do {
             let found = demo
                 ? demoEvents(window, account: source.email, first: source.email == demoAccount, dates: dates)
-                : try await fetch(window, from: source, google: google)
+                : try await fetch(window, from: source, google: google, dates: dates)
             return (source.email, .success(found))
         } catch {
             return (source.email, .failure(error))
@@ -304,7 +537,8 @@ final class CalendarStore {
         return demoEdits.applied(to: pretend, in: window, account: account)
     }
 
-    private func fetch(_ window: EventWindow, from mailbox: Mailbox, google: GoogleAuth) async throws -> [CalendarEvent] {
+    /** All-day events read as days in the zone the load began in, which `absorb` compares with where the phone is when they land. */
+    private func fetch(_ window: EventWindow, from mailbox: Mailbox, google: GoogleAuth, dates: CalendarDates) async throws -> [CalendarEvent] {
         let account = mailbox.email
         let api = GoogleCalendarAPI(email: account) { [google] refresh in
             try await google.accessToken(account, force: refresh)
@@ -322,54 +556,101 @@ final class CalendarStore {
         var found: [CalendarEvent] = []
         try await withThrowingTaskGroup(of: [CalendarEvent].self) { group in
             for calendar in known {
-                group.addTask { try await api.events(on: calendar, in: window) }
+                group.addTask { [zone = dates.calendar] in try await api.events(on: calendar, in: window, zone: zone) }
             }
             for try await part in group { found += part }
         }
         return found
     }
 
-    /** A different set of mailboxes keeps what the ones still there had and asks again for all of them. */
-    private func adopt(_ next: [String]) {
+    /**
+     * A different set of mailboxes keeps what the ones still there had, shows what a new one
+     * had on disk, and asks again for all of them.
+     */
+    private func adopt(_ next: [String], dates: CalendarDates = CalendarDates()) {
         guard next != accounts else { return }
         let gone = Set(accounts).subtracting(next)
+        let added = demo ? [] : next.filter { !accounts.contains($0) }
         accounts = next
         loadedAt.removeAll()
-        guard !gone.isEmpty else { return }
+        guard !gone.isEmpty || !added.isEmpty else { return }
         lists = lists.filter { !gone.contains($0.key) }
         denied.subtract(gone)
+        for account in added { restore(account, dates: dates) }
         for (window, byAccount) in parts {
             let left = byAccount.filter { !gone.contains($0.key) }
             parts[window] = left
-            cache[window] = Self.merged(left, accounts: next)
+            fetchedAt[window] = fetchedAt[window]?.filter { !gone.contains($0.key) }
+            let merged = Self.merged(left, accounts: next)
+            if cache[window] != merged { cache[window] = merged }
         }
+    }
+
+    /** A mailbox gone from the device (removed, or the account signed out) takes its saved events with it at once. */
+    func forgetRemoved() {
+        let now = CalendarCache.mailboxes(in: defaults)
+        let removed = onDevice.subtracting(now)
+        onDevice = now
+        guard !removed.isEmpty else { return }
+        for account in removed { disk.remove(account) }
+        adopt(accounts.filter { !removed.contains($0.lowercased()) })
     }
 
     /**
      * What each mailbox found, in its place in the window; a mailbox that failed keeps its part.
-     * A refresh that finds what's already there writes nothing, so the pages it would redraw
-     * (mid-swipe, perhaps) stay as they are. True when any mailbox answered.
+     * A refresh that finds what's already there redraws nothing, so the pages it would redraw
+     * (mid-swipe, perhaps) stay as they are; it's saved still, so the disk knows how fresh it is.
+     * The other windows take what it found. True when any mailbox answered. A fetch made before the
+     * phone moved to another zone is dropped: its all-day events are that zone's days, not these.
      */
     @discardableResult
-    private func absorb(_ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow) -> Bool {
-        var byAccount = parts[window] ?? [:]
+    func absorb(
+        _ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow, fetchedIn: TimeZone? = nil
+    ) -> Bool {
+        if let fetchedIn, fetchedIn != zone { return false }
         var reached = false
         var complete = true
         for (account, result) in results where accounts.contains(account) {
             switch result {
             case .success(let found):
-                byAccount[account] = found
+                parts[window, default: [:]][account] = found
+                fetchedAt[window, default: [:]][account] = .now
+                // Fetched where the phone is now: Google gives every all-day event in it by this zone's days.
+                zones[window] = nil
+                days[window] = nil
+                spread(found, of: account, from: window)
                 reached = true
             case .failure:
                 complete = false
             }
         }
         guard reached else { return false }
-        parts[window] = byAccount
-        let merged = Self.merged(byAccount, accounts: accounts)
-        if cache[window] != merged { cache[window] = merged }
+        for (shown, byAccount) in parts where shown == window || cache[shown] != nil {
+            let merged = Self.merged(byAccount, accounts: accounts)
+            if cache[shown] != merged { cache[shown] = merged }
+        }
         if complete { loadedAt[window] = .now }
+        save()
         return true
+    }
+
+    /**
+     * A mailbox's newer events in its other windows: an event changed, moved or gone in the
+     * window fetched is so in every window, as Google has it now.
+     */
+    private func spread(_ found: [CalendarEvent], of account: String, from window: EventWindow) {
+        let byId = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let within = { (event: CalendarEvent, window: EventWindow) in Self.holds(window, event, days: self.days) }
+        for (other, byAccount) in parts where other != window {
+            guard let mine = byAccount[account] else { continue }
+            var kept = mine.compactMap { event -> CalendarEvent? in
+                if let newer = byId[event.id] { return within(newer, other) ? newer : nil }
+                return within(event, window) ? nil : event
+            }
+            let had = Set(mine.map(\.id))
+            kept += found.filter { !had.contains($0.id) && within($0, other) }
+            if kept != mine { parts[other]?[account] = kept }
+        }
     }
 
     /** A window's events, nil until they have been fetched. */
