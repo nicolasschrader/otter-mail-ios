@@ -694,6 +694,45 @@ struct EventEditingTests {
     }
 
     /**
+     * Nov 12 saved with its all-day event and Nov 13 saved empty, in Kiritimati, opened offline in Honolulu:
+     * they have the bounds of Honolulu's Nov 11 and Nov 12, so Nov 12 has a part of its own already (empty,
+     * Kiritimati's Nov 13). The holiday is still on Nov 12 and no other day, whichever day is opened first.
+     */
+    @MainActor @Test(arguments: [[11, 12, 13], [12, 11, 13], [13, 12, 11], [12, 13, 11], [11, 13, 12], [13, 11, 12]])
+    func twoSavedDaysKeepTheirAllDayEventAcrossTheDateLine(order: [Int]) async throws {
+        let disk = onDisk()
+        let kiritimati = zoned("Pacific/Kiritimati")
+        let honolulu = zoned("Pacific/Honolulu")
+        let there = CalendarDates(calendar: honolulu)
+        let day = { (zone: Calendar, number: Int) in zone.date(from: DateComponents(year: 2026, month: 11, day: number))! }
+        let holiday = CalendarEvent(
+            eventId: "holiday", calendar: mine, title: "Holiday", start: day(kiritimati, 12), end: day(kiritimati, 13), allDay: true
+        )
+        let twelfth = CalendarDates(calendar: kiritimati).window(.day, anchor: day(kiritimati, 12))
+        let thirteenth = CalendarDates(calendar: kiritimati).window(.day, anchor: day(kiritimati, 13))
+        #expect(thirteenth == there.window(.day, anchor: day(honolulu, 12)))
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [twelfth: [holiday], thirteenth: []],
+            fetched: [twelfth: day(kiritimati, 11), thirteenth: day(kiritimati, 11)],
+            timeZone: "Pacific/Kiritimati"
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        for number in order {
+            let window = there.window(.day, anchor: day(honolulu, number))
+            await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+            let shown = (store.events(in: window) ?? []).filter { $0.eventId == "holiday" }
+            if number == 12 {
+                #expect(shown.map(\.start) == [day(honolulu, 12)], "order \(order)")
+                #expect(shown.map(\.end) == [day(honolulu, 13)], "order \(order)")
+            } else {
+                #expect(shown.isEmpty, "Nov \(number), order \(order)")
+            }
+        }
+    }
+
+    /**
      * A load in Berlin whose events Google answers for only after the phone moved to New York and loaded
      * there: its holiday is Berlin's Nov 12, so it's dropped rather than saved as New York's (where it would
      * start on Nov 11). Each fetch reads its all-day events in the zone its load began in, not the phone's

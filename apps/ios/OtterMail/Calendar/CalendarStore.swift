@@ -326,15 +326,32 @@ final class CalendarStore {
     /**
      * A window shown here that a window drawn in another zone has the same bounds as (Kiritimati's
      * Nov 12 is Honolulu's Nov 11): its all-day events fill the days they're on here first, and it
-     * keeps only what falls in it as this zone's window.
+     * keeps only what falls in it as this zone's window, with the all-day events of saved windows
+     * whose days here it is. Either may have a part of its own already, saved as another zone's day.
      */
     private func claim(_ window: EventWindow) {
         guard let other = days[window], other != window else { return }
         fill(other)
+        take(window, into: other)
         zones[window] = nil
         days[window] = nil
+        for saved in restored where saved != window {
+            if let here = days[saved], here.from < window.to, here.to > window.from { take(saved, into: window) }
+        }
         parts[window] = parts[window]?.mapValues { $0.filter { Self.holds(window, $0) } }
-        if cache[window] != nil { cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts) }
+        for shown in [window, other] where cache[shown] != nil {
+            cache[shown] = Self.merged(parts[shown] ?? [:], accounts: accounts)
+        }
+    }
+
+    /** A window's all-day events that are on the days of `target` here, added to each mailbox's part `target` has. */
+    private func take(_ window: EventWindow, into target: EventWindow) {
+        for (account, events) in parts[window] ?? [:] {
+            guard let theirs = parts[target]?[account] else { continue }
+            let ids = Set(theirs.map(\.id))
+            let moving = events.filter { $0.allDay && Self.holds(target, $0) && !ids.contains($0.id) }
+            if !moving.isEmpty { parts[target]?[account] = theirs + moving }
+        }
     }
 
     /**
