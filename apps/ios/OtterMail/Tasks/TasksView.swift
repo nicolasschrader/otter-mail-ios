@@ -311,5 +311,6 @@ struct TaskRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
     }
 }
