@@ -540,8 +540,7 @@ final class MailStore {
     /** A thread as trashing or archiving leaves it, before the server has it. */
     private func stage(_ thread: inout MailThread, trash: Bool) {
         if trash {
-            thread.labels.subtract(["INBOX", "SPAM", "ARCHIVE"])
-            thread.labels.insert("TRASH")
+            thread.land(add: ["TRASH"], remove: ["INBOX", "SPAM", "ARCHIVE"], archiveFolder: false)
         } else {
             let folders = archiveFolder(thread)
             thread.land(add: [], remove: Array(thread.archivable(archiveFolder: folders)), archiveFolder: folders)
@@ -557,8 +556,7 @@ final class MailStore {
             let affected: Set<String> = action.trash
                 ? ["INBOX", "SPAM", "TRASH", "ARCHIVE"]
                 : original.archivable(archiveFolder: archiveFolder(original)).union(["ARCHIVE"])
-            threads[i].labels.subtract(affected)
-            threads[i].labels.formUnion(original.labels.intersection(affected))
+            threads[i].restore(affected, from: original)
         }
     }
 
@@ -582,9 +580,7 @@ final class MailStore {
             try await sync.write(.modify(add: [], remove: archived.sorted() + ["UNREAD"]), to: changed)
         } catch {
             if let i = threads.firstIndex(where: { $0.id == id }) {
-                let affected = archived.union(["ARCHIVE"])
-                threads[i].labels.subtract(affected)
-                threads[i].labels.formUnion(original.labels.intersection(affected))
+                threads[i].restore(archived.union(["ARCHIVE"]), from: original)
                 for m in threads[i].messages.indices where unread.contains(threads[i].messages[m].id) {
                     threads[i].messages[m].unread = true
                 }

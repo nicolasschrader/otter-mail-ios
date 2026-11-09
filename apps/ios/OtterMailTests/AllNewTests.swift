@@ -23,6 +23,35 @@ struct AllNewTests {
         #expect(entries.map(\.message.id) == ["inbox"])
     }
 
+    @Test func trashingAndArchivingLeaveTheListAndUndoBringsMailBack() {
+        let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX"], messages: [
+            message("m", from: "ann", at: .now, unread: true),
+        ])
+        let store = MailStore(preferences: Preferences(), mailboxes: [mailbox], threads: [thread])
+        let listed = { AllNew.entries(inboxes: [(scope: mailbox.email, threads: store.inboxMail(scope: mailbox.email))], mine: [:]).map(\.message.id) }
+
+        store.trash("t")
+        #expect(listed().isEmpty)
+        store.undo()
+        #expect(listed() == ["m"])
+        store.archive("t")
+        #expect(listed().isEmpty)
+        store.undo()
+        #expect(listed() == ["m"])
+    }
+
+    @Test func theReaderKeepsThePickedCopyOfADuplicatedMessage() {
+        let t = Date(timeIntervalSince1970: 1_000_000)
+        let thread = MailThread(id: "t", mailbox: "me@example.com", subject: "Plans", labels: ["INBOX", "ARCHIVE"], messages: [
+            message("archived", from: "bob", at: t, unread: false, labels: ["ARCHIVE"], headers: ["Message-ID": "<b@x>"]),
+            message("inbox", from: "bob", at: t, unread: false, labels: ["INBOX"], headers: ["Message-ID": "<b@x>"]),
+            message("newer", from: "ann", at: t + 10, unread: false),
+        ])
+
+        #expect(thread.distinctMessages(picked: "inbox").map(\.id) == ["inbox", "newer"])
+    }
+
     @Test func mailCachedWithoutEachMessagesLabelsIsFetchedAgain() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

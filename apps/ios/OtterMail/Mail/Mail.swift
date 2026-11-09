@@ -165,14 +165,18 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
     var isDraft: Bool { messages.allSatisfy(\.draft) }
     var sent: [Message] { messages.filter { !$0.draft } }
 
-    /** iCloud files a copy for each address a message was delivered to; `address`'s (an alias mailbox's) is kept, of the copies `keep` takes. */
-    func distinctMessages(preferring address: String? = nil, where keep: (Message) -> Bool = { _ in true }) -> [Message] {
+    /** iCloud files a copy for each address a message was delivered to; `picked`, else `address`'s (an alias mailbox's) is kept, of the copies `keep` takes. */
+    func distinctMessages(preferring address: String? = nil, picked: String? = nil, where keep: (Message) -> Bool = { _ in true }) -> [Message] {
         var kept: [String: Int] = [:]
         var distinct: [Message] = []
         for message in messages where keep(message) {
             guard !message.draft, let id = message.headers["Message-ID"] else { distinct.append(message); continue }
             if let i = kept[id] {
-                if let address, message.deliveredTo.contains(address), !distinct[i].deliveredTo.contains(address) { distinct[i] = message }
+                if message.id == picked {
+                    distinct[i] = message
+                } else if distinct[i].id != picked, let address, message.deliveredTo.contains(address), !distinct[i].deliveredTo.contains(address) {
+                    distinct[i] = message
+                }
             } else {
                 kept[id] = distinct.count
                 distinct.append(message)
@@ -207,6 +211,15 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
         labels = Self.landed(labels, add: add, remove: remove, archiveFolder: archiveFolder)
         for i in messages.indices {
             messages[i].labels = messages[i].labels.map { Self.landed($0, add: add, remove: remove, archiveFolder: archiveFolder) }
+        }
+    }
+
+    /** `original`'s labels among `affected`, back on the conversation and each of its messages. */
+    mutating func restore(_ affected: Set<String>, from original: MailThread) {
+        labels = labels.subtracting(affected).union(original.labels.intersection(affected))
+        for i in messages.indices {
+            guard let had = original.messages.first(where: { $0.id == messages[i].id })?.labels else { continue }
+            messages[i].labels = (messages[i].labels ?? []).subtracting(affected).union(had.intersection(affected))
         }
     }
 

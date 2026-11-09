@@ -72,7 +72,7 @@ struct ThreadView: View {
                         .padding(.horizontal, MessageView.inset)
                 }
 
-                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email)
+                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email, picked: message)
                 ForEach(messages) { message in
                     let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id) || message.id == self.message
                     MessageView(message: message, mailbox: mailbox, open: open) {
