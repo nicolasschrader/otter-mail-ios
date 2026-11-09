@@ -7,9 +7,9 @@ struct Place: Hashable {
     var folder: Folder = .inbox
 }
 
-/** What the home screen shows above the bar, in the bar's order: Catch up, the mail, the calendar, tasks. */
+/** What the home screen shows above the bar, in the bar's order: Catch up, all new mail, the mail, the calendar, tasks. */
 enum HomeSection: Hashable {
-    case threads, mail, calendar, tasks
+    case threads, allNew, mail, calendar, tasks
 }
 
 struct HomeView: View {
@@ -22,6 +22,7 @@ struct HomeView: View {
 
     @State private var place = Place()
     @State private var path: [String] = []
+    @State private var allNewPath: [String] = []
     @State private var menuOpen = false
     @State private var selecting = false
     @State private var draft: Draft?
@@ -97,6 +98,14 @@ struct HomeView: View {
                     onSettings: openSettings
                 ))
                 .navigationDestination(isPresented: $settingsInPlace) { settingsPage }
+            }
+        case .allNew:
+            NavigationStack(path: $allNewPath) {
+                withPlaces(AllNewView(onTitle: { setMenu(open: !menuOpen) }, onSettings: openSettings))
+                    .navigationDestination(for: String.self) { id in
+                        ThreadView(threadID: id, place: Place(scope: store.thread(id)?.mailbox ?? ""), path: $allNewPath, draft: $draft)
+                    }
+                    .navigationDestination(isPresented: $settingsInPlace) { settingsPage }
             }
         case .mail:
             NavigationStack(path: $path) {
@@ -179,6 +188,7 @@ struct HomeView: View {
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onThreads: { show(.threads) },
+                            onAllNew: { show(.allNew) },
                             onCalendar: { show(.calendar) },
                             onTasks: { show(.tasks) },
                             onMenu: { setMenu(open: !menuOpen) },

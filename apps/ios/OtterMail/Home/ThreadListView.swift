@@ -5,7 +5,6 @@ struct ThreadListView: View {
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.displayScale) private var displayScale
 
     let place: Place
     let messageTransition: Namespace.ID
@@ -350,7 +349,7 @@ struct ThreadListView: View {
         .padding(.leading, 24)
         .padding(.trailing, 16)
         .padding(.vertical, 10)
-        .background(rowBackground(unread: thread.unread && !thread.isDraft))
+        .background(ThreadRowBackground(unread: thread.unread && !thread.isDraft))
         .contextMenu {
             if !selecting { ThreadActions(thread: thread) }
         }
@@ -387,21 +386,6 @@ struct ThreadListView: View {
                 NavigationLink(value: thread.id) { content }
                     .navigationLinkIndicatorVisibility(.hidden)
                     .matchedTransitionSource(id: thread.id, in: messageTransition)
-            }
-        }
-    }
-
-    /** The desktop's rows (styles.css): unread mail on a raised card, or edge to edge with a hairline between. */
-    private func rowBackground(unread: Bool) -> some View {
-        let fill = palette.text.opacity(unread ? 0.04 : 0)
-        return palette.canvas.overlay {
-            if preferences.fullWidthRows {
-                Rectangle().fill(fill)
-                    .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1 / displayScale) }
-            } else {
-                RoundedRectangle(cornerRadius: 8).fill(fill)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
             }
         }
     }
