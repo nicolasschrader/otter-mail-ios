@@ -136,6 +136,8 @@ nonisolated struct Message: Identifiable, Hashable, Codable {
     var draft: Bool
     /** The ones replies, unsubscribing and alias mailboxes need: Message-ID, References, List-Unsubscribe, Original-Recipient, Delivered-To, X-Original-To. */
     var headers: [String: String]
+    /** Where this message itself is, as its thread's `labels` (nil: as its thread, where the provider doesn't say). */
+    var labels: Set<String>? = nil
 
     var deliveredTo: [String] { AliasMailbox.deliveredTo { headers[$0] } }
 
@@ -202,16 +204,28 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
      * Elsewhere (Gmail) a change lands as it is.
      */
     mutating func land(add: [String], remove: [String], archiveFolder: Bool) {
-        let had = labels
-        labels.subtract(remove)
+        labels = Self.landed(labels, add: add, remove: remove, archiveFolder: archiveFolder)
+        for i in messages.indices {
+            messages[i].labels = messages[i].labels.map { Self.landed($0, add: add, remove: remove, archiveFolder: archiveFolder) }
+        }
+    }
+
+    private static func landed(_ had: Set<String>, add: [String], remove: [String], archiveFolder: Bool) -> Set<String> {
+        var labels = had.subtracting(remove)
         if archiveFolder {
-            if add.contains(where: Self.isFolder) {
-                labels = labels.filter { !Self.archivesFrom($0) && $0 != "ARCHIVE" }
-            } else if remove.contains(where: { had.contains($0) && Self.archivesFrom($0) }) {
+            if add.contains(where: isFolder) {
+                labels = labels.filter { !archivesFrom($0) && $0 != "ARCHIVE" }
+            } else if remove.contains(where: { had.contains($0) && archivesFrom($0) }) {
                 labels.insert("ARCHIVE")
             }
         }
-        labels.formUnion(add)
+        return labels.union(add)
+    }
+
+    /** Whether `message` itself is in the inbox, not only the conversation it's in. */
+    func inInbox(_ message: Message) -> Bool {
+        let labels = message.labels ?? self.labels
+        return labels.contains("INBOX") && !labels.contains("SPAM") && !labels.contains("TRASH")
     }
 }
 

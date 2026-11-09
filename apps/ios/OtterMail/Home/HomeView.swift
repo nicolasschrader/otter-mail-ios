@@ -22,7 +22,7 @@ struct HomeView: View {
 
     @State private var place = Place()
     @State private var path: [String] = []
-    @State private var allNewPath: [String] = []
+    @State private var allNewPath: [AllNew.Opened] = []
     @State private var menuOpen = false
     @State private var selecting = false
     @State private var draft: Draft?
@@ -102,8 +102,12 @@ struct HomeView: View {
         case .allNew:
             NavigationStack(path: $allNewPath) {
                 withPlaces(AllNewView(onTitle: { setMenu(open: !menuOpen) }, onSettings: openSettings))
-                    .navigationDestination(for: String.self) { id in
-                        ThreadView(threadID: id, place: Place(scope: store.thread(id)?.mailbox ?? ""), path: $allNewPath, draft: $draft)
+                    .navigationDestination(for: AllNew.Opened.self) { opened in
+                        let path = Binding(
+                            get: { allNewPath.map(\.thread) },
+                            set: { allNewPath = $0.map { AllNew.Opened(thread: $0, scope: opened.scope) } }
+                        )
+                        ThreadView(threadID: opened.thread, place: Place(scope: opened.scope), path: path, draft: $draft, message: opened.message)
                     }
                     .navigationDestination(isPresented: $settingsInPlace) { settingsPage }
             }
