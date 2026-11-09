@@ -58,6 +58,26 @@ final class HomeBarUITests: XCTestCase {
         XCTAssertEqual(threads.value as? String, "\(total - 1) left")
     }
 
+    /** All new is a view of Mail, not a tab: Mail's ⋯ switches to it with the Mail tab still lit, and its own ⋯ switches back. */
+    func testMailsMoreSwitchesBetweenConversationsAndAllNew() {
+        let app = XCUIApplication()
+        let unread = app.buttons["Unread"]
+        XCTAssertTrue(unread.waitForExistence(timeout: 5), "the inbox's pills are missing")
+
+        app.buttons["More"].tap()
+        XCTAssertTrue(app.buttons["All new"].waitForExistence(timeout: 5), "Mail's ⋯ has no All new")
+        app.buttons["All new"].tap()
+        XCTAssertTrue(gone(unread), "All new still shows the conversations")
+        XCTAssertTrue(app.buttons["Mail"].isSelected, "the Mail tab isn't lit in All new")
+        XCTAssertEqual(app.buttons.matching(identifier: "All new").count, 0, "All new is a tab")
+
+        app.buttons["More"].tap()
+        XCTAssertTrue(app.buttons["Conversations"].waitForExistence(timeout: 5), "All new's ⋯ can't switch back")
+        app.buttons["Conversations"].tap()
+        XCTAssertTrue(unread.waitForExistence(timeout: 5), "Conversations didn't come back")
+        XCTAssertTrue(app.buttons["Mail"].isSelected)
+    }
+
     /** An event and a conversation are pushed without the bar, and their last row can be reached. */
     func testPushedPagesHaveNoBarAndTheirLastRowIsReachable() {
         let app = XCUIApplication()

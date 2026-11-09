@@ -298,6 +298,13 @@ final class MailStore {
         return result
     }
 
+    /** `scope`'s conversations with mail in its inbox, though another of their messages is in Spam or Trash. */
+    func inboxMail(scope: String) -> [MailThread] {
+        _ = threads
+        _ = otherAddresses
+        return threads(of: scope, in: .inbox, messagewise: true)
+    }
+
     func unreadCount(in folder: Folder, scope: String) -> Int {
         _ = threads
         _ = otherAddresses
@@ -309,15 +316,18 @@ final class MailStore {
         return count
     }
 
-    /** `whole`: a mailbox's own list with its alias mailboxes' mail, whatever its switch says. */
-    private func threads(of scope: String, in folder: Folder, whole: Bool = false) -> [MailThread] {
+    /**
+     * `whole`: a mailbox's own list with its alias mailboxes' mail, whatever its switch says.
+     * `messagewise`: by where each message is rather than the whole conversation.
+     */
+    private func threads(of scope: String, in folder: Folder, whole: Bool = false, messagewise: Bool = false) -> [MailThread] {
         let alias = aliasScope(scope)
         let source = alias?.source ?? scope
         let addresses = self.addresses(of: source)
         let (mine, others) = (Set(addresses), Set(addresses.dropFirst()))
         let apart = alias != nil || whole ? [] : aliasesApart(from: scope)
         return allThreads(of: source).filter { thread in
-            guard matches(thread, folder, mine: mine) else { return false }
+            guard messagewise ? thread.messages.contains(where: thread.inInbox) : matches(thread, folder, mine: mine) else { return false }
             if let alias { return Self.belongs(thread, to: alias.email, in: folder, others: others) }
             return apart.isEmpty || Self.isRest(thread, without: apart, in: folder, mine: mine, others: others)
         }
@@ -357,6 +367,14 @@ final class MailStore {
             }
             return there && !aliases.contains { isFor(message, $0, in: folder, others: others) }
         }
+    }
+
+    /** Whether `message` came in to `scope`'s inbox: an alias mailbox's to it, a mailbox's to none of the alias mailboxes kept apart. */
+    func receives(_ message: Message, in scope: String) -> Bool {
+        let alias = aliasScope(scope)
+        let others = Set(addresses(of: alias?.source ?? scope).dropFirst())
+        if let alias { return Self.isFor(message, alias.email, in: .inbox, others: others) }
+        return !aliasesApart(from: scope).contains { Self.isFor(message, $0, in: .inbox, others: others) }
     }
 
     func belonging(to scope: String) -> (MailThread) -> Bool {
@@ -514,7 +532,7 @@ final class MailStore {
 
     private func stage(_ ids: Set<String>, trash: Bool) {
         commitPendingAction()
-        let originals = threads.filter { ids.contains($0.id) && (trash ? !$0.labels.contains("TRASH") : canArchive($0)) }
+        let originals = threads.filter { ids.contains($0.id) && (trash ? !$0.trashed : canArchive($0)) }
         guard !originals.isEmpty else { return }
         undoAction = PendingAction(trash: trash, threads: originals)
         for i in threads.indices where originals.contains(where: { $0.id == threads[i].id }) {
@@ -530,8 +548,7 @@ final class MailStore {
     /** A thread as trashing or archiving leaves it, before the server has it. */
     private func stage(_ thread: inout MailThread, trash: Bool) {
         if trash {
-            thread.labels.subtract(["INBOX", "SPAM", "ARCHIVE"])
-            thread.labels.insert("TRASH")
+            thread.land(add: ["TRASH"], remove: ["INBOX", "SPAM", "ARCHIVE"], archiveFolder: false)
         } else {
             let folders = archiveFolder(thread)
             thread.land(add: [], remove: Array(thread.archivable(archiveFolder: folders)), archiveFolder: folders)
@@ -547,8 +564,7 @@ final class MailStore {
             let affected: Set<String> = action.trash
                 ? ["INBOX", "SPAM", "TRASH", "ARCHIVE"]
                 : original.archivable(archiveFolder: archiveFolder(original)).union(["ARCHIVE"])
-            threads[i].labels.subtract(affected)
-            threads[i].labels.formUnion(original.labels.intersection(affected))
+            threads[i].restore(affected, from: original)
         }
     }
 
@@ -572,9 +588,7 @@ final class MailStore {
             try await sync.write(.modify(add: [], remove: archived.sorted() + ["UNREAD"]), to: changed)
         } catch {
             if let i = threads.firstIndex(where: { $0.id == id }) {
-                let affected = archived.union(["ARCHIVE"])
-                threads[i].labels.subtract(affected)
-                threads[i].labels.formUnion(original.labels.intersection(affected))
+                threads[i].restore(archived.union(["ARCHIVE"]), from: original)
                 for m in threads[i].messages.indices where unread.contains(threads[i].messages[m].id) {
                     threads[i].messages[m].unread = true
                 }
@@ -612,9 +626,10 @@ final class MailStore {
         }
     }
 
+    /** Only a conversation wholly in the trash or junk: Gmail deletes the whole of it, inbox mail beside a trashed message too. */
     func deleteForever(_ id: String) {
         commitPendingAction()
-        guard let thread = thread(id) else { return }
+        guard let thread = thread(id), thread.deletable else { return }
         threads.removeAll { $0.id == id }
         removedThreads.insert(id)
         sync?.apply(.delete, to: thread)

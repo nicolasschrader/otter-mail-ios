@@ -12,9 +12,12 @@ struct ThreadView: View {
     let place: Place
     @Binding var path: [String]
     @Binding var draft: Draft?
+    /** Opened and scrolled to, where a single message was picked (All new). */
+    var message: String?
 
     @State private var siblings: [String] = []
     @State private var expanded: Set<String> = []
+    @State private var scrolledTo: String?
     @State private var asking: [MailContext]?
     @State private var newTask: MailTask?
     @State private var linking = false
@@ -53,19 +56,19 @@ struct ThreadView: View {
                     .padding(.bottom, 16)
                     .padding(.horizontal, MessageView.inset)
 
-                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email)
+                let messages = thread.distinctMessages(preferring: store.alias(place.scope)?.email, picked: message)
                 let code = thread.verificationCode
                 ForEach(messages) { message in
                     // Above the message it came from, where the Mac and web put it.
                     if let code, message.id == thread.sent.last?.id {
-                        CodeCard(code: code, onTrash: thread.labels.contains("TRASH") ? nil : {
+                        CodeCard(code: code, onTrash: thread.trashed ? nil : {
                             store.trash(thread.id)
                             leave(thread)
                         })
                             .padding(.bottom, 16)
                             .padding(.horizontal, MessageView.inset)
                     }
-                    let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id)
+                    let open = message.id == messages.last?.id || message.unread || expanded.contains(message.id) || message.id == self.message
                     MessageView(message: message, mailbox: mailbox, open: open) {
                         if message.draft {
                             draft = .resume(message, in: thread)
@@ -78,8 +81,10 @@ struct ThreadView: View {
                     }
                 }
             }
+            .scrollTargetLayout()
             .padding(.top, 8)
         }
+        .scrollPosition(id: $scrolledTo, anchor: .top)
         .minimizingNavigationBar()
         .scrollContentBackground(.hidden)
         .background(palette.canvas)
@@ -126,7 +131,7 @@ struct ThreadView: View {
                         .disabled(unsubscribing)
                     }
                     Divider()
-                    ThreadActions(thread: thread, onGone: { leave(thread) })
+                    ThreadActions(thread: acted(thread), onGone: { leave(thread) })
                 }
             }
         }
@@ -166,12 +171,19 @@ struct ThreadView: View {
         .toolbarTitleDisplayMode(.inline)
         .onAppear {
             if siblings.isEmpty { siblings = store.threads(in: place.folder, scope: place.scope).map(\.id) }
+            if scrolledTo == nil { scrolledTo = message }
             if thread.unread { store.setRead(true, thread.id) }
         }
     }
 
     private func shown(_ mailbox: Mailbox) -> Mailbox {
         store.alias(place.scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
+    }
+
+    /** The menu acts on the message picked in All new as that message is: inbox mail beside a trashed message isn't offered Delete forever. */
+    private func acted(_ thread: MailThread) -> MailThread {
+        guard let message, let picked = thread.messages.first(where: { $0.id == message }) else { return thread }
+        return thread.acted(on: picked)
     }
 
     @ViewBuilder
@@ -255,8 +267,12 @@ struct ThreadView: View {
     }
 
     private func leave(_ thread: MailThread) {
+        // All new opens conversations its folder's list leaves out (inbox mail beside a trashed message).
+        guard let index = siblings.firstIndex(of: thread.id) else {
+            path = []
+            return
+        }
         let remaining = Set(store.threads(in: place.folder, scope: place.scope).map(\.id))
-        let index = siblings.firstIndex(of: thread.id) ?? 0
         let after = siblings[(index + 1)...].first(where: remaining.contains)
         let before = siblings[..<index].last(where: remaining.contains)
         let next: String? = switch preferences.advance {

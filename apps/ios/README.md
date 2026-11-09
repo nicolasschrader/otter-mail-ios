@@ -12,7 +12,10 @@ their code.
   has one) and Tasks, labeled, and ⌃⌄ for what the one in front is scoped by: in Threads the
   inboxes it goes through, with each one's count; in Mail the mailboxes (the one switcher), the
   mailbox's folders and labels (the title opens it too); in Calendar its calendars to show or
-  hide; in Tasks its lists. Each
+  hide; in Tasks its lists. Mail's More switches it between its conversations and All new
+  (`Home/AllNewView.swift`): every shown inbox's incoming mail, a row per message, newest first,
+  each under the mailbox or alias mailbox it came in to; the Mail tab stays lit. Delete forever
+  is only offered for a conversation wholly in the trash, since Gmail deletes all of it. Each
   module has its own navigation stack with the bar on its first page only, so a pushed page (a
   conversation, an event) never has the bar over it. The agent has its own round button beside
   the bar and opens as a sheet; so does Search. Settings is ChatGPT's grouped sheet.

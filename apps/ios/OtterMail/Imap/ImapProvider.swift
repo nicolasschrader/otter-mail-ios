@@ -168,6 +168,13 @@ final class ImapProvider: MailProvider {
         Set(thread.messages.compactMap { ImapID($0.id).flatMap { label($0.path) } })
     }
 
+    private func place(_ thread: inout MailThread) {
+        for i in thread.messages.indices {
+            thread.messages[i].labels = ImapID(thread.messages[i].id).flatMap { label($0.path) }.map { Set([$0]) } ?? []
+        }
+        thread.labels = labels(of: thread)
+    }
+
     private func path(_ folder: Folder) -> String? {
         switch folder {
         case .inbox: roles[.inbox]
@@ -240,7 +247,7 @@ final class ImapProvider: MailProvider {
                 // Cached before the Archive's mail carried ARCHIVE: labeled once as its folders say now.
                 let merged = Set(delta.threads.map(\.id)).union(delta.removed)
                 for var thread in known where !merged.contains(thread.id) && labels(of: thread) != thread.labels {
-                    thread.labels = labels(of: thread)
+                    place(&thread)
                     delta.threads.append(thread)
                 }
                 state.archiveLabeled = true
@@ -504,7 +511,7 @@ final class ImapProvider: MailProvider {
                 continue
             }
             thread.messages.sort { $0.date < $1.date }
-            thread.labels = labels(of: thread)
+            place(&thread)
             delta.threads.append(thread)
         }
         return delta
@@ -560,7 +567,7 @@ final class ImapProvider: MailProvider {
                 var kept = thread
                 kept.messages.removeAll { message in doomed.contains { $0.id == message.id } }
                 guard !kept.messages.isEmpty else { return MailDelta(removed: [thread.id]) }
-                kept.labels = labels(of: kept)
+                place(&kept)
                 return MailDelta(threads: [kept])
             }
             guard !moved.isEmpty else { return MailDelta() }
@@ -573,7 +580,7 @@ final class ImapProvider: MailProvider {
                 return message
             }
             guard !updated.messages.isEmpty else { return MailDelta(removed: [thread.id]) }
-            updated.labels = labels(of: updated)
+            place(&updated)
             return MailDelta(threads: [updated])
         }
     }
@@ -669,7 +676,7 @@ final class ImapProvider: MailProvider {
                 return message
             }
             guard !updated.messages.isEmpty else { return MailDelta(removed: [thread.id]) }
-            updated.labels = labels(of: updated)
+            place(&updated)
             return MailDelta(threads: [updated])
         }
     }

@@ -207,6 +207,30 @@ struct AliasMailboxTests {
         #expect(inbox() == ["parent", "me", "dinner", "open-day"])
     }
 
+    @Test func allNewListsEachMessageUnderTheAliasItCameInTo() throws {
+        let both = thread("both", ["INBOX"], [
+            message("to-studio", to: [studio], deliveredTo: studio, hoursAgo: 2),
+            message("to-me", to: [me], deliveredTo: me, hoursAgo: 1),
+        ])
+        let store = store([both, copies])
+        store.setAliasMailInParent(false, parent)
+        let entries = AllNew.entries(
+            inboxes: store.shownScopes.map { (scope: $0.email, threads: store.inboxMail(scope: $0.email)) },
+            mine: [parent: Set(store.addresses(of: parent))],
+            receives: { store.receives($0, in: $1) }
+        )
+
+        #expect(entries.filter { $0.thread.id == "open-day" }.count == 1)
+        let toMe = try #require(entries.first { $0.message.id == "to-me" })
+        let toStudio = try #require(entries.first { $0.message.id == "to-studio" })
+        #expect(store.mailbox(for: toMe.scope)?.email == me)
+        #expect(store.mailbox(for: toStudio.scope)?.displayName == "Studio")
+        #expect(toMe.opened.scope == me)
+        #expect(toStudio.opened.scope == studio)
+        #expect(store.reply(to: toMe.thread, in: toMe.opened.scope, all: false)?.address == me)
+        #expect(store.reply(to: toStudio.thread, in: toStudio.opened.scope, all: false)?.address == studio)
+    }
+
     @Test func iCloudIsAppleSMailServer() {
         var cloud = mailbox()
         #expect(!cloud.isICloud)

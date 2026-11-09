@@ -5,7 +5,6 @@ struct ThreadListView: View {
     @Environment(Preferences.self) private var preferences
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.displayScale) private var displayScale
 
     let place: Place
     let messageTransition: Namespace.ID
@@ -19,6 +18,8 @@ struct ThreadListView: View {
     /** The inbox's Catch up, and how many cards it holds (`CatchUpState.items`). */
     var onCatchUp: (() -> Void)? = nil
     var catchUpCount = 0
+    /** Switches Mail to All new, in its More. */
+    var onAllNew: (() -> Void)? = nil
     let onResume: (Draft) -> Void
 
     @State private var collapsedDays: Set<Date> = []
@@ -166,6 +167,7 @@ struct ThreadListView: View {
                     HStack(spacing: 16) {
                         Button("Search", systemImage: "magnifyingglass", action: onSearch)
                         Menu("More", systemImage: "ellipsis") {
+                            if let onAllNew { MailViewPicker(allNew: false, onSwitch: onAllNew) }
                             Button("Select messages", systemImage: "checkmark.circle") { withAnimation(actionAnimation) { selecting = true } }
                                 .disabled(threads.isEmpty)
                             Button("Mark all as read", systemImage: "envelope.open") {
@@ -352,7 +354,7 @@ struct ThreadListView: View {
         return VStack(alignment: .leading, spacing: 10) {
             link(thread, preview: code == nil)
             if let code {
-                CodeCard(code: code, onTrash: thread.labels.contains("TRASH") ? nil : {
+                CodeCard(code: code, onTrash: thread.trashed ? nil : {
                     withAnimation(actionAnimation) { store.trash(thread.id) }
                 })
                 .padding(.leading, 48)
@@ -361,7 +363,7 @@ struct ThreadListView: View {
         .padding(.leading, 24)
         .padding(.trailing, 16)
         .padding(.vertical, 10)
-        .background(rowBackground(unread: thread.unread && !thread.isDraft))
+        .background(ThreadRowBackground(unread: thread.unread && !thread.isDraft))
         .contextMenu {
             if !selecting { ThreadActions(thread: thread) }
         }
@@ -402,21 +404,6 @@ struct ThreadListView: View {
         }
     }
 
-    /** The desktop's rows (styles.css): unread mail on a raised card, or edge to edge with a hairline between. */
-    private func rowBackground(unread: Bool) -> some View {
-        let fill = palette.text.opacity(unread ? 0.04 : 0)
-        return palette.canvas.overlay {
-            if preferences.fullWidthRows {
-                Rectangle().fill(fill)
-                    .overlay(alignment: .bottom) { Rectangle().fill(palette.border).frame(height: 1 / displayScale) }
-            } else {
-                RoundedRectangle(cornerRadius: 8).fill(fill)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-            }
-        }
-    }
-
     /** Linear's: one action a side. Away to the right, out of the folder; to the left, into the trash. */
     private func leadingAction(_ thread: MailThread) -> MailSwipeAction? {
         if store.canArchive(thread) && place.folder != .trash && place.folder != .junk {
@@ -433,7 +420,7 @@ struct ThreadListView: View {
     }
 
     private func trailingAction(_ thread: MailThread) -> MailSwipeAction {
-        if place.folder == .trash || place.folder == .junk {
+        if (place.folder == .trash || place.folder == .junk) && thread.deletable {
             return MailSwipeAction(title: "Delete", symbol: "trash", tint: .red) {
                 withAnimation(actionAnimation) { store.deleteForever(thread.id) }
             }
@@ -497,7 +484,8 @@ struct ThreadActions: View {
         if !thread.labels.contains("SPAM") {
             Button("Report junk", systemImage: "xmark.bin") { store.markSpam(thread.id); onGone() }
         }
-        if thread.labels.contains("TRASH") {
+        // Deleting takes the whole conversation, so not while any of it is still in the inbox.
+        if thread.trashed {
             Button("Delete forever", systemImage: "trash", role: .destructive) { store.deleteForever(thread.id); onGone() }
         } else {
             Button("Trash", systemImage: "trash", role: .destructive) { store.trash(thread.id); onGone() }
