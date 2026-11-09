@@ -318,6 +318,233 @@ struct EventEditingTests {
         #expect(CalendarStore(defaults: defaults).isGone(link))
     }
 
+    // MARK: Kept on the device
+
+    /** Each test's calendar on disk, not the app's. */
+    private func onDisk() -> CalendarCache {
+        CalendarCache(folder: URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory))
+    }
+
+    private var robinsMailbox: Mailbox {
+        Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+    }
+
+    /** After a restart, offline, the calendar shows the events it last had, and not one deleted since. */
+    @MainActor @Test func savedEventsShowAfterARestartWithoutTheDeletedOne() async throws {
+        let defaults = isolated()
+        let disk = onDisk()
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(9, 15), end: at(9, 16))
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [window: [lunch, dentist]]), account: robin)
+
+        let before = CalendarStore(defaults: defaults, cache: disk)
+        await before.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(before.state == .ready)
+        #expect(before.events(in: window)?.map(\.eventId) == ["lunch", "dentist"])
+        try await before.delete(dentist, with: RecordingWriter(dates: dates))
+
+        let after = CalendarStore(defaults: defaults, cache: disk)
+        await after.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(after.state == .ready)
+        #expect(after.events(in: window)?.map(\.eventId) == ["lunch"])
+
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [window: [lunch, dentist]]), account: robin)
+        let stale = CalendarStore(defaults: defaults, cache: disk)
+        await stale.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(stale.events(in: window)?.map(\.eventId) == ["lunch"])
+    }
+
+    /** Offline after a restart, each mailbox's calendars are there, so scoping to one hides the other's saved events. */
+    @MainActor @Test func savedEventsKeepToTheMailboxScopedTo() async throws {
+        let disk = onDisk()
+        let acme = "robin@acme.example"
+        let work = EventCalendar(id: acme, name: "Acme", primary: true, account: acme, writable: true)
+        let mailboxes = [robin, acme].map {
+            Mailbox(email: $0, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        }
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let review = CalendarEvent(eventId: "review", calendar: work, title: "Review", start: at(9, 15), end: at(9, 16))
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [window: [lunch]]), account: robin)
+        disk.save(CalendarCache.Saved(calendars: [work], windows: [window: [review]]), account: acme)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(window, sources: mailboxes, demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.lists[robin] == [mine])
+        #expect(store.lists[acme] == [work])
+        let calendars = mailboxes.flatMap { store.lists[$0.email] ?? [] }
+        let shown = CalendarShown.scoped([:], account: robin, calendars: calendars)
+        #expect(CalendarShown.visible(store.events(in: window) ?? [], shown: shown).map(\.eventId) == ["lunch"])
+    }
+
+    /** The agenda saved yesterday shows today's part of it offline, less a series Google said is gone. */
+    @MainActor @Test func aSavedAgendaShowsTheNextDayWithoutAGoneSeries() async throws {
+        let defaults = isolated()
+        let disk = onDisk()
+        let yesterday = dates.window(.agenda, anchor: at(8, 9))
+        let today = dates.window(.agenda, anchor: at(9, 9))
+        let past = CalendarEvent(eventId: "past", calendar: mine, title: "Breakfast", start: at(8, 12), end: at(8, 13))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        var standup = CalendarEvent(eventId: "standup_1", calendar: mine, title: "Standup", start: at(10, 9), end: at(10, 10))
+        standup.seriesId = "standup"
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [yesterday: [past, lunch, standup]]), account: robin)
+        defaults.set([TaskEvent(standup, scope: .series).key], forKey: "calendar.goneLinks")
+
+        let store = CalendarStore(defaults: defaults, cache: disk)
+        await store.load(today, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.state == .ready)
+        #expect(store.events(in: today)?.map(\.eventId) == ["lunch"])
+    }
+
+    /** Saved windows that overlap show the newest copy of each event: an older month doesn't bring back one gone or changed since. */
+    @MainActor @Test func anOlderSavedMonthDoesntBringBackWhatANewerAgendaDropped() async throws {
+        let disk = onDisk()
+        let month = dates.window(.month, anchor: at(9, 0))
+        let yesterday = dates.window(.agenda, anchor: at(8, 9))
+        let today = dates.window(.agenda, anchor: at(9, 9))
+        let cancelled = CalendarEvent(eventId: "cancelled", calendar: mine, title: "Dentist", start: at(10, 15), end: at(10, 16))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(10, 12), end: at(10, 13))
+        var renamed = lunch
+        renamed.title = "Team lunch"
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [month: [lunch, cancelled], yesterday: [renamed]],
+            fetched: [month: at(8, 8), yesterday: at(8, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(today, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: today)?.map(\.title) == ["Team lunch"])
+    }
+
+    /** A month saved itself, but before a newer agenda, shows the agenda's copy offline after a restart. */
+    @MainActor @Test func aSavedMonthShowsWhatANewerAgendaHasAfterARestart() async throws {
+        let disk = onDisk()
+        let month = dates.window(.month, anchor: at(9, 0))
+        let agenda = dates.window(.agenda, anchor: at(8, 9))
+        let cancelled = CalendarEvent(eventId: "cancelled", calendar: mine, title: "Dentist", start: at(10, 15), end: at(10, 16))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(10, 12), end: at(10, 13))
+        var renamed = lunch
+        renamed.title = "Team lunch"
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [month: [lunch, cancelled], agenda: [renamed]],
+            fetched: [month: at(8, 8), agenda: at(8, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: month)?.map(\.title) == ["Team lunch"])
+    }
+
+    /** An event a newer agenda moved out of the month leaves the month's older copy behind after a restart. */
+    @MainActor @Test func anEventMovedOutOfASavedMonthLeavesItAfterARestart() async throws {
+        let disk = onDisk()
+        let month = dates.window(.month, anchor: at(9, 0))
+        let agenda = dates.window(.agenda, anchor: at(9, 9))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(5, 15), end: at(5, 16))
+        var moved = dentist
+        moved.start = at(45, 15)
+        moved.end = at(45, 16)
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [month: [dentist], agenda: [moved]],
+            fetched: [month: at(8, 8), agenda: at(9, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: month)?.map(\.eventId) == [])
+    }
+
+    /** A fetch that finds nothing new still saves when it was made, so an older window's deleted event stays gone after a restart. */
+    @MainActor @Test func anUnchangedFetchKeepsItsTimeAfterARestart() async throws {
+        let disk = onDisk()
+        let month = dates.window(.month, anchor: at(9, 0))
+        let agenda = dates.window(.agenda, anchor: at(9, 9))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(10, 15), end: at(10, 16))
+
+        let before = CalendarStore(defaults: isolated(), cache: disk)
+        await before.load(agenda, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        before.absorb([(robin, .success([]))], for: agenda)
+        before.absorb([(robin, .success([dentist]))], for: month)
+        before.absorb([(robin, .success([]))], for: agenda)
+
+        let after = CalendarStore(defaults: isolated(), cache: disk)
+        await after.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(after.events(in: month)?.map(\.eventId) == [])
+    }
+
+    /** A mailbox removed, then the account signed out, takes its saved events with it at once, the ones a task's link opens included. */
+    @MainActor @Test func aRemovedMailboxsEventsGoAtOnce() async throws {
+        let defaults = isolated()
+        let disk = onDisk()
+        let acme = "robin@acme.example"
+        let work = EventCalendar(id: acme, name: "Acme", primary: true, account: acme, writable: true)
+        let mailboxes = [robinsMailbox, Mailbox(email: acme, name: "Robin", displayName: "Acme", color: "#993366", signature: "", labels: [])]
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let review = CalendarEvent(eventId: "review", calendar: work, title: "Review", start: at(9, 15), end: at(9, 16))
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [window: [lunch]]), account: robin)
+        disk.save(CalendarCache.Saved(calendars: [work], windows: [window: [review]]), account: acme)
+        defaults.set(try JSONEncoder().encode(mailboxes), forKey: "otter:mailboxes")
+
+        let store = CalendarStore(defaults: defaults, cache: disk)
+        await store.load(window, sources: mailboxes, demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.find(TaskEvent(lunch, scope: .occurrence)) != nil)
+
+        defaults.set(try JSONEncoder().encode([mailboxes[0]]), forKey: "otter:mailboxes")
+        await settled { store.find(TaskEvent(review, scope: .occurrence)) == nil }
+        #expect(store.find(TaskEvent(review, scope: .occurrence)) == nil)
+        #expect(store.events(in: window)?.map(\.eventId) == ["lunch"])
+        #expect(store.lists[acme] == nil)
+        #expect(disk.load(acme) == CalendarCache.Saved())
+
+        defaults.removeObject(forKey: "otter:mailboxes")
+        await settled { store.find(TaskEvent(lunch, scope: .occurrence)) == nil }
+        #expect(store.find(TaskEvent(lunch, scope: .occurrence)) == nil)
+        #expect(store.lists.isEmpty)
+        #expect(disk.load(robin) == CalendarCache.Saved())
+    }
+
+    /** Waits for what the main queue delivers, as the store hears of defaults changing there. */
+    @MainActor private func settled(_ done: () -> Bool) async {
+        for _ in 0..<100 where !done() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    /**
+     * An all-day event saved in Berlin is the same day in New York after a restart: Nov 12 from
+     * midnight to midnight there, not Nov 11 at 6 PM to Nov 12 at 6 PM. An event at a time keeps its moment.
+     */
+    @MainActor @Test func aSavedAllDayEventKeepsItsDayInAnotherZone() async throws {
+        let disk = onDisk()
+        let berlin = calendar
+        var newYork = Calendar(identifier: .gregorian)
+        newYork.timeZone = TimeZone(identifier: "America/New_York")!
+        newYork.locale = Locale(identifier: "en_US")
+        let there = CalendarDates(calendar: newYork)
+        let day = { (zone: Calendar, number: Int) in zone.date(from: DateComponents(year: 2026, month: 11, day: number))! }
+        let holiday = CalendarEvent(eventId: "holiday", calendar: mine, title: "Holiday", start: day(berlin, 12), end: day(berlin, 13), allDay: true)
+        let call = CalendarEvent(eventId: "call", calendar: mine, title: "Call", start: at(12, 15), end: at(12, 16))
+        let month = dates.window(.month, anchor: at(9, 0))
+        disk.save(CalendarCache.Saved(calendars: [mine], windows: [month: [holiday, call]], timeZone: "Europe/Berlin"), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        let twelfth = there.window(.day, anchor: day(newYork, 12))
+        await store.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+        let shown = try #require(store.events(in: twelfth)?.first { $0.eventId == "holiday" })
+        #expect(shown.start == day(newYork, 12))
+        #expect(shown.end == day(newYork, 13))
+        #expect(store.events(in: twelfth)?.first { $0.eventId == "call" }?.start == at(12, 15))
+
+        for other in [11, 13] {
+            let window = there.window(.day, anchor: day(newYork, other))
+            await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
+            #expect(store.events(in: window)?.contains { $0.eventId == "holiday" } == false)
+        }
+    }
+
     /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */
     @Test func aCancelledEventWithoutTimesIsGone() throws {
         let cancelled = #"{"id":"abc","status":"cancelled"}"#
