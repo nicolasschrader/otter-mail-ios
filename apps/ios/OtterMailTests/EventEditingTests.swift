@@ -310,6 +310,39 @@ struct EventEditingTests {
         #expect(CalendarStore(defaults: defaults).isGone(link))
     }
 
+    /** After a restart, offline, the calendar shows the events it last had, and not one deleted since. */
+    @MainActor @Test func savedEventsShowAfterARestartWithoutTheDeletedOne() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(9, 15), end: at(9, 16))
+        files.save([window: [lunch, dentist]], account: robin)
+
+        let before = CalendarStore(defaults: defaults, files: files)
+        await before.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(before.events(in: window)?.map(\.eventId) == ["lunch", "dentist"])
+        try await before.delete(dentist, with: RecordingWriter(dates: dates))
+
+        let after = CalendarStore(defaults: defaults, files: files)
+        await after.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(after.state == .ready)
+        #expect(after.events(in: window)?.map(\.eventId) == ["lunch"])
+
+        files.save([window: [lunch, dentist]], account: robin)
+        let stale = CalendarStore(defaults: defaults, files: files)
+        await stale.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(stale.events(in: window)?.map(\.eventId) == ["lunch"])
+
+        await stale.load(window, sources: [], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(files.load(robin).isEmpty)
+    }
+
     /** Google may answer for a deleted event with `cancelled` and no times: gone, not a failure. */
     @Test func aCancelledEventWithoutTimesIsGone() throws {
         let cancelled = #"{"id":"abc","status":"cancelled"}"#

@@ -6,7 +6,7 @@ import Observation
  * has one, merged as the Mac and web apps merge them (calendar-view.tsx's
  * calendarAccounts and useCalendarLists), and their events kept per window as
  * React Query keeps them (`useCalendarEvents`): a window shown before is shown
- * again at once, and asked of Google again in the background once it's older
+ * again at once, after a restart too (`CalendarFiles`), and asked of Google again in the background once it's older
  * than `freshFor`. HomeView holds it, so it outlives switching to Mail and
  * back. Google Calendar for a Gmail mailbox, the pretend one in the demo. A
  * mailbox signed in from before the app asked for calendar access is `denied`,
@@ -52,10 +52,16 @@ final class CalendarStore {
     }
     @ObservationIgnored private let goneDefaults: UserDefaults
     private static let goneKey = "calendar.goneLinks"
+    @ObservationIgnored private let files: CalendarFiles
+    /** The demo's pretend events are made again on every load, so they aren't kept on disk. */
+    @ObservationIgnored private var demo = false
+    /** How many windows each mailbox keeps on disk, the nearest to now. */
+    static let savedWindows = 12
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, files: CalendarFiles = .live) {
         goneDefaults = defaults
         gone = Set(defaults.stringArray(forKey: Self.goneKey) ?? [])
+        self.files = files
     }
 
     /** How far ahead Catch up looks for invitations. */
@@ -113,6 +119,7 @@ final class CalendarStore {
             parts[window]?[account] = mine.map { Self.answerKey($0) == key ? Self.answered($0, response) : $0 }
             cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts)
         }
+        save()
     }
 
     /** Where an event's changes go: the demo's stand-in, or the mailbox's Google Calendar. */
@@ -182,6 +189,28 @@ final class CalendarStore {
             if cache[window] != merged { cache[window] = merged }
         }
         loadedAt.removeAll()
+        save()
+    }
+
+    /** Every mailbox's part of the windows nearest to now, written over what it had on disk. */
+    private func save() {
+        guard !demo else { return }
+        let now = Date.now
+        let nearest = parts.keys
+            .sorted { abs($0.from.timeIntervalSince(now)) < abs($1.from.timeIntervalSince(now)) }
+            .prefix(Self.savedWindows)
+        for account in accounts {
+            var windows: [EventWindow: [CalendarEvent]] = [:]
+            for window in nearest { windows[window] = parts[window]?[account] }
+            files.save(windows, account: account)
+        }
+    }
+
+    /** A mailbox's events as they were last saved, less any deleted since, in the windows not loaded yet. */
+    private func restore(_ account: String) {
+        for (window, events) in files.load(account) where parts[window]?[account] == nil {
+            parts[window, default: [:]][account] = events.filter { !gone.contains(TaskEvent($0, scope: .occurrence).key) }
+        }
     }
 
     nonisolated static func answered(_ event: CalendarEvent, _ response: CalendarEvent.Response) -> CalendarEvent {
@@ -204,6 +233,7 @@ final class CalendarStore {
         dates: CalendarDates = CalendarDates(),
         force: Bool = false
     ) async {
+        self.demo = demo
         adopt(sources.map(\.email))
         if force {
             loadedAt.removeAll()
@@ -331,19 +361,26 @@ final class CalendarStore {
         return found
     }
 
-    /** A different set of mailboxes keeps what the ones still there had and asks again for all of them. */
+    /**
+     * A different set of mailboxes keeps what the ones still there had, shows what a new one
+     * had on disk, forgets a removed one's, and asks again for all of them.
+     */
     private func adopt(_ next: [String]) {
         guard next != accounts else { return }
-        let gone = Set(accounts).subtracting(next)
+        let removed = Set(accounts).subtracting(next)
+        let added = demo ? [] : next.filter { !accounts.contains($0) }
         accounts = next
         loadedAt.removeAll()
-        guard !gone.isEmpty else { return }
-        lists = lists.filter { !gone.contains($0.key) }
-        denied.subtract(gone)
+        guard !removed.isEmpty || !added.isEmpty else { return }
+        lists = lists.filter { !removed.contains($0.key) }
+        denied.subtract(removed)
+        for account in removed { files.remove(account) }
+        for account in added { restore(account) }
         for (window, byAccount) in parts {
-            let left = byAccount.filter { !gone.contains($0.key) }
+            let left = byAccount.filter { !removed.contains($0.key) }
             parts[window] = left
-            cache[window] = Self.merged(left, accounts: next)
+            let merged = Self.merged(left, accounts: next)
+            if cache[window] != merged { cache[window] = merged }
         }
     }
 
@@ -367,10 +404,12 @@ final class CalendarStore {
             }
         }
         guard reached else { return false }
+        let changed = parts[window] != byAccount
         parts[window] = byAccount
         let merged = Self.merged(byAccount, accounts: accounts)
         if cache[window] != merged { cache[window] = merged }
         if complete { loadedAt[window] = .now }
+        if changed { save() }
         return true
     }
 

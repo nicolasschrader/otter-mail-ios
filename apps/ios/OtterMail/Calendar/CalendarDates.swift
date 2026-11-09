@@ -23,7 +23,7 @@ nonisolated enum CalendarMode: String, CaseIterable, Identifiable {
     }
 }
 
-nonisolated struct EventWindow: Hashable {
+nonisolated struct EventWindow: Hashable, Codable {
     var from: Date
     var to: Date
 }
