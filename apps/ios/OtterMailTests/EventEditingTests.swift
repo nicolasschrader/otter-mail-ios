@@ -458,6 +458,53 @@ struct EventEditingTests {
         #expect(store.events(in: month)?.map(\.eventId) == [])
     }
 
+    /** An event a newer month moved to it leaves the older month it was in, though the two don't overlap. */
+    @MainActor @Test func anEventMovedToAnotherSavedMonthLeavesTheOldOne() async throws {
+        let disk = onDisk()
+        let november = dates.window(.month, anchor: at(9, 0))
+        let december = dates.window(.month, anchor: at(45, 0))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(5, 15), end: at(5, 16))
+        var moved = dentist
+        moved.start = at(45, 15)
+        moved.end = at(45, 16)
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [november: [dentist], december: [moved]],
+            fetched: [november: at(8, 8), december: at(9, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(november, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: november)?.map(\.eventId) == [])
+    }
+
+    /** A month and an agenda restored: what the agenda then fetches, a rename or a deletion, shows in the month at once. */
+    @MainActor @Test func aRestoredMonthTakesWhatTheAgendaFetches() async throws {
+        let disk = onDisk()
+        let month = dates.window(.month, anchor: at(9, 0))
+        let agenda = dates.window(.agenda, anchor: at(9, 9))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(10, 12), end: at(10, 13))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(11, 15), end: at(11, 16))
+        let past = CalendarEvent(eventId: "past", calendar: mine, title: "Breakfast", start: at(5, 8), end: at(5, 9))
+        var renamed = lunch
+        renamed.title = "Team lunch"
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [month: [past, lunch, dentist], agenda: [lunch, dentist]],
+            fetched: [month: at(8, 8), agenda: at(8, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: isolated(), cache: disk)
+        await store.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: month)?.map(\.title) == ["Breakfast", "Lunch", "Dentist"])
+        store.absorb([(robin, .success([renamed]))], for: agenda)
+        #expect(store.events(in: month)?.map(\.title) == ["Breakfast", "Team lunch"])
+
+        let after = CalendarStore(defaults: isolated(), cache: disk)
+        await after.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(after.events(in: month)?.map(\.title) == ["Breakfast", "Team lunch"])
+    }
+
     /** A fetch that finds nothing new still saves when it was made, so an older window's deleted event stays gone after a restart. */
     @MainActor @Test func anUnchangedFetchKeepsItsTimeAfterARestart() async throws {
         let disk = onDisk()
@@ -528,7 +575,13 @@ struct EventEditingTests {
         let holiday = CalendarEvent(eventId: "holiday", calendar: mine, title: "Holiday", start: day(berlin, 12), end: day(berlin, 13), allDay: true)
         let call = CalendarEvent(eventId: "call", calendar: mine, title: "Call", start: at(12, 15), end: at(12, 16))
         let month = dates.window(.month, anchor: at(9, 0))
-        disk.save(CalendarCache.Saved(calendars: [mine], windows: [month: [holiday, call]], timeZone: "Europe/Berlin"), account: robin)
+        let thirteenth = dates.window(.day, anchor: day(berlin, 13))
+        disk.save(CalendarCache.Saved(
+            calendars: [mine],
+            windows: [month: [holiday, call], thirteenth: []],
+            fetched: [month: at(8, 8), thirteenth: at(8, 9)],
+            timeZone: "Europe/Berlin"
+        ), account: robin)
 
         let store = CalendarStore(defaults: isolated(), cache: disk)
         let twelfth = there.window(.day, anchor: day(newYork, 12))

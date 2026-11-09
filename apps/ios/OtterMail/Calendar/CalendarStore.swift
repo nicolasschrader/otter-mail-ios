@@ -233,8 +233,8 @@ final class CalendarStore {
 
     /**
      * A mailbox's calendars and events as they were last saved, less any deleted since, in the windows
-     * not loaded yet, each up to date with the newer saved windows it overlaps; its all-day events on
-     * their own days where the phone is now. Its calendar list is asked of Google again on its next fetch.
+     * not loaded yet, each up to date with the newer saved windows; its all-day events on their own
+     * days where the phone is now. Its calendar list is asked of Google again on its next fetch.
      */
     private func restore(_ account: String, dates: CalendarDates) {
         let saved = disk.load(account)
@@ -244,14 +244,12 @@ final class CalendarStore {
         }
         let zone = TimeZone(identifier: saved.timeZone) ?? dates.calendar.timeZone
         let copies = saved.windows.map { window, events in
-            (
-                window: window,
-                events: events.filter { !isGone($0) }.map { CalendarCache.moved($0, from: zone, to: dates.calendar) },
-                fetched: saved.fetched[window] ?? .distantPast
-            )
+            (window: window, events: events.filter { !isGone($0) }, fetched: saved.fetched[window] ?? .distantPast)
         }
         for window in saved.windows.keys where parts[window]?[account] == nil {
+            // Compared where they were saved: the windows' bounds are that zone's days, as the all-day events still are.
             parts[window, default: [:]][account] = Self.newest(in: window, of: copies)
+                .map { CalendarCache.moved($0, from: zone, to: dates.calendar) }
             fetchedAt[window, default: [:]][account] = saved.fetched[window]
             restored.insert(window)
         }
@@ -262,17 +260,23 @@ final class CalendarStore {
         gone.contains(TaskEvent(event, scope: .occurrence).key) || gone.contains(TaskEvent(event, scope: .series).key)
     }
 
-    /** A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day). */
+    /**
+     * A window not saved itself, shown from the saved ones it overlaps (the agenda starts anew each day).
+     * They agree already (`restore`, `spread`), so each event is taken from the newest that has it.
+     */
     private func fill(_ window: EventWindow) {
         guard cache[window] == nil else { return }
         let overlapping = restored.filter { $0.from < window.to && $0.to > window.from }
         guard !overlapping.isEmpty else { return }
         var byAccount: [String: [CalendarEvent]] = [:]
         for account in accounts {
-            let copies = overlapping.compactMap { saved in
-                parts[saved]?[account].map { (window: saved, events: $0, fetched: fetchedAt[saved]?[account] ?? .distantPast) }
+            let copies = overlapping
+                .compactMap { saved in parts[saved]?[account].map { (events: $0, fetched: fetchedAt[saved]?[account] ?? .distantPast) } }
+                .sorted { $0.fetched > $1.fetched }
+            var seen: Set<String> = []
+            byAccount[account] = copies.flatMap { saved in
+                saved.events.filter { $0.end > window.from && $0.start < window.to && seen.insert($0.id).inserted }
             }
-            byAccount[account] = Self.newest(in: window, of: copies)
             fetchedAt[window, default: [:]][account] = copies.map(\.fetched).min()
         }
         parts[window] = byAccount
@@ -280,14 +284,13 @@ final class CalendarStore {
     }
 
     /**
-     * A window from the saved copies that overlap it: each event's newest copy, and none from an
-     * older window where a newer one had nothing or moved it elsewhere. The window's own copy wins a tie.
+     * A window from the saved copies: each event's newest copy, and none from an older window where a
+     * newer one had nothing or moved it elsewhere, any window. The window's own copy wins a tie.
      */
     nonisolated static func newest(
         in window: EventWindow, of copies: [(window: EventWindow, events: [CalendarEvent], fetched: Date)]
     ) -> [CalendarEvent] {
         let newest = copies
-            .filter { $0.window.from < window.to && $0.window.to > window.from }
             .sorted { ($0.fetched, $0.window == window ? 1 : 0) > ($1.fetched, $1.window == window ? 1 : 0) }
         var seen: Set<String> = []
         var kept: [CalendarEvent] = []
@@ -489,30 +492,50 @@ final class CalendarStore {
      * What each mailbox found, in its place in the window; a mailbox that failed keeps its part.
      * A refresh that finds what's already there redraws nothing, so the pages it would redraw
      * (mid-swipe, perhaps) stay as they are; it's saved still, so the disk knows how fresh it is.
-     * True when any mailbox answered.
+     * The other windows take what it found. True when any mailbox answered.
      */
     @discardableResult
     func absorb(_ results: [(String, Result<[CalendarEvent], Error>)], for window: EventWindow) -> Bool {
-        var byAccount = parts[window] ?? [:]
         var reached = false
         var complete = true
         for (account, result) in results where accounts.contains(account) {
             switch result {
             case .success(let found):
-                byAccount[account] = found
+                parts[window, default: [:]][account] = found
                 fetchedAt[window, default: [:]][account] = .now
+                spread(found, of: account, from: window)
                 reached = true
             case .failure:
                 complete = false
             }
         }
         guard reached else { return false }
-        parts[window] = byAccount
-        let merged = Self.merged(byAccount, accounts: accounts)
-        if cache[window] != merged { cache[window] = merged }
+        for (shown, byAccount) in parts where shown == window || cache[shown] != nil {
+            let merged = Self.merged(byAccount, accounts: accounts)
+            if cache[shown] != merged { cache[shown] = merged }
+        }
         if complete { loadedAt[window] = .now }
         save()
         return true
+    }
+
+    /**
+     * A mailbox's newer events in its other windows: an event changed, moved or gone in the
+     * window fetched is so in every window, as Google has it now.
+     */
+    private func spread(_ found: [CalendarEvent], of account: String, from window: EventWindow) {
+        let byId = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let within = { (event: CalendarEvent, window: EventWindow) in event.end > window.from && event.start < window.to }
+        for (other, byAccount) in parts where other != window {
+            guard let mine = byAccount[account] else { continue }
+            var kept = mine.compactMap { event -> CalendarEvent? in
+                if let newer = byId[event.id] { return within(newer, other) ? newer : nil }
+                return within(event, window) ? nil : event
+            }
+            let had = Set(mine.map(\.id))
+            kept += found.filter { !had.contains($0.id) && within($0, other) }
+            if kept != mine { parts[other]?[account] = kept }
+        }
     }
 
     /** A window's events, nil until they have been fetched. */
