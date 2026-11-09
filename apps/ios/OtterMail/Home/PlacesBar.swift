@@ -1,15 +1,16 @@
 import SwiftUI
 
-/** What the home screen shows above the bar: the modules, in the bar's order. */
+/** What the home screen shows above the bar: the modules, in the bar's order. Threads is every inbox's Catch up. */
 enum HomeModule: Hashable {
-    case mail, calendar, tasks
+    case threads, mail, calendar, tasks
 }
 
 /**
- * The bar under every module's first page: Mail, Calendar (when a mailbox has
- * one) and Tasks, each labeled, and ⌃⌄ for what the one in front is scoped by
- * (the mail's mailboxes, folders and labels; the calendars to show; the task
- * lists). The agent has its own round button beside it.
+ * The bar under every module's first page: Threads, Mail, Calendar (when a
+ * mailbox has one) and Tasks, each labeled, and ⌃⌄ for what the one in front
+ * is scoped by (the inboxes Threads goes through; the mail's mailboxes,
+ * folders and labels; the calendars to show; the task lists). The agent has
+ * its own round button beside it.
  */
 struct PlacesBar: View {
     @Environment(MailStore.self) private var store
@@ -23,6 +24,8 @@ struct PlacesBar: View {
     let calendar: CalendarStore
     let calendarShown: CalendarShown
     let showsAgent: Bool
+    /** How many cards Catch up holds for the inbox at a scope, or for every inbox (nil): `CatchUpState.items`. */
+    let catchUpCount: (String?) -> Int
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
     let onModule: (HomeModule) -> Void
@@ -39,6 +42,8 @@ struct PlacesBar: View {
                     if menuOpen {
                         Group {
                             switch module {
+                            case .threads:
+                                CatchUpScopePanel(count: catchUpCount, onMailbox: onMailbox)
                             case .mail:
                                 PlacesPanel(place: place, module: module, onSelect: onPlace, onMailbox: onMailbox)
                             case .calendar:
@@ -83,7 +88,10 @@ struct PlacesBar: View {
 
     private var tabs: some View {
         let mailbox = store.mailbox(for: place.scope)
+        let catchingUp = catchUpCount(nil)
         return HStack(spacing: 0) {
+            tab("Threads", symbol: "rectangle.stack", module: .threads, dot: catchingUp > 0)
+                .accessibilityValue(catchingUp > 0 ? "\(catchingUp) left" : "")
             tab("Mail", symbol: Folder.inbox.symbol(in: mailbox), module: .mail,
                 dot: store.badge(in: .inbox, scope: place.scope) > 0)
             if !CalendarStore.sources(store.shownMailboxes).isEmpty {
@@ -111,6 +119,7 @@ struct PlacesBar: View {
     /** Lit for a mail place other than the inbox, a calendar scoped to one mailbox, or a task list picked. */
     private var scopeLit: Bool {
         switch module {
+        case .threads: false
         case .mail: place.folder != .inbox
         case .calendar: calendarShown.account != nil
         case .tasks: session.tasks.selected != nil
@@ -119,6 +128,7 @@ struct PlacesBar: View {
 
     private var scopeLabel: String {
         switch module {
+        case .threads: "Inboxes"
         case .mail: "All places"
         case .calendar: "Calendars"
         case .tasks: "Task lists"
@@ -149,15 +159,49 @@ struct PlacesBar: View {
                 Text(title)
                     .font(.inter(.caption2).weight(selected ? .semibold : .medium))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
             .foregroundStyle(palette.text)
-            .frame(width: 68, height: 48)
+            // Narrower on a small iPhone, so the four tabs and the agent's button still fit.
+            .frame(minWidth: 52, maxWidth: 68, minHeight: 48, maxHeight: 48)
             .background(selected ? palette.text.opacity(0.1) : .clear, in: .capsule)
             .contentShape(.capsule)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/** What Threads goes through: every shown inbox, with the cards Catch up holds for it (its pill's count). */
+private struct CatchUpScopePanel: View {
+    @Environment(MailStore.self) private var store
+    @Environment(\.palette) private var palette
+
+    let count: (String?) -> Int
+    let onMailbox: (Mailbox) -> Void
+
+    var body: some View {
+        ScopePanel {
+            Text("Catch up")
+                .font(.inter(.headline))
+                .foregroundStyle(palette.text)
+        } rows: {
+            Text("Invitations waiting on an answer, then unread mail, from every inbox.")
+                .font(.inter(.footnote))
+                .foregroundStyle(palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            ForEach(store.shownScopes) { mailbox in
+                PlaceRow(title: mailbox.displayName, count: count(mailbox.email)) {
+                    MailboxAvatar(mailbox: mailbox, size: 24)
+                } action: {
+                    onMailbox(mailbox)
+                }
+                .accessibilityHint("Opens its inbox")
+            }
+        }
     }
 }
 

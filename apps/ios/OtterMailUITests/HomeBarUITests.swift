@@ -27,6 +27,37 @@ final class HomeBarUITests: XCTestCase {
         XCTAssertTrue(app.buttons["All calendars"].waitForExistence(timeout: 5), "the calendars' panel didn't open")
     }
 
+    /**
+     * Threads is every inbox's Catch up, in the bar: it counts what it shows,
+     * at least the inbox's pill, the invitation first, its answers above the
+     * bar, and a card skipped there is one fewer in the tab.
+     */
+    func testThreadsCatchesUpOnEveryInbox() {
+        let app = XCUIApplication()
+        let pill = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Catch up")).firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 8), "no Catch up pill in the inbox")
+        let pillCount = Int(pill.label.components(separatedBy: "· ").last ?? "") ?? 0
+
+        let threads = app.buttons["Threads"]
+        XCTAssertTrue(threads.exists, "Threads tab missing")
+        XCTAssertTrue(app.staticTexts["Threads"].exists, "the Threads tab isn't labeled")
+        threads.tap()
+        XCTAssertTrue(app.navigationBars["Catch up"].waitForExistence(timeout: 5), "Threads didn't open Catch up")
+        let total = left(app)
+        XCTAssertEqual(threads.value as? String, "\(total) left", "the tab and Catch up count different cards")
+        XCTAssertGreaterThanOrEqual(total, pillCount, "Threads holds fewer cards than one inbox")
+
+        XCTAssertTrue(app.buttons["Accept"].waitForExistence(timeout: 5), "the invitation isn't first")
+        for answer in ["Accept", "Decline", "Maybe", "Skip"] {
+            XCTAssertTrue(app.buttons[answer].isHittable, "\(answer) is under the bar")
+        }
+        XCTAssertEqual(app.buttons["places-scope"].label, "Inboxes")
+
+        app.buttons["Skip"].tap()
+        XCTAssertTrue(app.staticTexts["\(total - 1) left"].waitForExistence(timeout: 5))
+        XCTAssertEqual(threads.value as? String, "\(total - 1) left")
+    }
+
     /** An event and a conversation are pushed without the bar, and their last row can be reached. */
     func testPushedPagesHaveNoBarAndTheirLastRowIsReachable() {
         let app = XCUIApplication()
@@ -67,6 +98,12 @@ final class HomeBarUITests: XCTestCase {
         let last = scroll.descendants(matching: .staticText).allElementsBoundByIndex.last
         XCTAssertNotNil(last, "\(what) is empty")
         XCTAssertTrue(last?.isHittable ?? false, "the end of \(what) can't be reached")
+    }
+
+    private func left(_ app: XCUIApplication) -> Int {
+        let counter = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", " left")).firstMatch
+        XCTAssertTrue(counter.waitForExistence(timeout: 5))
+        return Int(counter.label.split(separator: " ").first ?? "") ?? 0
     }
 
     private func gone(_ element: XCUIElement) -> Bool {

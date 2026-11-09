@@ -9,6 +9,16 @@ nonisolated enum CatchUp {
         inbox.filter { $0.unread && !passed.contains($0.id) }
     }
 
+    /** Every inbox's queue as one, newest first; a conversation in two inboxes (a mailbox and its alias mailbox) once. */
+    static func queue(inboxes: [[MailThread]], passed: Set<String> = []) -> [MailThread] {
+        var seen: Set<String> = []
+        return inboxes.flatMap { queue($0, passed: passed) }
+            .filter { seen.insert($0.id).inserted }
+            .enumerated()
+            .sorted { ($0.element.latest.date, $1.offset) > ($1.element.latest.date, $0.offset) }
+            .map(\.element)
+    }
+
     /** An unsubscribe that went through, or was handed to the sender's page, is done with the card; a failure keeps it. */
     static func advances(after outcome: Unsubscribe.Outcome) -> Bool {
         switch outcome {
@@ -98,11 +108,19 @@ final class CatchUpState {
 
     /** The cards for the inbox at `scope`: what its pill counts and Catch up goes through. */
     func items(scope: String, store: MailStore, calendar: CalendarStore, shown: [String: Bool], dates: CalendarDates) -> [CatchUp.Item] {
-        let threads = store.threads(in: .inbox, scope: scope)
-        let mail = CatchUp.queue(store.sync?.listed(threads, in: .inbox) ?? threads, passed: passed)
-        let account = store.mailbox(scope)?.email.lowercased()
+        items(scopes: [scope], store: store, calendar: calendar, shown: shown, dates: dates)
+    }
+
+    /** The cards of every inbox at `scopes` at once, for Threads: each inbox's pill counts its share of them. */
+    func items(scopes: [String], store: MailStore, calendar: CalendarStore, shown: [String: Bool], dates: CalendarDates) -> [CatchUp.Item] {
+        let inboxes = scopes.map { scope in
+            let threads = store.threads(in: .inbox, scope: scope)
+            return store.sync?.listed(threads, in: .inbox) ?? threads
+        }
+        let mail = CatchUp.queue(inboxes: inboxes, passed: passed)
+        let accounts = Set(scopes.compactMap { store.mailbox($0)?.email.lowercased() })
         let invites = CalendarStore.invites(calendar.events(in: CatchUp.window(dates)) ?? [], shown: shown)
-            .filter { $0.calendar.account.lowercased() == account && !passed.contains($0.id) }
+            .filter { accounts.contains($0.calendar.account.lowercased()) && !passed.contains($0.id) }
         return CatchUp.items(invites: invites, mail: mail)
     }
 
@@ -136,9 +154,9 @@ final class CatchUpState {
 }
 
 /**
- * Catch up, pushed over the inbox from its pill: one card at a time, right to
- * mark it read, left to skip it (it stays unread). Done, it says so and waits
- * to be closed.
+ * Catch up, pushed over the inbox from its pill, or every inbox's in the
+ * Threads tab (no `scope`): one card at a time, right to mark it read, left
+ * to skip it (it stays unread). Done, it says so and waits to be closed.
  */
 struct CatchUpView: View {
     @Environment(MailStore.self) private var store
@@ -147,11 +165,13 @@ struct CatchUpView: View {
     @Environment(\.palette) private var palette
     @Environment(\.dismiss) private var dismiss
 
-    let scope: String
+    let scope: String?
     let calendar: CalendarStore
     let shown: CalendarShown
     let state: CatchUpState
     @Binding var draft: Draft?
+    /** The Threads tab's way out once it's all caught up: there is nothing to go back to. */
+    var onDone: (() -> Void)?
 
     @State private var answering: Set<String> = []
     @State private var notice: Notice?
@@ -164,7 +184,8 @@ struct CatchUpView: View {
     private var dates: CalendarDates { CalendarDates(preferences: preferences.calendar) }
 
     var body: some View {
-        let items = state.items(scope: scope, store: store, calendar: calendar, shown: shown.shown, dates: dates)
+        let scopes = scope.map { [$0] } ?? store.shownScopes.map(\.email)
+        let items = state.items(scopes: scopes, store: store, calendar: calendar, shown: shown.shown, dates: dates)
         Group {
             if let item = items.first {
                 VStack(spacing: 12) {
@@ -180,8 +201,11 @@ struct CatchUpView: View {
                 ContentUnavailableView {
                     Label("You're all caught up", systemImage: "checkmark.circle")
                 } actions: {
-                    Button("Back to Inbox") { dismiss() }
-                        .buttonStyle(.glass)
+                    if let onDone {
+                        Button("Go to Inbox", action: onDone).buttonStyle(.glass)
+                    } else {
+                        Button("Back to Inbox") { dismiss() }.buttonStyle(.glass)
+                    }
                 }
                 .foregroundStyle(palette.text)
             }
@@ -203,7 +227,7 @@ struct CatchUpView: View {
         switch item {
         case .mail(let thread):
             if let mailbox = store.mailbox(thread.mailbox) {
-                CatchUpCard(thread: thread, mailbox: mailbox, scope: scope, draft: $draft)
+                CatchUpCard(thread: thread, mailbox: mailbox, scope: scope ?? thread.mailbox, draft: $draft)
                     .modifier(MailSwipeActions(leading: readAction(thread), trailing: skipAction(thread.id)))
                     .id(item.id)
                     .padding(.horizontal, 12)

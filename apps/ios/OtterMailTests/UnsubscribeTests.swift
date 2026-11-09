@@ -133,6 +133,13 @@ struct UnsubscribeTests {
         #expect(email.body == "a b c&d")
     }
 
+    /** URLSearchParams decodes the names as well, so an encoded "subject" is still the subject. */
+    @Test func encodedNamesInMailtoAreRead() throws {
+        let email = try Unsubscribe.email(URL(string: "mailto:leave@list.test?%73ubject=unsubscribe-token&%62ody=remove-me")!)
+        #expect(email.subject == "unsubscribe-token")
+        #expect(email.body == "remove-me")
+    }
+
     @Test func refusedOneClickOpensThePageWhenThereIsNoMailto() async throws {
         let unsubscribe = try #require(Unsubscribe(headers("<https://bad.test/u>", oneClick: true)))
         var opened: URL?

@@ -71,11 +71,26 @@ struct HomeView: View {
             .sheet(isPresented: $searchOpen) { search }
     }
 
+    /** The cards Catch up holds for the inbox at `scope`, or for every shown inbox (nil), as the pill and Threads count them. */
+    private func catchUpItems(_ scope: String?) -> [CatchUp.Item] {
+        catchUp.items(
+            scopes: scope.map { [$0] } ?? store.shownScopes.map(\.email),
+            store: store, calendar: calendar, shown: calendarShown.shown, dates: dates
+        )
+    }
+
     @ViewBuilder private var content: some View {
         switch module {
+        case .threads:
+            NavigationStack {
+                withPlaces(loadingInvites(CatchUpView(
+                    scope: nil, calendar: calendar, shown: calendarShown, state: catchUp, draft: $draft,
+                    onDone: { select(Place(scope: place.scope)) }
+                )))
+            }
         case .mail:
             NavigationStack(path: $path) {
-                withPlaces(ThreadListView(
+                withPlaces(loadingInvites(ThreadListView(
                     place: place,
                     messageTransition: messageTransition,
                     selecting: $selecting,
@@ -84,19 +99,11 @@ struct HomeView: View {
                     onSettings: openSettings,
                     onSearch: { setMenu(open: false); searchOpen = true },
                     onCatchUp: { setMenu(open: false); catchingUp = true },
-                    catchUpCount: catchUp.items(
-                        scope: place.scope, store: store, calendar: calendar, shown: calendarShown.shown, dates: dates
-                    ).count,
+                    catchUpCount: catchUpItems(place.scope).count,
                     onResume: { draft = $0 }
-                ))
+                )))
                 .navigationDestination(isPresented: $catchingUp) {
                     CatchUpView(scope: place.scope, calendar: calendar, shown: calendarShown, state: catchUp, draft: $draft)
-                }
-                // Invitations for the pill's count, read with every calendar so the calendar's own windows stay.
-                .task(id: CalendarStore.sources(store.shownMailboxes).map(\.email)) {
-                    let sources = CalendarStore.sources(store.shownMailboxes)
-                    guard !sources.isEmpty else { return }
-                    await calendar.load(CatchUp.window(dates), sources: sources, demo: store.isDemo, google: session.google, dates: dates)
                 }
                 .navigationDestination(for: String.self) { id in
                     let reader = ThreadView(threadID: id, place: place, path: $path, draft: $draft)
@@ -120,6 +127,15 @@ struct HomeView: View {
                     opening: openingTask, onEmail: openTaskEmail, onTitle: { setMenu(open: true) }, onSettings: openSettings
                 ))
             }
+        }
+    }
+
+    /** Invitations for Catch up and its count, read with every calendar so the calendar's own windows stay. */
+    private func loadingInvites(_ view: some View) -> some View {
+        view.task(id: CalendarStore.sources(store.shownMailboxes).map(\.email)) {
+            let sources = CalendarStore.sources(store.shownMailboxes)
+            guard !sources.isEmpty else { return }
+            await calendar.load(CatchUp.window(dates), sources: sources, demo: store.isDemo, google: session.google, dates: dates)
         }
     }
 
@@ -158,6 +174,7 @@ struct HomeView: View {
                             calendar: calendar,
                             calendarShown: calendarShown,
                             showsAgent: showsAgent,
+                            catchUpCount: { catchUpItems($0).count },
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
                             onModule: { show($0) },
