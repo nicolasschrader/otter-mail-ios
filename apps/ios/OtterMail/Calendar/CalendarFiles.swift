@@ -1,7 +1,7 @@
 import Foundation
 
 /**
- * Each mailbox's events on disk, by window, so the calendar shows what it had
+ * Each mailbox's calendars and events on disk, by window, so the calendar shows what it had
  * at once after a restart while Google is asked again. Written atomically as
  * `MailCache` and `TaskFiles` write theirs.
  */
@@ -13,20 +13,25 @@ nonisolated final class CalendarFiles: Sendable {
 
     init(folder: URL) { self.folder = folder }
 
+    struct Saved: Codable, Equatable {
+        var calendars: [EventCalendar] = []
+        var windows: [EventWindow: [CalendarEvent]] = [:]
+    }
+
     private func file(_ account: String) -> URL { folder.appending(path: "\(account.lowercased()).json") }
 
     /** Read on the writing queue, so it sees the last save. */
-    func load(_ account: String) -> [EventWindow: [CalendarEvent]] {
+    func load(_ account: String) -> Saved {
         queue.sync {
-            guard let data = try? Data(contentsOf: file(account)) else { return [:] }
-            return (try? JSONDecoder().decode([EventWindow: [CalendarEvent]].self, from: data)) ?? [:]
+            guard let data = try? Data(contentsOf: file(account)) else { return Saved() }
+            return (try? JSONDecoder().decode(Saved.self, from: data)) ?? Saved()
         }
     }
 
-    func save(_ windows: [EventWindow: [CalendarEvent]], account: String) {
+    func save(_ saved: Saved, account: String) {
         queue.async {
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
-            try? JSONEncoder().encode(windows)
+            try? JSONEncoder().encode(saved)
                 .write(to: self.file(account), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
     }

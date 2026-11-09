@@ -194,7 +194,7 @@ final class CalendarStore {
         save()
     }
 
-    /** Every mailbox's part of the windows nearest to now, written over what it had on disk. */
+    /** Every mailbox's calendars and its part of the windows nearest to now, written over what it had on disk. */
     private func save() {
         guard !demo else { return }
         let now = Date.now
@@ -204,13 +204,21 @@ final class CalendarStore {
         for account in accounts {
             var windows: [EventWindow: [CalendarEvent]] = [:]
             for window in nearest { windows[window] = parts[window]?[account] }
-            files.save(windows, account: account)
+            files.save(CalendarFiles.Saved(calendars: lists[account] ?? [], windows: windows), account: account)
         }
     }
 
-    /** A mailbox's events as they were last saved, less any deleted since, in the windows not loaded yet. */
+    /**
+     * A mailbox's calendars and events as they were last saved, less any deleted since, in the windows
+     * not loaded yet; its calendar list is asked of Google again on its next fetch.
+     */
     private func restore(_ account: String) {
-        for (window, events) in files.load(account) where parts[window]?[account] == nil {
+        let saved = files.load(account)
+        if lists[account] == nil, !saved.calendars.isEmpty {
+            lists[account] = saved.calendars
+            stale.insert(account)
+        }
+        for (window, events) in saved.windows where parts[window]?[account] == nil {
             parts[window, default: [:]][account] = events.filter { !isGone($0) }
             restored.insert(window)
         }

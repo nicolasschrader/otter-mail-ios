@@ -322,7 +322,7 @@ struct EventEditingTests {
         let window = dates.window(.day, anchor: at(9, 0))
         let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
         let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(9, 15), end: at(9, 16))
-        files.save([window: [lunch, dentist]], account: robin)
+        files.save(CalendarFiles.Saved(calendars: [mine], windows: [window: [lunch, dentist]]), account: robin)
 
         let before = CalendarStore(defaults: defaults, files: files)
         await before.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
@@ -334,13 +334,39 @@ struct EventEditingTests {
         #expect(after.state == .ready)
         #expect(after.events(in: window)?.map(\.eventId) == ["lunch"])
 
-        files.save([window: [lunch, dentist]], account: robin)
+        files.save(CalendarFiles.Saved(calendars: [mine], windows: [window: [lunch, dentist]]), account: robin)
         let stale = CalendarStore(defaults: defaults, files: files)
         await stale.load(window, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
         #expect(stale.events(in: window)?.map(\.eventId) == ["lunch"])
 
         await stale.load(window, sources: [], demo: false, google: GoogleAuth(), dates: dates)
-        #expect(files.load(robin).isEmpty)
+        #expect(files.load(robin) == CalendarFiles.Saved())
+    }
+
+    /** Offline after a restart, scoping to one mailbox hides the other's saved events. */
+    @MainActor @Test func savedEventsKeepToTheMailboxScopedTo() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let acme = "robin@acme.example"
+        let work = EventCalendar(id: acme, name: "Acme", primary: true, account: acme, writable: true)
+        let mailboxes = [robin, acme].map {
+            Mailbox(email: $0, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        }
+        let window = dates.window(.day, anchor: at(9, 0))
+        let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
+        let review = CalendarEvent(eventId: "review", calendar: work, title: "Review", start: at(9, 15), end: at(9, 16))
+        files.save(CalendarFiles.Saved(calendars: [mine], windows: [window: [lunch]]), account: robin)
+        files.save(CalendarFiles.Saved(calendars: [work], windows: [window: [review]]), account: acme)
+
+        let store = CalendarStore(defaults: defaults, files: files)
+        await store.load(window, sources: mailboxes, demo: false, google: GoogleAuth(), dates: dates)
+        let calendars = mailboxes.flatMap { store.lists[$0.email] ?? [] }
+        let shown = CalendarShown.scoped([:], account: robin, calendars: calendars)
+        #expect(CalendarShown.visible(store.events(in: window) ?? [], shown: shown).map(\.eventId) == ["lunch"])
     }
 
     /** The agenda saved yesterday shows today's part of it offline, less a series Google said is gone. */
@@ -358,7 +384,7 @@ struct EventEditingTests {
         let lunch = CalendarEvent(eventId: "lunch", calendar: mine, title: "Lunch", start: at(9, 12), end: at(9, 13))
         var standup = CalendarEvent(eventId: "standup_1", calendar: mine, title: "Standup", start: at(10, 9), end: at(10, 10))
         standup.seriesId = "standup"
-        files.save([yesterday: [past, lunch, standup]], account: robin)
+        files.save(CalendarFiles.Saved(calendars: [mine], windows: [yesterday: [past, lunch, standup]]), account: robin)
         defaults.set([TaskEvent(standup, scope: .series).key], forKey: "calendar.goneLinks")
 
         let store = CalendarStore(defaults: defaults, files: files)
