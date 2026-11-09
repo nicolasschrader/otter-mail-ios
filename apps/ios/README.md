@@ -8,8 +8,9 @@ their code.
 
 - **Linear's frame.** The mail list is the page, with All and Unread pills under its title and
   Compose, Search and More at the top right. Under a module's first page, a glass bar
-  (`Home/PlacesBar.swift`): Mail, Calendar (when a Gmail mailbox has one) and Tasks, labeled, and
-  ⌃⌄ for what the one in front is scoped by: in Mail the mailboxes (the one switcher), the
+  (`Home/PlacesBar.swift`): Threads (every inbox's Catch up), Mail, Calendar (when a Gmail mailbox
+  has one) and Tasks, labeled, and ⌃⌄ for what the one in front is scoped by: in Threads the
+  inboxes it goes through, with each one's count; in Mail the mailboxes (the one switcher), the
   mailbox's folders and labels (the title opens it too); in Calendar its calendars to show or
   hide; in Tasks its lists. Each
   module has its own navigation stack with the bar on its first page only, so a pushed page (a
@@ -122,8 +123,9 @@ add limited server grants (or an encrypted IMAP password), while mail content st
 - `Home/CatchUpView.swift`: Catch up, pushed over an inbox from its pill: that mailbox's
   invitations still waiting on an answer (on its shown calendars, a series answered as a whole:
   `GoogleCalendarAPI.respond`, core's setResponse), then its unread mail as the list orders it,
-  one card at a time. `CatchUpState.items` is what the pill counts and Catch up shows, so they
-  agree; what was skipped stays skipped while the app is open. Unsubscribing there archives and
+  one card at a time. The Threads tab is the same Catch up over every shown inbox at once
+  (invitations first, then the mail, newest first). `CatchUpState.items` is what the pill and the
+  tab count and Catch up shows, so they agree; what was skipped stays skipped while the app is open. Unsubscribing there archives and
   reads the conversation once the server has it (`MailStore.archiveRead`). `Reader/Unsubscribe.swift`
   is core's unsubscribe.ts: one click, else the mailto request sent from the mailbox, else the
   sender's page.

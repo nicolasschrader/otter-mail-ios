@@ -60,7 +60,7 @@ when a feature lands or goes.
   `src/main/os-names.ts`; shortcuts in copy go through `shortcutText("mod+k")` (⌘K, Ctrl+K).
 - `apps/ios`: Otter Mail for iPhone (the iPhone app keeps that name), a native SwiftUI app (iOS 27, Liquid Glass):
   mail with the Calendar and Tasks modules beside it (tasks kept on the iPhone, not synced). Linear's
-  layout (a glass bar: Mail, Calendar, Tasks, ⌃⌄ for what the one in front is scoped by; the agent
+  layout (a glass bar: Threads, Mail, Calendar, Tasks, ⌃⌄ for what the one in front is scoped by; the agent
   on its own button), Otter Code's list rows. Its own Swift code, not the TypeScript core: it signs in to Google itself (the "iOS"
   OAuth client, PKCE), talks to Gmail directly, caches on disk, and follows the Otter account
   through the relay (mailboxes, preferences under the same keys, live events). `Resources/` holds
