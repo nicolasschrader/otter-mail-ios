@@ -659,10 +659,12 @@ struct EventEditingTests {
     }
 
     /**
-     * Only Nov 12 saved, in Kiritimati (+14), opened offline in Honolulu (-10): the two days only touch,
-     * but the saved day is Nov 12 here too, so its all-day event is on Nov 12 and no other day.
+     * Only Nov 12 saved, in Kiritimati (+14), opened offline in Honolulu (-10): the saved day has the bounds
+     * of Honolulu's Nov 11, but it is Nov 12 here too, so its all-day event is on Nov 12 and no other day,
+     * whichever day is opened first.
      */
-    @MainActor @Test func aSavedDayKeepsItsAllDayEventAcrossTheDateLine() async throws {
+    @MainActor @Test(arguments: [[12, 11, 13], [11, 12, 13]])
+    func aSavedDayKeepsItsAllDayEventAcrossTheDateLine(order: [Int]) async throws {
         let disk = onDisk()
         let kiritimati = zoned("Pacific/Kiritimati")
         let honolulu = zoned("Pacific/Honolulu")
@@ -672,26 +674,30 @@ struct EventEditingTests {
             eventId: "holiday", calendar: mine, title: "Holiday", start: day(kiritimati, 12), end: day(kiritimati, 13), allDay: true
         )
         let saved = CalendarDates(calendar: kiritimati).window(.day, anchor: day(kiritimati, 12))
+        #expect(saved == there.window(.day, anchor: day(honolulu, 11)))
         disk.save(CalendarCache.Saved(
             calendars: [mine], windows: [saved: [holiday]], fetched: [saved: day(kiritimati, 11)], timeZone: "Pacific/Kiritimati"
         ), account: robin)
 
         let store = CalendarStore(defaults: isolated(), cache: disk)
-        let twelfth = there.window(.day, anchor: day(honolulu, 12))
-        await store.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
-        let shown = try #require(store.events(in: twelfth)?.first { $0.eventId == "holiday" })
-        #expect(shown.start == day(honolulu, 12))
-        #expect(shown.end == day(honolulu, 13))
-        for other in [11, 13] {
-            let window = there.window(.day, anchor: day(honolulu, other))
+        for number in order {
+            let window = there.window(.day, anchor: day(honolulu, number))
             await store.load(window, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
-            #expect((store.events(in: window) ?? []).contains { $0.eventId == "holiday" } == false)
+            let shown = (store.events(in: window) ?? []).filter { $0.eventId == "holiday" }
+            if number == 12 {
+                #expect(shown.map(\.start) == [day(honolulu, 12)])
+                #expect(shown.map(\.end) == [day(honolulu, 13)])
+            } else {
+                #expect(shown.isEmpty, "Nov \(number)")
+            }
         }
     }
 
     /**
-     * A fetch started in Berlin lands after the phone moved to New York: its all-day event is Berlin's
-     * day, so it's dropped rather than saved as New York's, and after a restart the event is still on Nov 12.
+     * A load in Berlin whose events Google answers for only after the phone moved to New York and loaded
+     * there: its holiday is Berlin's Nov 12, so it's dropped rather than saved as New York's (where it would
+     * start on Nov 11). Each fetch reads its all-day events in the zone its load began in, not the phone's
+     * zone when they arrive, so New York's own load has the holiday on Nov 12, after a restart too.
      */
     @MainActor @Test func aFetchFromBeforeTheZoneChangedIsDropped() async throws {
         let disk = onDisk()
@@ -699,28 +705,32 @@ struct EventEditingTests {
         let newYork = zoned("America/New_York")
         let there = CalendarDates(calendar: newYork)
         let day = { (zone: Calendar, number: Int) in zone.date(from: DateComponents(year: 2026, month: 11, day: number))! }
-        let holiday = CalendarEvent(eventId: "holiday", calendar: mine, title: "Holiday", start: day(berlin, 12), end: day(berlin, 13), allDay: true)
-        var renamed = holiday
-        renamed.title = "Late holiday"
         let month = dates.window(.month, anchor: at(9, 0))
+        let twelfth = there.window(.day, anchor: day(newYork, 12))
+        let eleventh = there.window(.day, anchor: day(newYork, 11))
+        let google = GoogleAuth(tokens: [robin: .init(accessToken: HeldCalendar.token, idToken: nil, expiresAt: .now.addingTimeInterval(600))])
+        HeldCalendar.hold(month.from.formatted(.iso8601))
+        URLProtocol.registerClass(HeldCalendar.self)
+        defer { URLProtocol.unregisterClass(HeldCalendar.self) }
 
         let store = CalendarStore(defaults: isolated(), cache: disk)
-        await store.load(month, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: dates)
-        store.absorb([(robin, .success([holiday]))], for: month, fetchedIn: berlin.timeZone)
-
-        let twelfth = there.window(.day, anchor: day(newYork, 12))
-        await store.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
-        #expect(!store.absorb([(robin, .success([renamed]))], for: month, fetchedIn: berlin.timeZone))
-        let moved = try #require(store.events(in: month)?.first { $0.eventId == "holiday" })
-        #expect(moved.title == "Holiday")
-        #expect(moved.start == day(newYork, 12))
+        let sources = [robinsMailbox]
+        let here = dates
+        let inBerlin = Task { await store.load(month, sources: sources, demo: false, google: google, dates: here) }
+        for _ in 0..<500 where !HeldCalendar.isHolding { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(HeldCalendar.isHolding)
+        await store.load(twelfth, sources: sources, demo: false, google: google, dates: there)
+        let fetched = try #require(store.events(in: twelfth)?.first { $0.eventId == "holiday" })
+        #expect(fetched.start == day(newYork, 12))
+        HeldCalendar.release()
+        await inBerlin.value
+        #expect((store.events(in: month) ?? []).allSatisfy { $0.start != day(berlin, 12) })
 
         let after = CalendarStore(defaults: isolated(), cache: disk)
         await after.load(twelfth, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
         let kept = try #require(after.events(in: twelfth)?.first { $0.eventId == "holiday" })
         #expect(kept.start == day(newYork, 12))
         #expect(kept.end == day(newYork, 13))
-        let eleventh = there.window(.day, anchor: day(newYork, 11))
         await after.load(eleventh, sources: [robinsMailbox], demo: false, google: GoogleAuth(), dates: there)
         #expect((after.events(in: eleventh) ?? []).contains { $0.eventId == "holiday" } == false)
     }
@@ -828,5 +838,57 @@ private actor RecordingWriter: EventWriter {
 
     func delete(_ event: CalendarEvent, notify: Bool) async throws {
         calls.append("delete \(event.title) notify:\(notify)")
+    }
+}
+
+/**
+ * Google Calendar for one test's token, without the network: Robin's one calendar, with an all-day holiday
+ * on Nov 12 in every window. The window starting at the time held answers only once it's let go.
+ */
+nonisolated final class HeldCalendar: URLProtocol {
+    static let token = "held-calendar-token"
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var held: String?
+    nonisolated(unsafe) private static var waiting: (() -> Void)?
+
+    static func hold(_ timeMin: String) {
+        lock.withLock { held = timeMin; waiting = nil }
+    }
+
+    static var isHolding: Bool { lock.withLock { waiting != nil } }
+
+    static func release() {
+        let answer = lock.withLock {
+            defer { held = nil; waiting = nil }
+            return waiting
+        }
+        answer?()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        let url = request.url!
+        let json = url.path.hasSuffix("calendarList")
+            ? #"{"items": [{"id": "robin@otter.example", "summary": "Robin", "primary": true, "accessRole": "owner"}]}"#
+            : #"{"items": [{"id": "holiday", "summary": "Holiday", "start": {"date": "2026-11-12"}, "end": {"date": "2026-11-13"}}]}"#
+        let answer = { [self] in
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(json.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        let timeMin = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "timeMin" }?.value
+        let holding = Self.lock.withLock {
+            guard let timeMin, timeMin == Self.held else { return false }
+            Self.waiting = answer
+            return true
+        }
+        if !holding { answer() }
     }
 }

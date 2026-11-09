@@ -324,6 +324,20 @@ final class CalendarStore {
     }
 
     /**
+     * A window shown here that a window drawn in another zone has the same bounds as (Kiritimati's
+     * Nov 12 is Honolulu's Nov 11): its all-day events fill the days they're on here first, and it
+     * keeps only what falls in it as this zone's window.
+     */
+    private func claim(_ window: EventWindow) {
+        guard let other = days[window], other != window else { return }
+        fill(other)
+        zones[window] = nil
+        days[window] = nil
+        parts[window] = parts[window]?.mapValues { $0.filter { Self.holds(window, $0) } }
+        if cache[window] != nil { cache[window] = Self.merged(parts[window] ?? [:], accounts: accounts) }
+    }
+
+    /**
      * A window from the saved copies: each event's newest copy, and none from an older window where a
      * newer one had nothing or moved it elsewhere, any window. The window's own copy wins a tie.
      * `days` are the windows drawn in another zone, as `holds` takes them.
@@ -381,6 +395,7 @@ final class CalendarStore {
         // Every load, a cached one included, leaves the one before it to be dropped when it lands.
         generation += 1
         let mine = generation
+        claim(window)
         fill(window)
         let kept = cache[window]
         if kept != nil {
@@ -483,7 +498,7 @@ final class CalendarStore {
         do {
             let found = demo
                 ? demoEvents(window, account: source.email, first: source.email == demoAccount, dates: dates)
-                : try await fetch(window, from: source, google: google)
+                : try await fetch(window, from: source, google: google, dates: dates)
             return (source.email, .success(found))
         } catch {
             return (source.email, .failure(error))
@@ -503,7 +518,8 @@ final class CalendarStore {
         return demoEdits.applied(to: pretend, in: window, account: account)
     }
 
-    private func fetch(_ window: EventWindow, from mailbox: Mailbox, google: GoogleAuth) async throws -> [CalendarEvent] {
+    /** All-day events read as days in the zone the load began in, which `absorb` compares with where the phone is when they land. */
+    private func fetch(_ window: EventWindow, from mailbox: Mailbox, google: GoogleAuth, dates: CalendarDates) async throws -> [CalendarEvent] {
         let account = mailbox.email
         let api = GoogleCalendarAPI(email: account) { [google] refresh in
             try await google.accessToken(account, force: refresh)
@@ -521,7 +537,7 @@ final class CalendarStore {
         var found: [CalendarEvent] = []
         try await withThrowingTaskGroup(of: [CalendarEvent].self) { group in
             for calendar in known {
-                group.addTask { try await api.events(on: calendar, in: window) }
+                group.addTask { [zone = dates.calendar] in try await api.events(on: calendar, in: window, zone: zone) }
             }
             for try await part in group { found += part }
         }
