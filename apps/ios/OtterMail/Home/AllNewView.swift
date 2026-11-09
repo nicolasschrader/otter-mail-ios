@@ -16,6 +16,13 @@ nonisolated enum AllNew {
             return row
         }
 
+        /** The conversation as the row's menu acts on it: labelled as this message is, so a trashed one beside it doesn't offer Delete forever. */
+        var acted: MailThread {
+            var acted = thread
+            acted.labels = message.labels ?? thread.labels
+            return acted
+        }
+
         var opened: Opened { Opened(thread: thread.id, scope: scope, message: message.id) }
     }
 
@@ -161,7 +168,7 @@ struct AllNewView: View {
         .padding(.trailing, 16)
         .padding(.vertical, 10)
         .background(ThreadRowBackground(unread: row.unread))
-        .contextMenu { ThreadActions(thread: entry.thread) }
+        .contextMenu { ThreadActions(thread: entry.acted) }
         .listRowBackground(palette.canvas)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets())

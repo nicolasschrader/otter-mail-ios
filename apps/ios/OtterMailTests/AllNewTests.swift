@@ -23,6 +23,19 @@ struct AllNewTests {
         #expect(entries.map(\.message.id) == ["inbox"])
     }
 
+    @Test func anInboxMessageBesideATrashedOneIsActedOnAsInboxMail() throws {
+        let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX", "TRASH"], messages: [
+            message("old", from: "ann", at: .now - 10, unread: false, labels: ["TRASH"]),
+            message("inbox", from: "bob", at: .now, unread: true),
+        ])
+        let store = MailStore(preferences: Preferences(), mailboxes: [mailbox], threads: [thread])
+        let entry = try #require(AllNew.entries(inboxes: [(scope: mailbox.email, threads: store.inboxMail(scope: mailbox.email))], mine: [:]).first)
+
+        #expect(entry.acted.labels == ["INBOX"])
+        #expect(store.canArchive(entry.acted))
+    }
+
     @Test func trashingAndArchivingLeaveTheListAndUndoBringsMailBack() {
         let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
         let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX"], messages: [

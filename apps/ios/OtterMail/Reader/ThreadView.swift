@@ -279,8 +279,12 @@ struct ThreadView: View {
     }
 
     private func leave(_ thread: MailThread) {
+        // All new opens conversations its folder's list leaves out (inbox mail beside a trashed message).
+        guard let index = siblings.firstIndex(of: thread.id) else {
+            path = []
+            return
+        }
         let remaining = Set(store.threads(in: place.folder, scope: place.scope).map(\.id))
-        let index = siblings.firstIndex(of: thread.id) ?? 0
         let after = siblings[(index + 1)...].first(where: remaining.contains)
         let before = siblings[..<index].last(where: remaining.contains)
         let next: String? = switch preferences.advance {
