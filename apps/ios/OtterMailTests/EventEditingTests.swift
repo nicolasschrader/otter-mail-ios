@@ -447,6 +447,32 @@ struct EventEditingTests {
         #expect(store.events(in: month)?.map(\.title) == ["Team lunch"])
     }
 
+    /** An event a newer agenda moved out of the month leaves the month's older copy behind after a restart. */
+    @MainActor @Test func anEventMovedOutOfASavedMonthLeavesItAfterARestart() async throws {
+        let suite = "EventEditingTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let folder = URL.temporaryDirectory.appending(path: "calendar-\(UUID())", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let files = CalendarFiles(folder: folder)
+        let mailbox = Mailbox(email: robin, name: "Robin", displayName: "Robin", color: "#336699", signature: "", labels: [])
+        let month = dates.window(.month, anchor: at(9, 0))
+        let agenda = dates.window(.agenda, anchor: at(9, 9))
+        let dentist = CalendarEvent(eventId: "dentist", calendar: mine, title: "Dentist", start: at(5, 15), end: at(5, 16))
+        var moved = dentist
+        moved.start = at(45, 15)
+        moved.end = at(45, 16)
+        files.save(CalendarFiles.Saved(
+            calendars: [mine],
+            windows: [month: [dentist], agenda: [moved]],
+            fetched: [month: at(8, 8), agenda: at(9, 9)]
+        ), account: robin)
+
+        let store = CalendarStore(defaults: defaults, files: files)
+        await store.load(month, sources: [mailbox], demo: false, google: GoogleAuth(), dates: dates)
+        #expect(store.events(in: month)?.map(\.eventId) == [])
+    }
+
     /** A fetch that finds nothing new still saves when it was made, so an older window's deleted event stays gone after a restart. */
     @MainActor @Test func anUnchangedFetchKeepsItsTimeAfterARestart() async throws {
         let suite = "EventEditingTests.\(UUID())"

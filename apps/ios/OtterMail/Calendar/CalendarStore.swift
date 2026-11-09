@@ -259,7 +259,7 @@ final class CalendarStore {
 
     /**
      * A window from the saved copies that overlap it: each event's newest copy, and none from an
-     * older window where a newer one had nothing. The window's own copy wins a tie.
+     * older window where a newer one had nothing or moved it elsewhere. The window's own copy wins a tie.
      */
     nonisolated static func newest(
         in window: EventWindow, of copies: [(window: EventWindow, events: [CalendarEvent], fetched: Date)]
@@ -274,8 +274,9 @@ final class CalendarStore {
             kept += saved.events.filter { event in
                 event.end > window.from && event.start < window.to
                     && !newer.contains { event.end > $0.window.from && event.start < $0.window.to }
-                    && seen.insert(event.id).inserted
+                    && !seen.contains(event.id)
             }
+            seen.formUnion(saved.events.map(\.id))
         }
         return kept
     }
