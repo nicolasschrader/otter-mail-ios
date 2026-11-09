@@ -16,12 +16,7 @@ nonisolated enum AllNew {
             return row
         }
 
-        /** The conversation as the row's menu acts on it: labelled as this message is, so a trashed one beside it doesn't offer Delete forever. */
-        var acted: MailThread {
-            var acted = thread
-            acted.labels = message.labels ?? thread.labels
-            return acted
-        }
+        var acted: MailThread { thread.acted(on: message) }
 
         var opened: Opened { Opened(thread: thread.id, scope: scope, message: message.id) }
     }

@@ -198,15 +198,12 @@ struct ThreadView: View {
         store.alias(place.scope).flatMap { $0.source == mailbox.email ? $0 : nil } ?? mailbox
     }
 
-    @ViewBuilder
-    /** Labelled as the picked message is, so an inbox message beside a trashed one isn't offered Delete forever. */
     private func acted(_ thread: MailThread) -> MailThread {
-        guard let message, let labels = thread.messages.first(where: { $0.id == message })?.labels else { return thread }
-        var acted = thread
-        acted.labels = labels
-        return acted
+        guard let message, let picked = thread.messages.first(where: { $0.id == message }) else { return thread }
+        return thread.acted(on: picked)
     }
 
+    @ViewBuilder
     private func labels(_ thread: MailThread, _ mailbox: Mailbox) -> some View {
         let userLabels = mailbox.labels.filter { thread.labels.contains($0.id) }
         HStack(spacing: 6) {
