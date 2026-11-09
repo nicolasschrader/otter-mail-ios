@@ -353,6 +353,7 @@ final class Session {
         saveMailboxes()
         guard !store.isDemo else { return }
         sync?.forget(mailbox.email)
+        CalendarFiles.live.remove(mailbox.email)
         await signOut(mailbox)
         try? await relay.unlink(mailbox.email)
     }
@@ -397,6 +398,7 @@ final class Session {
         for mailbox in store.mailboxes where !linked.contains(mailbox.email.lowercased()) {
             store.remove(mailbox: mailbox.email)
             sync?.forget(mailbox.email)
+            CalendarFiles.live.remove(mailbox.email)
             await signOut(mailbox)
             guard user?.id == userId else { return }
         }
@@ -557,6 +559,7 @@ final class Session {
         relay.disconnect()
         sync?.forgetAll()
         sync = nil
+        CalendarFiles.live.removeAll()
         for mailbox in mailboxes where mailbox.provider == .gmail { google.forget(mailbox.email) }
         for mailbox in mailboxes where mailbox.provider == .imap { ImapProvider.setPassword(nil, for: mailbox.email) }
         for mailbox in mailboxes where mailbox.provider == .outlook { microsoft.forget(mailbox.email) }

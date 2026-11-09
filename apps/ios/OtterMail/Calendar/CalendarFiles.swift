@@ -34,4 +34,8 @@ nonisolated final class CalendarFiles: Sendable {
     func remove(_ account: String) {
         queue.async { try? FileManager.default.removeItem(at: self.file(account)) }
     }
+
+    func removeAll() {
+        queue.async { try? FileManager.default.removeItem(at: self.folder) }
+    }
 }
