@@ -325,10 +325,10 @@ struct CalendarPage: View, Equatable {
         .id(mode == .agenda ? event.id : "\(day.timeIntervalSince1970)/\(event.id)")
     }
 
-    /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them. */
+    /** The events of the calendars shown (`CalendarShown`) that the account's `calendar:show-declined` allows, as calendar-view.tsx filters them, each once (`EventDays.distinct`). */
     private var shownEvents: [CalendarEvent] {
         let visible = CalendarShown.visible(found ?? [], shown: shown)
-        return preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined }
+        return EventDays.distinct(preferences.calendar.showDeclined ? visible : visible.filter { $0.response != .declined })
     }
 
     /** The day the month's grid is listing: the one tapped, else today, else the month's first. */

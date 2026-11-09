@@ -525,6 +525,28 @@ struct CalendarTests {
         #expect(rows[1].events.map(\.eventId) == ["tomorrow"])
     }
 
+    /** The same event on two calendars or mailboxes shows once, the primary calendar's; any other title or time stays. */
+    @Test func showsTheSameEventOnTwoCalendarsOnce() {
+        let calendar = zone("Europe/Berlin")
+        let start = day(2026, 11, 9, 9, 0, in: calendar)
+        let end = day(2026, 11, 9, 10, 45, in: calendar)
+        let uni = EventCalendar(id: "uni", name: "Uni", account: "robin@otter.example")
+        let other = EventCalendar(id: "primary", name: "Robin", primary: true, account: "robin@uni.example")
+        let title = "[LU] Inventing Political Order"
+        let onUni = CalendarEvent(eventId: "a", calendar: uni, title: title, start: start, end: end)
+        let onPrimary = CalendarEvent(eventId: "b", calendar: other, title: title, start: start, end: end)
+        let onThird = CalendarEvent(eventId: "c", calendar: uni.of("robin@third.example"), title: title, start: start, end: end)
+        let renamed = CalendarEvent(eventId: "d", calendar: uni, title: "Inventing Political Order", start: start, end: end)
+        let later = CalendarEvent(eventId: "e", calendar: uni, title: title, start: start, end: day(2026, 11, 9, 11, 0, in: calendar))
+        let allDay = CalendarEvent(eventId: "f", calendar: uni, title: title, start: start, end: end, allDay: true)
+
+        #expect(EventDays.distinct([onUni, renamed, onPrimary, later, onThird, allDay]).map(\.eventId) == ["b", "d", "e", "f"])
+        #expect(EventDays.distinct([onPrimary, onUni]).map(\.eventId) == ["b"])
+        // Neither primary: the same one whichever was fetched first.
+        #expect(EventDays.distinct([onUni, onThird]).map(\.eventId) == ["a"])
+        #expect(EventDays.distinct([onThird, onUni]).map(\.eventId) == ["a"])
+    }
+
     /** calendar-view.tsx's filter: `calendar:show-declined` off leaves declined events out. */
     @Test func leavesDeclinedEventsOutWhenAsked() {
         let calendar = zone("Europe/Berlin")

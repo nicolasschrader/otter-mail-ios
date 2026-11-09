@@ -167,6 +167,32 @@ nonisolated enum EventDays {
         }
     }
 
+    /**
+     * One event for each title, start, end and all-day alike, as when it's on
+     * two calendars or mailboxes. Which one stays doesn't hang on the order
+     * they were fetched in: a primary calendar's, else the lowest `id`.
+     */
+    static func distinct(_ events: [CalendarEvent]) -> [CalendarEvent] {
+        struct Same: Hashable {
+            let title: String, start: Date, end: Date, allDay: Bool
+        }
+        func leads(_ a: CalendarEvent, _ b: CalendarEvent) -> Bool {
+            a.calendar.primary != b.calendar.primary ? a.calendar.primary : a.id < b.id
+        }
+        var kept: [CalendarEvent] = []
+        var at: [Same: Int] = [:]
+        for event in events {
+            let same = Same(title: event.title, start: event.start, end: event.end, allDay: event.allDay)
+            if let index = at[same] {
+                if leads(event, kept[index]) { kept[index] = event }
+            } else {
+                at[same] = kept.count
+                kept.append(event)
+            }
+        }
+        return kept
+    }
+
     /** On a day when it overlaps it, as the grids test it: `endMs > start && startMs < end`. */
     static func spans(_ event: CalendarEvent, _ day: Date, dates: CalendarDates) -> Bool {
         let start = dates.startOfDay(day)
