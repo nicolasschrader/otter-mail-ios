@@ -36,6 +36,32 @@ struct AllNewTests {
         #expect(store.canArchive(entry.acted))
     }
 
+    @MainActor @Test func trashingAnInboxMessageBesideATrashedOneTrashesItAndUndoBringsItBack() async throws {
+        let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
+        let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX", "TRASH"], messages: [
+            message("old", from: "ann", at: .now - 10, unread: false, labels: ["TRASH"]),
+            message("inbox", from: "bob", at: .now, unread: true),
+        ])
+        let store = MailStore(preferences: Preferences(), mailboxes: [mailbox], threads: [thread])
+        let provider = TrashProvider()
+        let cache = MailCache(folder: URL.temporaryDirectory.appending(path: "AllNew-\(UUID())"))
+        store.sync = MailSync(store: store, google: GoogleAuth(), cache: cache, providers: [mailbox.email: provider])
+        let listed = { AllNew.entries(inboxes: [(scope: mailbox.email, threads: store.inboxMail(scope: mailbox.email))], mine: [:]) }
+        let entry = try #require(listed().first)
+
+        store.trash(entry.acted.id)
+        #expect(listed().isEmpty)
+        #expect(store.undoAction?.trash == true)
+        store.undo()
+        #expect(listed().map(\.message.id) == ["inbox"])
+
+        store.trash(entry.acted.id)
+        store.commitPendingAction()
+        for _ in 0..<100 where provider.trashed.isEmpty { await Task.yield() }
+        #expect(provider.trashed == ["t"])
+        #expect(listed().isEmpty)
+    }
+
     @Test func trashingAndArchivingLeaveTheListAndUndoBringsMailBack() {
         let mailbox = Mailbox(email: "me@example.com", name: "Me", displayName: "Me", color: "#336699", signature: "", labels: [])
         let thread = MailThread(id: "t", mailbox: mailbox.email, subject: "Plans", labels: ["INBOX"], messages: [
@@ -105,4 +131,32 @@ struct AllNewTests {
         #expect(entries.allSatisfy { $0.row.messages.count == 1 })
         #expect(entries.map(\.opened.message) == ["h3", "w1", "h1"])
     }
+}
+
+/** Takes every change, writing down the conversations it was asked to trash. */
+@MainActor
+private final class TrashProvider: MailProvider {
+    private(set) var trashed: [String] = []
+
+    var capabilities: MailCapabilities { .gmail }
+    var takesTurns: Bool { false }
+    var hasArchive: Bool { false }
+
+    func apply(_ change: MailStore.Change, to thread: MailThread, _ state: inout MailboxState) async throws -> MailDelta {
+        if case .trash = change { trashed.append(thread.id) }
+        return MailDelta()
+    }
+
+    func sync(_ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func loadMore(_ folder: Folder, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func search(_ query: String, known: [MailThread]) async throws -> (ids: [String], threads: [MailThread]) { ([], []) }
+    func labels() async throws -> [MailLabel] { [] }
+    func signature() async throws -> String? { nil }
+    func setSignature(_ html: String) async throws -> String { html }
+    func refresh(_ thread: MailThread, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func send(_ message: Outgoing, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func saveDraft(_ message: Outgoing, _ state: inout MailboxState, known: [MailThread]) async throws -> MailDelta { MailDelta() }
+    func deleteDraft(_ messageID: String, _ state: inout MailboxState) async throws {}
+    func attachment(_ attachment: Otter_Mail.Attachment, of message: Message) async throws -> Data { Data() }
+    func watch(pushTopic: String?, _ state: inout MailboxState, onChange: @escaping () -> Void) async -> Task<Void, Never>? { nil }
 }

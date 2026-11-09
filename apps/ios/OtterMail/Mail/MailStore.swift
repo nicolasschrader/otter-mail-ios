@@ -532,7 +532,7 @@ final class MailStore {
 
     private func stage(_ ids: Set<String>, trash: Bool) {
         commitPendingAction()
-        let originals = threads.filter { ids.contains($0.id) && (trash ? !$0.labels.contains("TRASH") : canArchive($0)) }
+        let originals = threads.filter { ids.contains($0.id) && (trash ? !$0.trashed : canArchive($0)) }
         guard !originals.isEmpty else { return }
         undoAction = PendingAction(trash: trash, threads: originals)
         for i in threads.indices where originals.contains(where: { $0.id == threads[i].id }) {

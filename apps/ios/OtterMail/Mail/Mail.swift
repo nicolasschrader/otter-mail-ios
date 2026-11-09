@@ -235,6 +235,11 @@ nonisolated struct MailThread: Identifiable, Hashable, Codable {
         return labels.union(add)
     }
 
+    /** Whether every message is in the trash, not only one beside mail still in the inbox. */
+    var trashed: Bool {
+        messages.allSatisfy { ($0.labels ?? labels).contains("TRASH") }
+    }
+
     /** Whether `message` itself is in the inbox, not only the conversation it's in. */
     func inInbox(_ message: Message) -> Bool {
         let labels = message.labels ?? self.labels
