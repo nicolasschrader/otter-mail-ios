@@ -190,6 +190,7 @@ struct HomeView: View {
                         PlacesBar(
                             place: place,
                             module: module,
+                            allNew: allNew,
                             menuOpen: menuOpen,
                             calendar: calendar,
                             calendarShown: calendarShown,
@@ -197,6 +198,7 @@ struct HomeView: View {
                             catchUpCount: { catchUpItems($0).count },
                             onPlace: { select($0) },
                             onMailbox: { switchMailbox($0) },
+                            onAllNew: { setAllNew(true) },
                             onModule: { show($0) },
                             onMenu: { setMenu(open: !menuOpen) },
                             onDone: { setMenu(open: false) },

@@ -20,6 +20,7 @@ struct PlacesBar: View {
 
     let place: Place
     let module: HomeModule
+    let allNew: Bool
     let menuOpen: Bool
     let calendar: CalendarStore
     let calendarShown: CalendarShown
@@ -28,6 +29,7 @@ struct PlacesBar: View {
     let catchUpCount: (String?) -> Int
     let onPlace: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
+    let onAllNew: () -> Void
     let onModule: (HomeModule) -> Void
     let onMenu: () -> Void
     /** A choice in a panel that is the whole errand: the panel folds back into the bar. */
@@ -45,7 +47,7 @@ struct PlacesBar: View {
                             case .threads:
                                 CatchUpScopePanel(count: catchUpCount, onMailbox: onMailbox)
                             case .mail:
-                                PlacesPanel(place: place, module: module, onSelect: onPlace, onMailbox: onMailbox)
+                                PlacesPanel(place: place, module: module, allNew: allNew, onSelect: onPlace, onMailbox: onMailbox, onAllNew: onAllNew)
                             case .calendar:
                                 CalendarScopePanel(events: calendar, visibility: calendarShown, onDone: onDone)
                             case .tasks:
@@ -103,7 +105,8 @@ struct PlacesBar: View {
             // ⌃⌄ opens what the one in front is scoped by, in the same panel for each.
             Button(action: onMenu) {
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 17, weight: .medium))
+                    .frame(width: 28, height: 22)
                     .foregroundStyle(palette.text)
                     .frame(width: 52, height: 48)
                     .background(scopeLit ? palette.text.opacity(0.1) : .clear, in: .capsule)
@@ -138,10 +141,12 @@ struct PlacesBar: View {
     private func tab(_ title: String, symbol: String, module: HomeModule, dot: Bool = false, badge: Int = 0) -> some View {
         let selected = self.module == module
         return Button { onModule(module) } label: {
-            VStack(spacing: 2) {
+            // Icon pinned to the top, label to the bottom: symbols differ in height, and a shrunk label in size.
+            VStack(spacing: 0) {
                 Image(systemName: symbol)
                     .font(.system(size: 17, weight: .medium))
                     .symbolVariant(selected ? .fill : .none)
+                    .frame(width: 28, height: 22)
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
                             Text("\(min(badge, 99))")
@@ -150,17 +155,19 @@ struct PlacesBar: View {
                                 .padding(.horizontal, 4)
                                 .frame(minWidth: 16, minHeight: 16)
                                 .background(.red, in: .capsule)
-                                .offset(x: 10, y: -6)
+                                .offset(x: 6, y: -6)
                                 .accessibilityHidden(true)
                         } else if dot {
-                            Circle().fill(palette.focus).frame(width: 8, height: 8).offset(x: 5, y: -3)
+                            Circle().fill(palette.focus).frame(width: 8, height: 8).offset(x: 1, y: -3)
                         }
                     }
                 Text(title)
                     .font(.inter(.caption2).weight(selected ? .semibold : .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
+            .padding(.vertical, 5)
             .foregroundStyle(palette.text)
             // Narrower on a small iPhone, so the four tabs and the agent's button still fit.
             .frame(minWidth: 52, maxWidth: 68, minHeight: 48, maxHeight: 48)
@@ -212,14 +219,18 @@ struct PlacesPanel: View {
 
     let place: Place
     let module: HomeModule
+    let allNew: Bool
     let onSelect: (Place) -> Void
     let onMailbox: (Mailbox) -> Void
+    let onAllNew: () -> Void
 
     var body: some View {
         let mailbox = store.mailbox(for: place.scope)
         ScopePanel {
             header(mailbox)
         } rows: {
+            row("All new", symbol: "tray.2", selected: allNew, action: onAllNew)
+                .accessibilityIdentifier("places-all-new")
             mailboxes
             if let mailbox = mailbox.flatMap({ store.mailbox($0.source) }), mailbox.signedOut {
                 HStack(spacing: 10) {
@@ -234,7 +245,7 @@ struct PlacesPanel: View {
             }
             ForEach(mailbox?.folders ?? [], id: \.self) { folder in
                 row(folder.title(in: mailbox), symbol: folder.symbol(in: mailbox),
-                    count: store.badge(in: folder, scope: place.scope), selected: module == .mail && place.folder == folder) {
+                    count: store.badge(in: folder, scope: place.scope), selected: module == .mail && !allNew && place.folder == folder) {
                     onSelect(Place(scope: place.scope, folder: folder))
                 }
             }
@@ -262,7 +273,7 @@ struct PlacesPanel: View {
         let scopes = store.shownScopes
         if scopes.count > 1 {
             ForEach(scopes) { mailbox in
-                let current = mailbox.email == place.scope
+                let current = !allNew && mailbox.email == place.scope
                 PlaceRow(title: mailbox.displayName, count: store.badge(in: .inbox, scope: mailbox.email), selected: current) {
                     MailboxAvatar(mailbox: mailbox, size: 24)
                 } action: {
@@ -282,7 +293,7 @@ struct PlacesPanel: View {
             ForEach(labels) { label in
                 let folder = Folder.label(id: label.id, name: label.name)
                 row(folder.title, symbol: folder.symbol, color: label.color,
-                    count: store.badge(in: folder, scope: place.scope), selected: module == .mail && place.folder == folder,
+                    count: store.badge(in: folder, scope: place.scope), selected: module == .mail && !allNew && place.folder == folder,
                     indent: label.depth) {
                     onSelect(Place(scope: place.scope, folder: folder))
                 }

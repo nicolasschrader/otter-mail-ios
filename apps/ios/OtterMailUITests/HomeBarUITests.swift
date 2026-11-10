@@ -58,6 +58,40 @@ final class HomeBarUITests: XCTestCase {
         XCTAssertEqual(threads.value as? String, "\(total - 1) left")
     }
 
+    /** The tabs' labels share one baseline and their icons one box, whatever the symbol or the label's length. */
+    func testTabLabelsShareABaseline() {
+        let app = XCUIApplication()
+        let labels = ["Threads", "Mail", "Calendar", "Tasks"].map { app.staticTexts[$0].frame }
+        let tabs = ["Threads", "Mail", "Calendar", "Tasks"].map { app.buttons[$0].frame }
+        for (label, tab) in zip(labels, tabs) {
+            XCTAssertEqual(label.maxY, labels[0].maxY, accuracy: 0.5, "a label sits off the others' baseline")
+            XCTAssertEqual(tab.height, tabs[0].height, accuracy: 0.5, "the tabs differ in height")
+            XCTAssertEqual(tab.maxY - label.maxY, tabs[0].maxY - labels[0].maxY, accuracy: 0.5, "a label's gap to its tab's edge differs")
+        }
+    }
+
+    /** All new is the first row of the mail's places, over the mailboxes and folders, and opens the same All new. */
+    func testAllNewIsFirstInThePlaces() {
+        let app = XCUIApplication()
+        let unread = app.buttons["Unread"]
+        XCTAssertTrue(unread.waitForExistence(timeout: 5), "the inbox's pills are missing")
+
+        app.buttons["places-scope"].tap()
+        let allNew = app.buttons["places-all-new"]
+        XCTAssertTrue(allNew.waitForExistence(timeout: 5), "the places have no All new")
+        XCTAssertEqual(allNew.label, "All new")
+        // The lowest Inbox is the panel's row; the title over the list may read Inbox too.
+        let inbox = app.buttons.matching(NSPredicate(format: "label == %@", "Inbox")).allElementsBoundByIndex.map(\.frame.minY).max()
+        XCTAssertNotNil(inbox, "the places have no Inbox")
+        XCTAssertLessThan(allNew.frame.minY, inbox ?? 0, "All new isn't above the folders")
+
+        allNew.tap()
+        XCTAssertTrue(gone(unread), "All new still shows the conversations")
+        XCTAssertTrue(app.buttons["Mail"].isSelected, "the Mail tab isn't lit in All new")
+        app.buttons["More"].tap()
+        XCTAssertTrue(app.buttons["Conversations"].waitForExistence(timeout: 5), "it isn't Mail's All new")
+    }
+
     /** All new is a view of Mail, not a tab: Mail's ⋯ switches to it with the Mail tab still lit, and its own ⋯ switches back. */
     func testMailsMoreSwitchesBetweenConversationsAndAllNew() {
         let app = XCUIApplication()
