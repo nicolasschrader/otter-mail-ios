@@ -108,7 +108,9 @@ struct PlacesBar: View {
                     .font(.system(size: 17, weight: .medium))
                     .frame(width: 28, height: 22)
                     .foregroundStyle(palette.text)
-                    .frame(width: 52, height: 48)
+                    // The tabs' icon box at their icons' height, not the bar's middle.
+                    .padding(.vertical, 5)
+                    .frame(width: 52, height: 48, alignment: .top)
                     .background(scopeLit ? palette.text.opacity(0.1) : .clear, in: .capsule)
                     .contentShape(.capsule)
             }
@@ -280,6 +282,7 @@ struct PlacesPanel: View {
                     onMailbox(mailbox)
                 }
                 .accessibilityAddTraits(current ? .isSelected : [])
+                .accessibilityIdentifier("places-mailbox")
             }
             Divider().overlay(palette.border).padding(.vertical, 6).padding(.horizontal, 4)
         }

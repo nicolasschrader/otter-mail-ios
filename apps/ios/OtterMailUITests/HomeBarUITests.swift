@@ -63,6 +63,10 @@ final class HomeBarUITests: XCTestCase {
         let app = XCUIApplication()
         let labels = ["Threads", "Mail", "Calendar", "Tasks"].map { app.staticTexts[$0].frame }
         let tabs = ["Threads", "Mail", "Calendar", "Tasks"].map { app.buttons[$0].frame }
+        // ⌃⌄'s icon is pinned to the top of a box like the tabs', so the same box puts it at their icons' height.
+        let scope = app.buttons["places-scope"].frame
+        XCTAssertEqual(scope.minY, tabs[0].minY, accuracy: 0.5, "⌃⌄ sits off the tabs")
+        XCTAssertEqual(scope.height, tabs[0].height, accuracy: 0.5, "⌃⌄'s box differs from the tabs'")
         for (label, tab) in zip(labels, tabs) {
             XCTAssertEqual(label.maxY, labels[0].maxY, accuracy: 0.5, "a label sits off the others' baseline")
             XCTAssertEqual(tab.height, tabs[0].height, accuracy: 0.5, "the tabs differ in height")
@@ -84,6 +88,11 @@ final class HomeBarUITests: XCTestCase {
         let inbox = app.buttons.matching(NSPredicate(format: "label == %@", "Inbox")).allElementsBoundByIndex.map(\.frame.minY).max()
         XCTAssertNotNil(inbox, "the places have no Inbox")
         XCTAssertLessThan(allNew.frame.minY, inbox ?? 0, "All new isn't above the folders")
+        let mailboxes = app.buttons.matching(identifier: "places-mailbox").allElementsBoundByIndex
+        XCTAssertFalse(mailboxes.isEmpty, "the places have no mailboxes")
+        for mailbox in mailboxes {
+            XCTAssertLessThan(allNew.frame.minY, mailbox.frame.minY, "All new isn't above the mailboxes")
+        }
 
         allNew.tap()
         XCTAssertTrue(gone(unread), "All new still shows the conversations")
